@@ -1,0 +1,24 @@
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.spotify-connect {
+  margin-bottom: 1.25rem;
+}
+
+.spotify-connect-button {
+  background: #1ed760 !important;
+  color: #041308 !important;
+}
+
+.spotify-status {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: #b8c4b8;
+}
+
+.spotify-error {
+  color: #ff8f8f;
+}

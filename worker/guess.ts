@@ -1,0 +1,101 @@
+const STOP_WORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'ft',
+  'feat',
+  'featuring',
+  'and',
+  'ng',
+  'sa',
+  'ang',
+  'ni',
+  'at',
+])
+
+export function normalizeGuess(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tokenize(value: string): string[] {
+  return normalizeGuess(value)
+    .split(' ')
+    .filter((token) => token.length > 0 && !STOP_WORDS.has(token))
+}
+
+function levenshtein(a: string, b: string): number {
+  const matrix = Array.from({ length: a.length + 1 }, () =>
+    Array<number>(b.length + 1).fill(0),
+  )
+
+  for (let i = 0; i <= a.length; i += 1) matrix[i][0] = i
+  for (let j = 0; j <= b.length; j += 1) matrix[0][j] = j
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      )
+    }
+  }
+
+  return matrix[a.length][b.length]
+}
+
+function fuzzyIncludes(guess: string, target: string): boolean {
+  if (!guess || !target) return false
+  if (target.includes(guess) || guess.includes(target)) return true
+  if (guess.length < 4) return false
+  return levenshtein(guess, target) <= Math.max(1, Math.floor(target.length * 0.2))
+}
+
+export function checkGuess(
+  guess: string,
+  title: string,
+  artist: string,
+): { correct: boolean; matched: 'title' | 'artist' | 'both' | null } {
+  const normalizedGuess = normalizeGuess(guess)
+  if (!normalizedGuess) return { correct: false, matched: null }
+
+  const titleNorm = normalizeGuess(title)
+  const artistNorm = normalizeGuess(artist)
+  const combined = `${titleNorm} ${artistNorm}`.trim()
+
+  if (
+    normalizedGuess === titleNorm ||
+    normalizedGuess === artistNorm ||
+    normalizedGuess === combined
+  ) {
+    return {
+      correct: true,
+      matched: normalizedGuess === combined ? 'both' : normalizedGuess === titleNorm ? 'title' : 'artist',
+    }
+  }
+
+  const guessTokens = tokenize(normalizedGuess)
+  const titleTokens = tokenize(titleNorm)
+  const artistTokens = tokenize(artistNorm)
+
+  const titleMatch =
+    fuzzyIncludes(normalizedGuess, titleNorm) ||
+    guessTokens.every((token) => titleTokens.some((target) => fuzzyIncludes(token, target)))
+
+  const artistMatch =
+    fuzzyIncludes(normalizedGuess, artistNorm) ||
+    guessTokens.every((token) => artistTokens.some((target) => fuzzyIncludes(token, target)))
+
+  if (titleMatch && artistMatch) return { correct: true, matched: 'both' }
+  if (titleMatch) return { correct: true, matched: 'title' }
+  if (artistMatch) return { correct: true, matched: 'artist' }
+
+  return { correct: false, matched: null }
+}

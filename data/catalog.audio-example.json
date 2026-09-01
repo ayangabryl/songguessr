@@ -1,0 +1,18 @@
+{
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "tracks": [
+    {
+      "id": "EXAMPLE_TRACK_ID",
+      "title": "Example Song",
+      "artist": "Example Artist",
+      "previewUrl": "https://example.com/preview.mp3",
+      "albumArt": "https://example.com/art.jpg",
+      "difficulty": "medium",
+      "audioUrl": "/api/audio/EXAMPLE_TRACK_ID.mp3",
+      "introClipUrl": "/api/audio/EXAMPLE_TRACK_ID-intro.mp3",
+      "hookClipUrl": "/api/audio/EXAMPLE_TRACK_ID-hook.mp3",
+      "startAtMs": 0,
+      "hookStartMs": 45000
+    }
+  ]
+}
