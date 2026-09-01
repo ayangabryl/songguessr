@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-01T20:32:36.858Z",
+  "updatedAt": "2026-09-01T21:45:12.203Z",
   "tracks": [
     {
       "id": "5B7Aeln3v0fMgJh8MhxTw0",
@@ -203,19 +203,6 @@
       "previewUrl": "https://cdnt-preview.dzcdn.net/api/1/1/0/8/c/0/08c8acd08ecba15d9a93d9e91aad70d5.mp3?hdnea=exp=1788295615~acl=/api/1/1/0/8/c/0/08c8acd08ecba15d9a93d9e91aad70d5.mp3*~data=user_id=0,application_id=42~hmac=13b15c9ac0c08b65ccb9637a8927301052258b7a60ce1c7a0bfe2b5135e55bb5",
       "albumArt": "https://i.scdn.co/image/ab67616d0000b273efb0e42ba1da26bc1fc7b8e7",
       "difficulty": "medium",
-      "genreGroups": [
-        "pop"
-      ],
-      "hookPreviewUrl": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview125/v4/bb/96/4a/bb964a6e-5355-74f5-c991-428987a24e74/mzaf_9799710163536647347.plus.aac.p.m4a",
-      "hookStartSeconds": 0
-    },
-    {
-      "id": "2BLdelIp46CHvKkyWeqZHL",
-      "title": "ERE",
-      "artist": "juan karlos",
-      "previewUrl": "https://cdnt-preview.dzcdn.net/api/1/1/0/8/c/0/08c8acd08ecba15d9a93d9e91aad70d5.mp3?hdnea=exp=1788295616~acl=/api/1/1/0/8/c/0/08c8acd08ecba15d9a93d9e91aad70d5.mp3*~data=user_id=0,application_id=42~hmac=99e46f6e94a2912ee2322e1d2c6370c8dd0fac9c172184bca4bfe9742eaf6a2d",
-      "albumArt": "https://i.scdn.co/image/ab67616d0000b27356b484a13efc1f2242a4dce8",
-      "difficulty": "hard",
       "genreGroups": [
         "pop"
       ],
@@ -677,19 +664,6 @@
         "pop"
       ],
       "hookPreviewUrl": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/67/d6/b8/67d6b849-f3c1-84b0-9323-d3686d9ba0c7/mzaf_2399283954988949044.plus.aac.p.m4a",
-      "hookStartSeconds": 0
-    },
-    {
-      "id": "2c5JKO8gPaOFVxQ0elwXEG",
-      "title": "Lifetime (Reimagined)",
-      "artist": "Ben&Ben",
-      "previewUrl": "https://cdnt-preview.dzcdn.net/api/1/1/b/a/5/0/ba5215b2b9b907f5048a53e3b51a75f2.mp3?hdnea=exp=1788295632~acl=/api/1/1/b/a/5/0/ba5215b2b9b907f5048a53e3b51a75f2.mp3*~data=user_id=0,application_id=42~hmac=40a2362d7e7962f9d128d5d2b3ebe26bee0a5a063f24a26ebb608e38917e78d4",
-      "albumArt": "https://i.scdn.co/image/ab67616d0000b2739649c1885cfb1052f6637464",
-      "difficulty": "easy",
-      "genreGroups": [
-        "pop"
-      ],
-      "hookPreviewUrl": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/d1/77/1a/d1771a4b-7f87-01f3-2a05-dd85a7810318/mzaf_14231141387733933330.plus.aac.p.m4a",
       "hookStartSeconds": 0
     },
     {

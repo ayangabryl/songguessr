@@ -9,9 +9,9 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { BUCKET } from './audio-r2-lib.mjs'
 
 const ROOT = process.cwd()
-const BUCKET = 'opm-songless-audio'
 const CATALOG_KEY = 'catalog/catalog.json'
 const CHECKPOINT_KEY = 'catalog/build-checkpoint.json'
 const CATALOG_PATH = resolve(ROOT, 'data/catalog.json')
@@ -20,18 +20,19 @@ const CHECKPOINT_PATH = resolve(ROOT, 'data/catalog-build.checkpoint.json')
 function runWrangler(args) {
   const command = ['wrangler', 'r2', ...args, '--remote']
   console.log(`$ npx ${command.join(' ')}`)
-  execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', command, {
+  execFileSync('npx', command, {
     stdio: 'inherit',
     cwd: ROOT,
+    shell: process.platform === 'win32',
   })
 }
 
 function objectExists(key) {
   try {
     execFileSync(
-      process.platform === 'win32' ? 'npx.cmd' : 'npx',
+      'npx',
       ['wrangler', 'r2', 'object', 'get', `${BUCKET}/${key}`, '--file', '-', '--remote'],
-      { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
+      { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' },
     )
     return true
   } catch {

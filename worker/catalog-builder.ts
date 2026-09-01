@@ -12,6 +12,11 @@ import {
   type SpotifyTrackRef,
   UNIQUE_OPM_ARTISTS,
 } from './opm-artists'
+import {
+  fetchPlaylistTracks,
+  isLikelyOpmPlaylistTrack,
+  OPM_PLAYLIST_ID,
+} from './playlist-source'
 import { resolvePreviewSourcesForTrack } from './preview-sources'
 import { dedupeTracks } from './track-dedupe'
 import type { Catalog, Difficulty, Env, GenreFilter, Track } from './types'
@@ -23,12 +28,16 @@ const MAX_PAGES_PER_ARTIST = 12
 const MAX_ALBUMS_PER_ARTIST = 8
 const MAX_TRACKS_PER_ALBUM = 30
 const ALBUM_PAGE_SIZE = 10
-const API_DELAY_MS = 750
+const API_DELAY_MS = 400
 const RATE_LIMIT_BASE_DELAY_SECONDS = 2
 const RATE_LIMIT_MAX_BACKOFF_SECONDS = 300
 const TRANSIENT_ERROR_MAX_ATTEMPTS = 6
-const ARTISTS_PER_CRON_RUN = 1
+const ARTISTS_PER_CRON_MIN = 3
+const ARTISTS_PER_CRON_MAX = 5
+const CRON_TIME_BUDGET_MS = 4 * 60 * 1000
 const MAX_PREVIEW_RESOLVES_PER_RUN = 80
+const MAX_PLAYLIST_PREVIEW_RESOLVES = 30
+const PLAYLIST_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
@@ -156,7 +165,9 @@ class SpotifyClient {
 
     if (!response.ok) {
       const body = await response.text()
-      throw new Error(`Spotify GET ${path} failed: ${response.status} ${body.slice(0, 200)}`)
+      const error = new Error(`Spotify GET ${path} failed: ${response.status} ${body.slice(0, 200)}`)
+      ;(error as Error & { status?: number }).status = response.status
+      throw error
     }
 
     return response.json()
@@ -374,6 +385,53 @@ function addTrack(
   return true
 }
 
+function shouldSyncPlaylist(playlistSyncedAt?: string): boolean {
+  if (!playlistSyncedAt) return true
+  const syncedAt = Date.parse(playlistSyncedAt)
+  if (!Number.isFinite(syncedAt)) return true
+  return Date.now() - syncedAt >= PLAYLIST_SYNC_INTERVAL_MS
+}
+
+async function processPlaylistTracks(
+  client: SpotifyClient,
+  trackMap: Map<string, Track>,
+  log: (message: string) => void,
+  maxPreviewResolves: number,
+): Promise<{ tracksAdded: number; previewResolves: number }> {
+  const result = await fetchPlaylistTracks(
+    (path, params) => client.get(path, params ?? {}),
+    OPM_PLAYLIST_ID,
+  )
+  log(
+    `Playlist "${result.playlistName}": ${result.totalTracks} reported, ${result.tracks.length} fetched (${result.source})`,
+  )
+
+  let tracksAdded = 0
+  let previewResolves = 0
+
+  for (const track of result.tracks) {
+    if (trackMap.size >= MAX_CATALOG_TRACKS) break
+    if (previewResolves >= maxPreviewResolves) break
+    if (!isLikelyOpmPlaylistTrack(track)) continue
+    if (track.id && trackMap.has(track.id)) continue
+
+    const artist = (track.artists ?? []).map((item) => item.name).join(', ')
+    previewResolves += 1
+    const previews = await resolvePreviewSourcesForTrack({
+      title: track.name ?? '',
+      artist,
+      spotifyPreviewUrl: track.preview_url ?? null,
+    })
+
+    if (addTrack(trackMap, track, previews, trackMap.size)) {
+      tracksAdded += 1
+    }
+  }
+
+  log(`Playlist sync: ${tracksAdded} tracks added`)
+  return { tracksAdded, previewResolves }
+}
+
 export interface CatalogBuildResult {
   skipped: boolean
   reason?: string
@@ -414,19 +472,10 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     }
   }
 
-  const completedArtists = await loadCheckpointFromR2(env.AUDIO_BUCKET)
+  const checkpoint = await loadCheckpointFromR2(env.AUDIO_BUCKET)
+  const completedArtists = checkpoint.completedArtists
+  let playlistSyncedAt = checkpoint.playlistSyncedAt
   const pendingArtists = UNIQUE_OPM_ARTISTS.filter((name) => !completedArtists.has(name))
-
-  if (pendingArtists.length === 0) {
-    log('All artists completed.')
-    return {
-      skipped: true,
-      reason: 'all artists done',
-      artistsProcessed: 0,
-      tracksAdded: 0,
-      totalTracks: trackMap.size,
-    }
-  }
 
   const token = await getSpotifyToken(clientId, clientSecret)
   const client = new SpotifyClient(token, log)
@@ -435,8 +484,51 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
   let tracksAdded = 0
   let previewResolves = 0
 
-  for (const artistName of pendingArtists.slice(0, ARTISTS_PER_CRON_RUN)) {
+  if (shouldSyncPlaylist(playlistSyncedAt) && trackMap.size < MAX_CATALOG_TRACKS) {
+    try {
+      const playlistResult = await processPlaylistTracks(
+        client,
+        trackMap,
+        log,
+        MAX_PLAYLIST_PREVIEW_RESOLVES,
+      )
+      tracksAdded += playlistResult.tracksAdded
+      previewResolves += playlistResult.previewResolves
+      playlistSyncedAt = new Date().toISOString()
+
+      const catalog = catalogFromTrackMap(trackMap)
+      await saveCatalogToR2(env.AUDIO_BUCKET, catalog)
+      await saveCheckpointToR2(env.AUDIO_BUCKET, completedArtists, playlistSyncedAt)
+      invalidateCatalogCache()
+    } catch (error) {
+      log(`Playlist sync failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  if (pendingArtists.length === 0) {
+    log('All artists completed.')
+    return {
+      skipped: tracksAdded === 0,
+      reason: tracksAdded === 0 ? 'all artists done' : undefined,
+      artistsProcessed: 0,
+      tracksAdded,
+      totalTracks: trackMap.size,
+    }
+  }
+
+  const runStartedAt = Date.now()
+
+  for (const artistName of pendingArtists) {
     if (trackMap.size >= MAX_CATALOG_TRACKS) break
+    if (artistsProcessed >= ARTISTS_PER_CRON_MAX) break
+
+    const elapsedMs = Date.now() - runStartedAt
+    if (artistsProcessed >= ARTISTS_PER_CRON_MIN && elapsedMs >= CRON_TIME_BUDGET_MS) {
+      log(
+        `Time budget reached after ${artistsProcessed} artists (${Math.round(elapsedMs / 1000)}s); deferring remainder to next cron`,
+      )
+      break
+    }
 
     client.currentArtistName = artistName
     log(`Processing ${artistName} (${completedArtists.size + 1}/${UNIQUE_OPM_ARTISTS.length})`)
@@ -468,14 +560,14 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
 
       const catalog = catalogFromTrackMap(trackMap)
       await saveCatalogToR2(env.AUDIO_BUCKET, catalog)
-      await saveCheckpointToR2(env.AUDIO_BUCKET, completedArtists)
+      await saveCheckpointToR2(env.AUDIO_BUCKET, completedArtists, playlistSyncedAt)
       invalidateCatalogCache()
 
       log(`${artistName}: ${tracks.length} candidates, ${addedForArtist} added (${catalog.tracks.length} total)`)
     } catch (error) {
       const catalog = catalogFromTrackMap(trackMap)
       await saveCatalogToR2(env.AUDIO_BUCKET, catalog)
-      await saveCheckpointToR2(env.AUDIO_BUCKET, completedArtists)
+      await saveCheckpointToR2(env.AUDIO_BUCKET, completedArtists, playlistSyncedAt)
       invalidateCatalogCache()
       log(`Paused at ${artistName}: ${error instanceof Error ? error.message : String(error)}`)
       throw error

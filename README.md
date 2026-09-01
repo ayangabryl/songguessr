@@ -41,7 +41,7 @@ npm run dev
 npm run deploy
 ```
 
-The Worker is named `songgussr` in `wrangler.jsonc`. The R2 audio bucket remains `opm-songless-audio` (existing Cloudflare resource). If you previously deployed as `opm-songless`, update your custom domain to the new worker or remove the old deployment after migrating.
+The Worker and R2 bucket are both named `songgussr` in `wrangler.jsonc`. After deploy, seed the new bucket with `npm run upload:catalog -- --force`. The legacy bucket `opm-songless-audio` can remain empty or be deleted once migration is verified.
 
 ## Hosted audio on R2 (optional)
 
@@ -104,16 +104,17 @@ In production the catalogue lives in **R2** (`catalog/catalog.json`) and grows o
 |---------|-------|
 | Cron schedule | Every 6 hours (`0 */6 * * *` UTC) |
 | R2 keys | `catalog/catalog.json`, `catalog/build-checkpoint.json` |
-| Batch size | 1 artist per cron run |
+| Batch size | 3–5 artists per cron run (adaptive; continues while under time budget) |
 | Cap | Stops adding tracks at **20,000** |
 
 Each cron invocation:
 
 1. Loads the catalog and checkpoint from R2
 2. Skips if the catalog is at the 20k cap or all artists are done
-3. Fetches the next OPM artist from Spotify (top tracks, albums, search)
-4. Resolves preview URLs (Spotify / iTunes)
-5. Writes the updated catalog and checkpoint back to R2
+3. Fetches the next OPM artists from Spotify (top tracks, albums, search) — up to 5 per run when time allows
+4. On Spotify 429 rate limits, waits for `Retry-After` (with exponential backoff) and retries indefinitely — never abandons mid-artist
+5. Resolves preview URLs (Spotify / iTunes)
+6. Writes the updated catalog and checkpoint back to R2 after each artist
 
 HTTP requests read the catalog from R2 with a **10-minute in-memory cache** (falls back to bundled `data/catalog.json` if R2 is empty).
 

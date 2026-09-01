@@ -7,6 +7,11 @@ import {
 } from './opm-artists.mjs'
 import { resolvePreviewSourcesForTrack } from './preview-sources.mjs'
 import { dedupeTracks } from './track-dedupe.mjs'
+import {
+  fetchPlaylistTracks,
+  isLikelyOpmPlaylistTrack,
+  OPM_PLAYLIST_ID,
+} from './fetch-playlist-tracks.mjs'
 
 const MARKET = 'PH'
 const SEARCH_PAGE_SIZE = 10
@@ -397,11 +402,36 @@ function saveCatalog(outputPath, trackMap) {
   return catalog
 }
 
+async function processPlaylistTracks(token, trackMap) {
+  console.log(`Fetching priority playlist ${OPM_PLAYLIST_ID}...`)
+  const { playlistName, totalTracks, tracks, source } = await fetchPlaylistTracks(token, OPM_PLAYLIST_ID)
+  console.log(
+    `Playlist "${playlistName}": ${totalTracks} reported, ${tracks.length} fetched (${source})`,
+  )
+
+  let added = 0
+  let opmCount = 0
+
+  for (const track of tracks) {
+    if (!isLikelyOpmPlaylistTrack(track)) continue
+    opmCount += 1
+
+    const previews = await resolvePreview(track)
+    if (previews.previewUrl && addTrack(trackMap, track, previews, trackMap.size)) {
+      added += 1
+    }
+  }
+
+  console.log(`Playlist: ${opmCount} OPM tracks, ${added} added to catalog`)
+  return { added, opmCount }
+}
+
 async function main() {
   loadEnvFile()
 
   const forceRebuild = process.argv.includes('--force')
   const expandOnly = process.argv.includes('--expand')
+  const playlistOnly = process.argv.includes('--playlist')
 
   const clientId = process.env.SPOTIFY_CLIENT_ID
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET
@@ -421,6 +451,16 @@ async function main() {
 
   console.log('Authenticating with Spotify...')
   const token = await getSpotifyToken(clientId, clientSecret)
+
+  const playlistResult = await processPlaylistTracks(token, trackMap)
+  saveCatalog(outputPath, trackMap)
+
+  if (playlistOnly) {
+    const catalog = saveCatalog(outputPath, trackMap)
+    console.log(`Playlist-only build done: ${playlistResult.opmCount} OPM tracks, ${playlistResult.added} added`)
+    console.log(`Saved ${catalog.tracks.length} OPM tracks to data/catalog.json`)
+    return
+  }
 
   console.log(`Building catalogue for ${UNIQUE_OPM_ARTISTS.length} OPM artists...`)
   console.log(`Resuming with ${trackMap.size} saved tracks, ${completedArtists.size} artists done`)

@@ -1,0 +1,510 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import {
+  isOpmArtistName,
+  isOpmSpotifyTrack,
+  normalizeName,
+  UNIQUE_OPM_ARTISTS,
+} from './opm-artists.mjs'
+
+/** Philippines Top 50 — high-priority trending OPM source. */
+export const OPM_PLAYLIST_ID = '37i9dQZEVXbNBz9cRCSFkY'
+export const OPM_PLAYLIST_NAME = 'Top 50 - Philippines'
+
+/** Fallback when Spotify blocks editorial playlist access (client credentials). */
+const PLAYLIST_ARCHIVE_URL =
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/plain/37i9dQZEVXbNBz9cRCSFkY'
+
+const MARKET = 'PH'
+const API_DELAY_MS = 750
+
+/** International acts that chart on PH Top 50 but are not OPM. */
+const NON_OPM_BLOCKLIST = new Set(
+  [
+    'Taylor Swift',
+    'Olivia Dean',
+    'Daniel Caesar',
+    'sombr',
+    'The Script',
+    'Maroon 5',
+    'Justin Bieber',
+    'Billie Eilish',
+    'Kehlani',
+    'Madison Beer',
+    'Tyla',
+    'Djo',
+    'KATSEYE',
+    'The Goo Goo Dolls',
+    'She & Him',
+    'SIENNA SPIRO',
+    'Black Eyed Peas',
+    'Ed Sheeran',
+    'The Weeknd',
+    'Drake',
+    'Ariana Grande',
+    'Bruno Mars',
+    'Coldplay',
+    'Imagine Dragons',
+    'OneRepublic',
+    'Dua Lipa',
+    'Post Malone',
+    'BTS',
+    'BLACKPINK',
+    'NewJeans',
+    'TWICE',
+    'Stray Kids',
+    'SEVENTEEN',
+    'ENHYPEN',
+    'Jung Kook',
+    'Lisa',
+    'Jay Chou',
+    'JJ Lin',
+    'G.E.M.',
+    'IU',
+    'aespa',
+    'IVE',
+    'LE SSERAFIM',
+  ].map((name) => normalizeName(name)),
+)
+
+/** Filipino surname / name patterns common in OPM artists. */
+const FILIPINO_NAME_PATTERNS = [
+  /\bdela\s/i,
+  /\bde\s+los\s/i,
+  /\bde\s+la\s/i,
+  /\bsantos\b/i,
+  /\breyes\b/i,
+  /\bcruz\b/i,
+  /\bgarcia\b/i,
+  /\bfernandez\b/i,
+  /\brivera\b/i,
+  /\bflores\b/i,
+  /\bcastillo\b/i,
+  /\bdomingo\b/i,
+  /\bvaldez\b/i,
+  /\bvelasquez\b/i,
+  /\bgeronimo\b/i,
+  /\bconstantino\b/i,
+  /\btandingan\b/i,
+  /\bnery\b/i,
+  /\btabudlo\b/i,
+  /\bmonterde\b/i,
+  /\bdionela\b/i,
+  /\bdilaw\b/i,
+  /\bnobita\b/i,
+  /\badie\b/i,
+  /\bmaki\b/i,
+  /\bben&ben\b/i,
+  /\bbini\b/i,
+  /\bsb19\b/i,
+  /\bbgyo\b/i,
+  /\balamat\b/i,
+  /\bvxon\b/i,
+  /\bgloc-?9\b/i,
+  /\bskusta\b/i,
+  /\bflow\s*g\b/i,
+  /\bshanti\s*dope\b/i,
+  /\bmoira\b/i,
+  /\beraserheads\b/i,
+  /\brivermaya\b/i,
+  /\bparokya\b/i,
+  /\bdecember\s*avenue\b/i,
+  /\bfitterkarma\b/i,
+  /\bsoapdish\b/i,
+  /\bnateman\b/i,
+  /\bmagnus\s*haven\b/i,
+  /\bearl\s*agustin\b/i,
+  /\ble\s*john\b/i,
+  /\bla\s*mave\b/i,
+]
+
+/** Artists confirmed Filipino from PH editorial playlists (manual review). */
+export const PLAYLIST_OPM_ARTISTS = [
+  'fitterkarma',
+  'Soapdish',
+  'Le John',
+  'La Mave',
+  'Nateman',
+  'Magnus Haven',
+  'Earl Agustin',
+  'nicole',
+  'Kiyo',
+  'Janine',
+  'Gat Putch',
+  'Louie Grammz',
+  "Mi'Kel",
+  'Jolianne',
+  'Halik Sobrang Diin',
+]
+
+export function isBlockedNonOpmArtist(name) {
+  const normalized = normalizeName(name)
+  return NON_OPM_BLOCKLIST.has(normalized)
+}
+
+export function looksFilipinoArtistName(name) {
+  if (!name || typeof name !== 'string') return false
+  if (isBlockedNonOpmArtist(name)) return false
+  return FILIPINO_NAME_PATTERNS.some((pattern) => pattern.test(name))
+}
+
+export function isLikelyOpmPlaylistArtist(name, artistMeta = {}) {
+  if (!name) return false
+  if (isOpmArtistName(name)) return true
+  if (isBlockedNonOpmArtist(name)) return false
+  if (PLAYLIST_OPM_ARTISTS.some((allowed) => normalizeName(allowed) === normalizeName(name))) {
+    return true
+  }
+  if (artistMeta.country === 'PH') return true
+  if (looksFilipinoArtistName(name)) return true
+  return false
+}
+
+export function isLikelyOpmPlaylistTrack(track, artistCountries = new Map()) {
+  if (!track) return false
+  if (isOpmSpotifyTrack(track)) return true
+
+  const artists = track.artists ?? []
+  if (artists.length === 0) return false
+
+  return artists.every((artist) => {
+    const country = artist.id ? artistCountries.get(artist.id) : undefined
+    return isLikelyOpmPlaylistArtist(artist.name, { country })
+  })
+}
+
+export function loadEnvFile() {
+  const envPath = resolve(process.cwd(), '.env.local')
+  try {
+    const content = readFileSync(envPath, 'utf8')
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const eq = trimmed.indexOf('=')
+      if (eq === -1) continue
+      const key = trimmed.slice(0, eq).trim()
+      const value = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
+      if (!process.env[key]) process.env[key] = value
+    }
+  } catch {
+    // .env.local optional
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
+}
+
+let lastRequestAt = 0
+
+async function throttle() {
+  const elapsed = Date.now() - lastRequestAt
+  if (elapsed < API_DELAY_MS) {
+    await sleep(API_DELAY_MS - elapsed)
+  }
+  lastRequestAt = Date.now()
+}
+
+export async function getSpotifyToken(clientId, clientSecret, refreshToken) {
+  const body = refreshToken
+    ? new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken })
+    : new URLSearchParams({ grant_type: 'client_credentials' })
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+
+  const response = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Spotify auth failed: ${response.status} ${await response.text()}`)
+  }
+
+  const data = await response.json()
+  return data.access_token
+}
+
+export async function spotifyGet(token, path, params = {}) {
+  await throttle()
+
+  const url = new URL(`https://api.spotify.com/v1/${path}`)
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value))
+    }
+  }
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get('retry-after') ?? 5)
+    console.warn(`Rate limited on ${path}, waiting ${retryAfter}s...`)
+    await sleep(retryAfter * 1000)
+    return spotifyGet(token, path, params)
+  }
+
+  if (!response.ok) {
+    const body = await response.text()
+    const error = new Error(`Spotify GET ${path} failed: ${response.status} ${body.slice(0, 200)}`)
+    error.status = response.status
+    throw error
+  }
+
+  return response.json()
+}
+
+async function fetchFullTracks(token, trackIds, market = MARKET) {
+  const tracks = []
+  const uniqueIds = [...new Set(trackIds.filter(Boolean))]
+
+  for (let index = 0; index < uniqueIds.length; index += 50) {
+    const batch = uniqueIds.slice(index, index + 50)
+    const data = await spotifyGet(token, 'tracks', {
+      ids: batch.join(','),
+      market,
+    })
+    for (const track of data.tracks ?? []) {
+      if (track?.id) tracks.push(track)
+    }
+  }
+
+  return tracks
+}
+
+function parseArchivePlainText(text) {
+  const entries = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('Your daily update')) continue
+    if (trimmed === OPM_PLAYLIST_NAME) continue
+
+    const parts = trimmed.split(' -- ')
+    if (parts.length < 2) continue
+
+    entries.push({
+      title: parts[0].trim(),
+      artist: parts[1].trim(),
+    })
+  }
+  return entries
+}
+
+async function searchTrackByTitleArtist(token, title, artist, market = MARKET) {
+  const escapedTitle = title.replace(/"/g, '\\"')
+  const primaryArtist = artist.split(',')[0]?.trim() ?? artist
+  const escapedArtist = primaryArtist.replace(/"/g, '\\"')
+
+  const data = await spotifyGet(token, 'search', {
+    q: `track:"${escapedTitle}" artist:"${escapedArtist}"`,
+    type: 'track',
+    market,
+    limit: 5,
+  })
+
+  const items = data.tracks?.items ?? []
+  const titleNorm = normalizeName(title)
+
+  for (const track of items) {
+    const trackTitleNorm = normalizeName(track.name ?? '')
+    if (trackTitleNorm === titleNorm || trackTitleNorm.includes(titleNorm)) {
+      return track
+    }
+  }
+
+  return items[0] ?? null
+}
+
+async function fetchPlaylistFromArchive(token, market = MARKET) {
+  console.warn(
+    'Playlist API unavailable for editorial charts; using archive fallback + track search.',
+  )
+
+  const response = await fetch(PLAYLIST_ARCHIVE_URL)
+  if (!response.ok) {
+    throw new Error(`Archive fallback failed: ${response.status}`)
+  }
+
+  const entries = parseArchivePlainText(await response.text())
+  const tracks = []
+
+  for (const entry of entries) {
+    const track = await searchTrackByTitleArtist(token, entry.title, entry.artist, market)
+    if (track?.id) tracks.push(track)
+  }
+
+  return {
+    playlistId: OPM_PLAYLIST_ID,
+    playlistName: OPM_PLAYLIST_NAME,
+    totalTracks: entries.length,
+    tracks,
+    source: 'archive-fallback',
+  }
+}
+
+/**
+ * Paginate all tracks from a Spotify playlist.
+ * Falls back to archive + search when editorial playlists are forbidden (403/404).
+ */
+export async function fetchPlaylistTracks(token, playlistId, market = MARKET) {
+  try {
+    const playlist = await spotifyGet(token, `playlists/${playlistId}`, {
+      market,
+      fields: 'name,id,tracks.total',
+    })
+
+    const tracks = []
+    let offset = 0
+    const limit = 100
+
+    while (true) {
+      const page = await spotifyGet(token, `playlists/${playlistId}/tracks`, {
+        market,
+        limit,
+        offset,
+        fields:
+          'items(added_at,track(id,name,preview_url,popularity,artists(id,name),album(images,release_date)))',
+      })
+
+      const items = page.items ?? []
+      if (items.length === 0) break
+
+      for (const item of items) {
+        const track = item?.track
+        if (track?.id) tracks.push(track)
+      }
+
+      offset += items.length
+      if (items.length < limit) break
+    }
+
+    return {
+      playlistId,
+      playlistName: playlist.name ?? OPM_PLAYLIST_NAME,
+      totalTracks: playlist.tracks?.total ?? tracks.length,
+      tracks,
+      source: 'spotify-api',
+    }
+  } catch (error) {
+    if (playlistId === OPM_PLAYLIST_ID && (error.status === 403 || error.status === 404)) {
+      return fetchPlaylistFromArchive(token, market)
+    }
+    throw error
+  }
+}
+
+export async function fetchArtistCountries(token, artistIds) {
+  const countries = new Map()
+  const uniqueIds = [...new Set(artistIds.filter(Boolean))]
+
+  for (let index = 0; index < uniqueIds.length; index += 50) {
+    const batch = uniqueIds.slice(index, index + 50)
+    const data = await spotifyGet(token, 'artists', { ids: batch.join(',') })
+    for (const artist of data.artists ?? []) {
+      if (artist?.id) {
+        countries.set(artist.id, artist.country ?? null)
+      }
+    }
+  }
+
+  return countries
+}
+
+export function discoverNewOpmArtists(tracks, artistCountries = new Map()) {
+  const knownNormalized = new Set(UNIQUE_OPM_ARTISTS.map((name) => normalizeName(name)))
+  const discovered = new Map()
+
+  for (const track of tracks) {
+    for (const artist of track.artists ?? []) {
+      const name = artist.name?.trim()
+      if (!name) continue
+      if (knownNormalized.has(normalizeName(name))) continue
+      if (isBlockedNonOpmArtist(name)) continue
+      if (!isLikelyOpmPlaylistArtist(name, { country: artistCountries.get(artist.id) })) {
+        continue
+      }
+      discovered.set(normalizeName(name), name)
+    }
+  }
+
+  return [...discovered.values()].sort((a, b) => a.localeCompare(b))
+}
+
+async function main() {
+  loadEnvFile()
+
+  const clientId = process.env.SPOTIFY_CLIENT_ID
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    throw new Error('Add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to .env.local')
+  }
+
+  const playlistId = process.argv[2] ?? OPM_PLAYLIST_ID
+  const token = await getSpotifyToken(
+    clientId,
+    clientSecret,
+    process.env.SPOTIFY_REFRESH_TOKEN,
+  )
+
+  console.log(`Fetching playlist ${playlistId}...`)
+  const result = await fetchPlaylistTracks(token, playlistId)
+  const { playlistName, totalTracks, tracks, source } = result
+  console.log(
+    `Playlist: "${playlistName}" (${totalTracks} tracks reported, ${tracks.length} fetched, source: ${source})`,
+  )
+
+  const artistIds = tracks.flatMap((track) => (track.artists ?? []).map((a) => a.id))
+  const artistCountries = await fetchArtistCountries(token, artistIds)
+
+  const opmTracks = tracks.filter((track) => isLikelyOpmPlaylistTrack(track, artistCountries))
+  const allowlistTracks = tracks.filter((track) => isOpmSpotifyTrack(track))
+  const newArtists = discoverNewOpmArtists(tracks, artistCountries)
+
+  console.log(`\nOPM tracks (allowlist): ${allowlistTracks.length}`)
+  console.log(`OPM tracks (with heuristics): ${opmTracks.length}`)
+  console.log(`Non-OPM filtered out: ${tracks.length - opmTracks.length}`)
+
+  if (newArtists.length > 0) {
+    console.log(`\nNew Filipino artists to add (${newArtists.length}):`)
+    for (const name of newArtists) {
+      console.log(`  - ${name}`)
+    }
+  } else {
+    console.log('\nNo new Filipino artists discovered.')
+  }
+
+  const nonOpmSample = tracks
+    .filter((track) => !isLikelyOpmPlaylistTrack(track, artistCountries))
+    .slice(0, 15)
+    .map((track) => `${track.name} — ${(track.artists ?? []).map((a) => a.name).join(', ')}`)
+
+  if (nonOpmSample.length > 0) {
+    console.log('\nFiltered out (sample):')
+    for (const line of nonOpmSample) {
+      console.log(`  - ${line}`)
+    }
+  }
+
+  const opmSample = opmTracks.slice(0, 10).map(
+    (track) => `${track.name} — ${(track.artists ?? []).map((a) => a.name).join(', ')}`,
+  )
+  if (opmSample.length > 0) {
+    console.log('\nOPM tracks (sample):')
+    for (const line of opmSample) {
+      console.log(`  - ${line}`)
+    }
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error)
+    process.exit(2)
+  })
+}

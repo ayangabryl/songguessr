@@ -16,6 +16,7 @@ let catalogCache: CatalogCacheEntry | null = null
 
 export interface CatalogCheckpoint {
   completedArtists: string[]
+  playlistSyncedAt?: string
 }
 
 export function invalidateCatalogCache(): void {
@@ -42,24 +43,34 @@ export async function saveCatalogToR2(bucket: R2Bucket, catalog: Catalog): Promi
   catalogCache = { catalog, loadedAt: Date.now() }
 }
 
-export async function loadCheckpointFromR2(bucket: R2Bucket): Promise<Set<string>> {
+export async function loadCheckpointFromR2(bucket: R2Bucket): Promise<{
+  completedArtists: Set<string>
+  playlistSyncedAt?: string
+}> {
   const object = await bucket.get(CHECKPOINT_R2_KEY)
-  if (!object) return new Set()
+  if (!object) return { completedArtists: new Set() }
 
   try {
     const parsed = JSON.parse(await object.text()) as CatalogCheckpoint
-    return new Set(Array.isArray(parsed.completedArtists) ? parsed.completedArtists : [])
+    return {
+      completedArtists: new Set(
+        Array.isArray(parsed.completedArtists) ? parsed.completedArtists : [],
+      ),
+      playlistSyncedAt: parsed.playlistSyncedAt,
+    }
   } catch {
-    return new Set()
+    return { completedArtists: new Set() }
   }
 }
 
 export async function saveCheckpointToR2(
   bucket: R2Bucket,
   completedArtists: Set<string>,
+  playlistSyncedAt?: string,
 ): Promise<void> {
   const payload: CatalogCheckpoint = {
     completedArtists: [...completedArtists],
+    ...(playlistSyncedAt ? { playlistSyncedAt } : {}),
   }
   await bucket.put(CHECKPOINT_R2_KEY, JSON.stringify(payload), {
     httpMetadata: { contentType: 'application/json' },

@@ -1,5 +1,21 @@
 /** Filipino / OPM artists allowed in the catalogue. */
 export const OPM_ARTISTS = [
+  // Priority / trending (PH Top 50 playlist)
+  'fitterkarma',
+  'Soapdish',
+  'Le John',
+  'La Mave',
+  'Nateman',
+  'Magnus Haven',
+  'Earl Agustin',
+  'nicole',
+  'Kiyo',
+  'Janine',
+  'Gat Putch',
+  'Louie Grammz',
+  "Mi'Kel",
+  'Jolianne',
+
   'SB19',
   'BINI',
   'BGYO',
@@ -196,6 +212,7 @@ export function artistNameScore(candidateName: string, targetName: string): numb
 }
 
 export interface SpotifyArtistRef {
+  id?: string
   name: string
 }
 

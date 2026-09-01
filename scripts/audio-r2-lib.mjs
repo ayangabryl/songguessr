@@ -8,7 +8,7 @@ export const AUDIO_DIR = join(ROOT, 'data', 'audio')
 export const CATALOG_PATH = join(ROOT, 'data', 'catalog.json')
 export const MANIFEST_PATH = join(AUDIO_DIR, 'manifest.json')
 export const UPLOAD_STATE_PATH = join(AUDIO_DIR, '.upload-state.json')
-export const BUCKET = 'opm-songless-audio'
+export const BUCKET = 'songgussr'
 export const AUDIO_EXTENSIONS = new Set(['.mp3', '.m4a', '.aac', '.wav', '.ogg'])
 export const API_PREFIX = '/api/audio'
 
