@@ -1,5 +1,7 @@
-const RECENT_TRACKS_KEY = 'songgussr-recent-tracks-v2'
-const LEGACY_RECENT_TRACKS_KEY = 'songless-recent-track-ids'
+import { readMigratedItem, removeMigratedItem } from './storage'
+
+const RECENT_TRACKS_KEY = 'songguessr-recent-tracks-v2'
+const LEGACY_RECENT_TRACKS_KEYS = ['songgussr-recent-tracks-v2', 'songless-recent-track-ids']
 const MAX_RECENT_TRACKS = 40
 
 interface RecentTrack {
@@ -40,8 +42,7 @@ function parseStoredRecentTracks(raw: string | null): RecentTrack[] {
 }
 
 function readStoredRecentTracks(): RecentTrack[] {
-  const raw =
-    localStorage.getItem(RECENT_TRACKS_KEY) ?? localStorage.getItem(LEGACY_RECENT_TRACKS_KEY)
+  const raw = readMigratedItem(localStorage, RECENT_TRACKS_KEY, LEGACY_RECENT_TRACKS_KEYS)
   return parseStoredRecentTracks(raw)
 }
 
@@ -82,6 +83,5 @@ export function rememberTrackId(trackId: string, songKey = ''): string[] {
 }
 
 export function clearRecentTrackIds() {
-  localStorage.removeItem(RECENT_TRACKS_KEY)
-  localStorage.removeItem(LEGACY_RECENT_TRACKS_KEY)
+  removeMigratedItem(localStorage, RECENT_TRACKS_KEY, LEGACY_RECENT_TRACKS_KEYS)
 }

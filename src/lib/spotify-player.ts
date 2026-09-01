@@ -163,7 +163,7 @@ async function ensurePlayer(volume: number): Promise<SpotifyPlayer> {
       }
 
       const instance = new window.Spotify!.Player({
-        name: 'OPM Songgussr',
+        name: 'Songguessr',
         getOAuthToken: (cb) => {
           void tokenGetter(cb).catch(reject)
         },

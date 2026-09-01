@@ -1,5 +1,11 @@
-const STORAGE_KEY = 'songgussr-spotify-session'
-const VERIFIER_KEY = 'songgussr-spotify-pkce'
+import { readMigratedItem, removeMigratedItem } from './storage'
+
+const STORAGE_KEY = 'songguessr-spotify-session'
+const VERIFIER_KEY = 'songguessr-spotify-pkce'
+const STATE_KEY = 'songguessr-spotify-state'
+const LEGACY_STORAGE_KEY = 'songgussr-spotify-session'
+const LEGACY_VERIFIER_KEY = 'songgussr-spotify-pkce'
+const LEGACY_STATE_KEY = 'songgussr-spotify-state'
 
 export const SPOTIFY_SCOPES = ['streaming', 'user-read-email', 'user-read-private'].join(' ')
 
@@ -41,16 +47,16 @@ export function saveCodeVerifier(verifier: string) {
 }
 
 export function loadCodeVerifier(): string | null {
-  return sessionStorage.getItem(VERIFIER_KEY)
+  return readMigratedItem(sessionStorage, VERIFIER_KEY, [LEGACY_VERIFIER_KEY])
 }
 
 export function clearCodeVerifier() {
-  sessionStorage.removeItem(VERIFIER_KEY)
+  removeMigratedItem(sessionStorage, VERIFIER_KEY, [LEGACY_VERIFIER_KEY])
 }
 
 export function loadSpotifySession(): SpotifySession | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = readMigratedItem(localStorage, STORAGE_KEY, [LEGACY_STORAGE_KEY])
     if (!raw) return null
     const parsed = JSON.parse(raw) as SpotifySession
     if (!parsed.accessToken || !parsed.refreshToken) return null
@@ -65,7 +71,7 @@ export function saveSpotifySession(session: SpotifySession) {
 }
 
 export function clearSpotifySession() {
-  localStorage.removeItem(STORAGE_KEY)
+  removeMigratedItem(localStorage, STORAGE_KEY, [LEGACY_STORAGE_KEY])
 }
 
 export async function fetchSpotifyConfig(): Promise<{ clientId: string }> {
@@ -79,7 +85,7 @@ export async function buildAuthorizeUrl(clientId: string): Promise<string> {
   saveCodeVerifier(verifier)
   const challenge = await createCodeChallenge(verifier)
   const state = crypto.randomUUID()
-  sessionStorage.setItem('songgussr-spotify-state', state)
+  sessionStorage.setItem(STATE_KEY, state)
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -156,9 +162,9 @@ export async function handleSpotifyOAuthCallback(): Promise<SpotifySession | nul
   const error = url.searchParams.get('error')
   if (!code && !error) return null
 
-  const savedState = sessionStorage.getItem('songgussr-spotify-state')
+  const savedState = readMigratedItem(sessionStorage, STATE_KEY, [LEGACY_STATE_KEY])
   const returnedState = url.searchParams.get('state')
-  sessionStorage.removeItem('songgussr-spotify-state')
+  removeMigratedItem(sessionStorage, STATE_KEY, [LEGACY_STATE_KEY])
 
   if (error) {
     url.searchParams.delete('error')

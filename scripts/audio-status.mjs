@@ -29,7 +29,7 @@ function main() {
     (track) => !trackHasHostedAudio(track) && localTrackIds.has(track.id),
   )
 
-  console.log('Songgussr — R2 audio status')
+  console.log('Songguessr — R2 audio status')
   console.log('--------------------------------')
   console.log(`Catalog tracks:     ${catalog.tracks.length}`)
   console.log(`On R2 (in catalog): ${hosted.length}`)

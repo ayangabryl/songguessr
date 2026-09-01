@@ -1,3 +1,5 @@
+import { readMigratedItem } from './storage'
+
 export const ERA_OPTIONS = ['modern', '2010s', '2000s', 'classics'] as const
 export const GENRE_OPTIONS = ['pop', 'hip-hop', 'r&b', 'rock', 'dance', 'other'] as const
 
@@ -27,12 +29,14 @@ export const GENRE_LABELS: Record<GenreFilter | 'all', string> = {
   other: 'Other / Unclassified',
 }
 
-const ERA_KEY = 'songgussr-era-filter'
-const GENRE_KEY = 'songgussr-genre-filter'
+const ERA_KEY = 'songguessr-era-filter'
+const GENRE_KEY = 'songguessr-genre-filter'
+const LEGACY_ERA_KEY = 'songgussr-era-filter'
+const LEGACY_GENRE_KEY = 'songgussr-genre-filter'
 
 export function loadEraFilters(): EraFilter[] {
   try {
-    const raw = localStorage.getItem(ERA_KEY)
+    const raw = readMigratedItem(localStorage, ERA_KEY, [LEGACY_ERA_KEY])
     if (!raw) return []
     const parsed = JSON.parse(raw) as string[]
     if (!Array.isArray(parsed)) return []
@@ -46,7 +50,7 @@ export function loadEraFilters(): EraFilter[] {
 
 export function loadGenreFilters(): GenreFilter[] {
   try {
-    const raw = localStorage.getItem(GENRE_KEY)
+    const raw = readMigratedItem(localStorage, GENRE_KEY, [LEGACY_GENRE_KEY])
     if (!raw) return []
     const parsed = JSON.parse(raw) as string[]
     if (!Array.isArray(parsed)) return []

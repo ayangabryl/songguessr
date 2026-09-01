@@ -1,4 +1,4 @@
-# Songgussr
+# Songguessr
 
 Guess the Filipino (OPM) song from short Spotify preview clips — built for Cloudflare Workers.
 
@@ -16,7 +16,7 @@ Get keys from the [Spotify Developer Dashboard](https://developer.spotify.com/da
 In your Spotify app settings, add this **Redirect URI** (must match exactly):
 
 - Local: `http://127.0.0.1:3000/`
-- Production: your deployed site origin with trailing slash, e.g. `https://your-app.workers.dev/`
+- Production: `https://songguessr.ayangabryl.workers.dev/`
 
 Users connect their own **Spotify Premium** account in the game settings. **From the start** and **Main hook** use full-song playback via the Spotify Web Playback SDK. Without Premium, only 30-second preview clips play.
 
@@ -44,7 +44,7 @@ npm run dev
 npm run deploy
 ```
 
-The Worker and R2 bucket are both named `songgussr` in `wrangler.jsonc`. After deploy, seed the new bucket with `npm run upload:catalog -- --force`. The legacy bucket `opm-songless-audio` can remain empty or be deleted once migration is verified.
+The Worker and R2 bucket are both named `songguessr` in `wrangler.jsonc`. After deploy, seed the new bucket with `npm run upload:catalog -- --force`. The legacy bucket `songgussr` can remain until migration is verified.
 
 ## Hosted audio on R2 (optional)
 
@@ -101,11 +101,11 @@ Audio is served from the Worker at `/api/audio/*` (R2 binding `AUDIO_BUCKET` in 
 
 ## Catalog source of truth (R2)
 
-The catalogue lives in **R2** at `catalog/catalog.json` in the `songgussr` bucket. Both production and local dev (`npm run dev`) read from this bucket via the `AUDIO_BUCKET` binding (`remote: true` in `wrangler.jsonc`).
+The catalogue lives in **R2** at `catalog/catalog.json` in the `songguessr` bucket. Both production and local dev (`npm run dev`) read from this bucket via the `AUDIO_BUCKET` binding (`remote: true` in `wrangler.jsonc`).
 
 | Setting | Value |
 |---------|-------|
-| R2 bucket | `songgussr` |
+| R2 bucket | `songguessr` |
 | Catalog key | `catalog/catalog.json` |
 | Checkpoint key | `catalog/build-checkpoint.json` |
 | Local cache | 10-minute in-memory cache in the Worker |
@@ -161,7 +161,7 @@ Production admin UI for catalog management and system health monitoring.
 
 | | |
 |---|---|
-| **URL** | `https://songgussr.ayangabryl.workers.dev/admin` |
+| **URL** | `https://songguessr.ayangabryl.workers.dev/admin` |
 | **Password** | `wizard123` (override with `ADMIN_PASSWORD` in `wrangler.jsonc` or `wrangler secret put ADMIN_PASSWORD`) |
 
 Sign in with the password on the login page. Sessions use an httpOnly cookie (7 days).
@@ -182,7 +182,7 @@ Sign in with the password on the login page. Sessions use an httpOnly cookie (7 
 
 Manual adds validate OPM artists via `isOpmSpotifyTrack` and resolve preview URLs before writing to R2.
 
-> **Note:** `admin.songgussr.ayangabryl.workers.dev` requires a custom domain route on Cloudflare. The worker also accepts requests on that host if configured; otherwise use `/admin` on the main workers.dev URL.
+> **Note:** `admin.songguessr.ayangabryl.workers.dev` requires a custom domain route on Cloudflare. The worker also accepts requests on that host if configured; otherwise use `/admin` on the main workers.dev URL.
 
 ## Scripts
 

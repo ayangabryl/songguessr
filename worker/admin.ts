@@ -16,11 +16,12 @@ import { buildTrackFromSpotify } from './track-builder'
 import type { Env, Track } from './types'
 
 const ADMIN_HOSTS = new Set([
-  'admin.songgussr.ayangabryl.workers.dev',
-  'admin.songgussr.localhost',
+  'admin.songguessr.ayangabryl.workers.dev',
+  'admin.songguessr.localhost',
 ])
 
-const SESSION_COOKIE = 'songgussr_admin'
+const SESSION_COOKIE = 'songguessr_admin'
+const LEGACY_SESSION_COOKIE = 'songgussr_admin'
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const CRON_SCHEDULE = '0 */6 * * *'
 
@@ -89,13 +90,14 @@ function readSessionCookie(request: Request): string | null {
   const cookieHeader = request.headers.get('Cookie')
   if (!cookieHeader) return null
 
+  let legacyValue: string | null = null
   for (const part of cookieHeader.split(';')) {
     const [name, ...rest] = part.trim().split('=')
-    if (name === SESSION_COOKIE) {
-      return decodeURIComponent(rest.join('='))
-    }
+    const value = decodeURIComponent(rest.join('='))
+    if (name === SESSION_COOKIE) return value
+    if (name === LEGACY_SESSION_COOKIE) legacyValue = value
   }
-  return null
+  return legacyValue
 }
 
 async function hasValidAdminSession(request: Request, env: Env): Promise<boolean> {
@@ -112,6 +114,11 @@ function sessionCookieOptions(hostname: string): string {
 function clearSessionCookie(hostname: string): string {
   const path = isAdminHost(hostname) ? '/' : '/admin'
   return `${SESSION_COOKIE}=; Path=${path}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
+}
+
+function clearLegacySessionCookie(hostname: string): string {
+  const path = isAdminHost(hostname) ? '/' : '/admin'
+  return `${LEGACY_SESSION_COOKIE}=; Path=${path}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
 }
 
 function estimateNextCronRun(): string {
@@ -239,8 +246,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
   })
 
   admin.post('/admin/api/logout', (c) => {
+    const hostname = new URL(c.req.url).hostname
     const response = c.json({ ok: true })
-    response.headers.append('Set-Cookie', clearSessionCookie(new URL(c.req.url).hostname))
+    response.headers.append('Set-Cookie', clearSessionCookie(hostname))
+    response.headers.append('Set-Cookie', clearLegacySessionCookie(hostname))
     return response
   })
 

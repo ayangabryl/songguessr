@@ -1,4 +1,5 @@
 import type { Difficulty } from './api'
+import { readMigratedItem } from './storage'
 
 export const ALL_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
 export const DEFAULT_STAGES = [0.1, 0.5, 2, 8, 15] as const
@@ -14,13 +15,16 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   impossible: 'Impossible',
 }
 
-const STAGES_KEY = 'songgussr-stages-v2'
-const START_MODE_KEY = 'songgussr-start-mode'
-const VOLUME_KEY = 'songgussr-volume-v2'
+const STAGES_KEY = 'songguessr-stages-v2'
+const START_MODE_KEY = 'songguessr-start-mode'
+const VOLUME_KEY = 'songguessr-volume-v2'
+const LEGACY_STAGES_KEY = 'songgussr-stages-v2'
+const LEGACY_START_MODE_KEY = 'songgussr-start-mode'
+const LEGACY_VOLUME_KEY = 'songgussr-volume-v2'
 
 export function loadEnabledStages(): number[] {
   try {
-    const raw = localStorage.getItem(STAGES_KEY)
+    const raw = readMigratedItem(localStorage, STAGES_KEY, [LEGACY_STAGES_KEY])
     if (!raw) return [...DEFAULT_STAGES]
     const parsed = JSON.parse(raw) as number[]
     if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_STAGES]
@@ -35,7 +39,7 @@ export function saveEnabledStages(stages: number[]) {
 }
 
 export function loadStartMode(): StartMode {
-  const raw = localStorage.getItem(START_MODE_KEY)
+  const raw = readMigratedItem(localStorage, START_MODE_KEY, [LEGACY_START_MODE_KEY])
   return raw === 'hook' ? 'hook' : 'intro'
 }
 
@@ -44,7 +48,7 @@ export function saveStartMode(mode: StartMode) {
 }
 
 export function loadVolume(): number {
-  const raw = localStorage.getItem(VOLUME_KEY)
+  const raw = readMigratedItem(localStorage, VOLUME_KEY, [LEGACY_VOLUME_KEY])
   const value = raw ? Number(raw) : 1
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1
 }

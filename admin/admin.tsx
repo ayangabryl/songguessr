@@ -53,7 +53,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Songgussr Admin</h1>
+        <h1>Songguessr Admin</h1>
         <p>Sign in to manage the OPM catalog and monitor cron health.</p>
         {error ? <div className="error-banner">{error}</div> : null}
         <label htmlFor="password">Password</label>
@@ -621,7 +621,7 @@ export function AdminApp() {
     <div className="admin-shell">
       <header className="admin-header">
         <div className="admin-brand">
-          <h1>Songgussr</h1>
+          <h1>Songguessr</h1>
           <p>Catalog administration</p>
         </div>
         <nav className="admin-nav">
