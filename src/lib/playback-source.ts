@@ -3,8 +3,29 @@ import type { StartMode } from './game-state'
 
 const DEFAULT_HOOK_OFFSET_SECONDS = 12
 
-export function hasPlayableAudio(round: Pick<GameRound, 'previewUrl' | 'audioUrl' | 'introClipUrl' | 'hookClipUrl'>): boolean {
-  return Boolean(round.audioUrl || round.introClipUrl || round.hookClipUrl || round.previewUrl)
+/** Deezer CDN tokens often 403 when played outside deezer.com. */
+function isReliablePreviewUrl(url: string | undefined): url is string {
+  return Boolean(url && !url.includes('dzcdn.net'))
+}
+
+function pickPreviewOnlySource(
+  round: Pick<GameRound, 'previewUrl' | 'hookPreviewUrl'>,
+): { url: string | undefined; offsetSeconds: number } {
+  const candidates = [round.previewUrl, round.hookPreviewUrl].filter(Boolean) as string[]
+  const url = candidates.find(isReliablePreviewUrl) ?? candidates[0]
+  return { url, offsetSeconds: 0 }
+}
+
+export function hasPlayableAudio(
+  round: Pick<GameRound, 'previewUrl' | 'hookPreviewUrl' | 'audioUrl' | 'introClipUrl' | 'hookClipUrl'>,
+): boolean {
+  return Boolean(
+    round.audioUrl ||
+      round.introClipUrl ||
+      round.hookClipUrl ||
+      round.previewUrl ||
+      round.hookPreviewUrl,
+  )
 }
 
 export function resolvePlaybackSource(
@@ -13,7 +34,7 @@ export function resolvePlaybackSource(
   options?: { previewOnly?: boolean },
 ) {
   if (options?.previewOnly) {
-    return { url: round.previewUrl, offsetSeconds: 0 }
+    return pickPreviewOnlySource(round)
   }
 
   const hasHostedAudio = Boolean(round.audioUrl || round.introClipUrl || round.hookClipUrl)

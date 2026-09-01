@@ -83,7 +83,8 @@ export async function fetchDeezerPreview(title, artist) {
  * falls back to a fixed offset inside that clip.
  */
 export function pickPreviewSources({ spotify = null, itunes = null, deezer = null } = {}) {
-  const introPreviewUrl = deezer ?? spotify ?? itunes ?? null
+  // Prefer iTunes/Spotify over Deezer: signed Deezer CDN URLs often 403 in browsers.
+  const introPreviewUrl = itunes ?? spotify ?? deezer ?? null
   const hookPreviewUrl = itunes ?? spotify ?? deezer ?? null
 
   if (!introPreviewUrl) {

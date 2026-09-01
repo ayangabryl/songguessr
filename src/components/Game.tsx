@@ -562,9 +562,14 @@ export function Game() {
     if (!audio) return
 
     const previewSource = resolvePlaybackSource(round, 'intro', { previewOnly: true })
+    if (!previewSource.url) {
+      setIsLoadingClip(false)
+      setAudioError('The clip could not be played.')
+      return
+    }
+
     audio.src = previewSource.url
     audio.volume = volume
-    audio.load()
 
     try {
       await waitForAudioMetadata(audio)
