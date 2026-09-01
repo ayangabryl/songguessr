@@ -42,15 +42,10 @@ export function SpotifyConnect({
       )}
       {authError && <p className="setting-note spotify-error">{authError}</p>}
       {!isConnected && (
-        <p className="setting-note">
-          Connect a Spotify Premium account to use From the start and Main hook with full songs.
-          Without Spotify, only 30-second previews play.
-        </p>
+        <p className="setting-note">Premium required for full tracks; otherwise 30s previews.</p>
       )}
       {isConnected && !isPremium && (
-        <p className="setting-note spotify-error">
-          Spotify Premium is required for intro and hook playback. Previews will be used instead.
-        </p>
+        <p className="setting-note spotify-error">Upgrade to Premium for full tracks.</p>
       )}
     </div>
   )
