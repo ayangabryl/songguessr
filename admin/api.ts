@@ -42,6 +42,9 @@ export interface StatusResponse {
   artistsDone: number
   artistsTotal: number
   playlistSyncedAt: string | null
+  genreSyncedAt: string | null
+  genreSource: string | null
+  genrePlaylistCursor: number
   cronSchedule: string
   cronDescription: string
   nextCronEstimate: string

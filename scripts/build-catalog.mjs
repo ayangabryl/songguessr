@@ -12,6 +12,7 @@ import {
   isLikelyOpmPlaylistTrack,
   OPM_PLAYLIST_ID,
 } from './fetch-playlist-tracks.mjs'
+import { fetchCategoryPlaylists, fetchNewOpmTracksFromPlaylist } from './genre-source.mjs'
 
 const MARKET = 'PH'
 const SEARCH_PAGE_SIZE = 10
@@ -24,6 +25,7 @@ const API_DELAY_MS = 750
 const RATE_LIMIT_BASE_DELAY_SECONDS = 2
 const RATE_LIMIT_MAX_BACKOFF_SECONDS = 300
 const TRANSIENT_ERROR_MAX_ATTEMPTS = 8
+const MAX_CATALOG_TRACKS = 20_000
 
 function loadEnvFile() {
   const envPath = resolve(process.cwd(), '.env.local')
@@ -206,7 +208,9 @@ async function spotifyGet(token, path, params = {}, rateLimitAttempt = 0, transi
 
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`Spotify GET ${path} failed: ${response.status} ${body.slice(0, 200)}`)
+    const error = new Error(`Spotify GET ${path} failed: ${response.status} ${body.slice(0, 200)}`)
+    error.status = response.status
+    throw error
   }
 
   return response.json()
@@ -402,6 +406,52 @@ function saveCatalog(outputPath, trackMap) {
   return catalog
 }
 
+async function processGenreTracks(token, trackMap, outputPath) {
+  const discovered = await fetchCategoryPlaylists(token)
+  console.log(
+    `Genre source ${discovered.source}${discovered.categoryName ? ` (${discovered.categoryName})` : ''}: ${discovered.playlists.length} playlists`,
+  )
+
+  let added = 0
+  let opmCount = 0
+  let playlistsProcessed = 0
+
+  for (const playlist of discovered.playlists) {
+    if (trackMap.size >= MAX_CATALOG_TRACKS) {
+      console.log(`Catalog reached ${MAX_CATALOG_TRACKS} track cap`)
+      break
+    }
+
+    try {
+      const result = await fetchNewOpmTracksFromPlaylist(token, playlist, new Set(trackMap.keys()))
+      console.log(
+        `Playlist "${result.playlist.name}": ${result.totalTracks} reported, ${result.fetchedTracks} fetched, ${result.newOpmTracks.length} new OPM (${result.source})`,
+      )
+      opmCount += result.newOpmTracks.length
+
+      for (const track of result.newOpmTracks) {
+        if (trackMap.size >= MAX_CATALOG_TRACKS) break
+        const previews = await resolvePreview(track)
+        if (previews.previewUrl && addTrack(trackMap, track, previews, trackMap.size)) {
+          added += 1
+        }
+      }
+
+      playlistsProcessed += 1
+      saveCatalog(outputPath, trackMap)
+    } catch (error) {
+      console.warn(
+        `Playlist "${playlist.name}" failed: ${error instanceof Error ? error.message : error}`,
+      )
+    }
+  }
+
+  console.log(
+    `Genre ingest (${discovered.source}): ${playlistsProcessed} playlists, ${opmCount} new OPM candidates, ${added} added`,
+  )
+  return { added, opmCount, playlistsProcessed, source: discovered.source }
+}
+
 async function processPlaylistTracks(token, trackMap) {
   console.log(`Fetching priority playlist ${OPM_PLAYLIST_ID}...`)
   const { playlistName, totalTracks, tracks, source } = await fetchPlaylistTracks(token, OPM_PLAYLIST_ID)
@@ -432,6 +482,7 @@ async function main() {
   const forceRebuild = process.argv.includes('--force')
   const expandOnly = process.argv.includes('--expand')
   const playlistOnly = process.argv.includes('--playlist')
+  const genreOnly = process.argv.includes('--genre')
 
   const clientId = process.env.SPOTIFY_CLIENT_ID
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET
@@ -451,6 +502,16 @@ async function main() {
 
   console.log('Authenticating with Spotify...')
   const token = await getSpotifyToken(clientId, clientSecret)
+
+  if (genreOnly) {
+    const genreResult = await processGenreTracks(token, trackMap, outputPath)
+    const catalog = saveCatalog(outputPath, trackMap)
+    console.log(
+      `Genre-only build done (${genreResult.source}): ${genreResult.playlistsProcessed} playlists, ${genreResult.opmCount} new OPM, ${genreResult.added} added`,
+    )
+    console.log(`Saved ${catalog.tracks.length} OPM tracks to data/catalog.json`)
+    return
+  }
 
   const playlistResult = await processPlaylistTracks(token, trackMap)
   saveCatalog(outputPath, trackMap)

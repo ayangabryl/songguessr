@@ -10,7 +10,7 @@ import {
 import { CatalogUnavailableError, getCatalog, searchCatalog } from './catalog'
 import { isOpmSpotifyTrack, UNIQUE_OPM_ARTISTS } from './opm-artists'
 import { fetchSpotifyTrack, getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
-import { handleScheduled } from './scheduled'
+import { runCatalogBuild } from './catalog-builder'
 import { buildTrackFromSpotify } from './track-builder'
 import type { Env, Track } from './types'
 
@@ -187,27 +187,36 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       return c.json({ error: 'Invalid password' }, 401)
     }
 
-    const event = {
-      scheduledTime: Date.now(),
-      cron: CRON_SCHEDULE,
-    } as ScheduledEvent
-
-    await handleScheduled(event, c.env)
-
     try {
-      const catalog = await getCatalog(c.env)
+      const resultPromise = runCatalogBuild(c.env)
+      c.executionCtx.waitUntil(
+        resultPromise.then(
+          (result) => {
+            console.log('[admin] cron trigger finished', result)
+          },
+          (error) => {
+            console.error('[admin] cron trigger failed', error)
+          },
+        ),
+      )
+      const result = await resultPromise
       return c.json({
         ok: true,
-        message: 'Catalog build cron completed',
-        tracks: catalog.tracks.length,
-        updatedAt: catalog.updatedAt,
+        message: result.skipped
+          ? `Catalog build skipped${result.reason ? `: ${result.reason}` : ''}`
+          : 'Catalog build cron completed',
+        ...result,
+        tracks: result.totalTracks,
       })
     } catch (error) {
-      return c.json({
-        ok: true,
-        message: 'Catalog build cron completed',
-        catalogError: error instanceof Error ? error.message : 'Catalog unavailable',
-      })
+      return c.json(
+        {
+          ok: false,
+          message: 'Catalog build cron failed',
+          error: error instanceof Error ? error.message : 'Catalog build failed',
+        },
+        500,
+      )
     }
   })
 
@@ -259,8 +268,11 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       artistsDone: checkpoint.completedArtists.size,
       artistsTotal: UNIQUE_OPM_ARTISTS.length,
       playlistSyncedAt: checkpoint.playlistSyncedAt ?? null,
+      genreSyncedAt: checkpoint.genreSyncedAt ?? null,
+      genreSource: checkpoint.genreSource ?? null,
+      genrePlaylistCursor: checkpoint.genrePlaylistCursor ?? 0,
       cronSchedule: CRON_SCHEDULE,
-      cronDescription: 'Every 6 hours (UTC)',
+      cronDescription: 'Every 6 hours (UTC): genre playlists first, add new OPM tracks only',
       nextCronEstimate: estimateNextCronRun(),
       catalogError,
     })

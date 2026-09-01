@@ -129,6 +129,13 @@ function DashboardPanel({ status }: { status: StatusResponse | null }) {
             <dd>{formatDate(status.r2UpdatedAt)}</dd>
           </div>
           <div className="status-row">
+            <dt>Genre ingest</dt>
+            <dd>
+              {formatDate(status.genreSyncedAt)}
+              {status.genreSource ? ` · ${status.genreSource}` : ''}
+            </dd>
+          </div>
+          <div className="status-row">
             <dt>Playlist synced</dt>
             <dd>{formatDate(status.playlistSyncedAt)}</dd>
           </div>

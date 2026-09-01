@@ -263,13 +263,22 @@ async function fetchFullTracksByIds(
 
   for (let index = 0; index < trackIds.length; index += 50) {
     const batch = trackIds.slice(index, index + 50)
-    const data = (await spotifyGet('tracks', {
-      ids: batch.join(','),
-      market,
-    })) as { tracks?: (SpotifyTrackRef | null)[] }
+    try {
+      const data = (await spotifyGet('tracks', {
+        ids: batch.join(','),
+        market,
+      })) as { tracks?: (SpotifyTrackRef | null)[] }
 
-    for (const track of data.tracks ?? []) {
-      if (track?.id) tracks.push(track)
+      for (const track of data.tracks ?? []) {
+        if (track?.id) tracks.push(track)
+      }
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (status === 403 || status === 404) {
+        console.warn(`[playlist] Batch tracks fetch blocked (${status}); skipping remainder`)
+        break
+      }
+      throw error
     }
   }
 

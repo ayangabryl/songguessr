@@ -18,6 +18,9 @@ let catalogCache: CatalogCacheEntry | null = null
 export interface CatalogCheckpoint {
   completedArtists: string[]
   playlistSyncedAt?: string
+  genreSyncedAt?: string
+  genrePlaylistCursor?: number
+  genreSource?: string
 }
 
 export function invalidateCatalogCache(): void {
@@ -44,10 +47,15 @@ export async function saveCatalogToR2(bucket: R2Bucket, catalog: Catalog): Promi
   catalogCache = { catalog, loadedAt: Date.now() }
 }
 
-export async function loadCheckpointFromR2(bucket: R2Bucket): Promise<{
+export interface CheckpointState {
   completedArtists: Set<string>
   playlistSyncedAt?: string
-}> {
+  genreSyncedAt?: string
+  genrePlaylistCursor?: number
+  genreSource?: string
+}
+
+export async function loadCheckpointFromR2(bucket: R2Bucket): Promise<CheckpointState> {
   const object = await bucket.get(CHECKPOINT_R2_KEY)
   if (!object) return { completedArtists: new Set() }
 
@@ -58,6 +66,9 @@ export async function loadCheckpointFromR2(bucket: R2Bucket): Promise<{
         Array.isArray(parsed.completedArtists) ? parsed.completedArtists : [],
       ),
       playlistSyncedAt: parsed.playlistSyncedAt,
+      genreSyncedAt: parsed.genreSyncedAt,
+      genrePlaylistCursor: parsed.genrePlaylistCursor,
+      genreSource: parsed.genreSource,
     }
   } catch {
     return { completedArtists: new Set() }
@@ -66,12 +77,16 @@ export async function loadCheckpointFromR2(bucket: R2Bucket): Promise<{
 
 export async function saveCheckpointToR2(
   bucket: R2Bucket,
-  completedArtists: Set<string>,
-  playlistSyncedAt?: string,
+  checkpoint: CheckpointState,
 ): Promise<void> {
   const payload: CatalogCheckpoint = {
-    completedArtists: [...completedArtists],
-    ...(playlistSyncedAt ? { playlistSyncedAt } : {}),
+    completedArtists: [...checkpoint.completedArtists],
+    ...(checkpoint.playlistSyncedAt ? { playlistSyncedAt: checkpoint.playlistSyncedAt } : {}),
+    ...(checkpoint.genreSyncedAt ? { genreSyncedAt: checkpoint.genreSyncedAt } : {}),
+    ...(checkpoint.genrePlaylistCursor !== undefined
+      ? { genrePlaylistCursor: checkpoint.genrePlaylistCursor }
+      : {}),
+    ...(checkpoint.genreSource ? { genreSource: checkpoint.genreSource } : {}),
   }
   await bucket.put(CHECKPOINT_R2_KEY, JSON.stringify(payload), {
     httpMetadata: { contentType: 'application/json' },
