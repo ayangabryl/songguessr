@@ -2,6 +2,8 @@
 
 Guess the Filipino (OPM) song from short Spotify preview clips — built for Cloudflare Workers.
 
+**Live:** [https://songguessr.lol](https://songguessr.lol)
+
 ## Setup
 
 1. Add your Spotify credentials to `.env.local`:
@@ -16,7 +18,7 @@ Get keys from the [Spotify Developer Dashboard](https://developer.spotify.com/da
 In your Spotify app settings, add this **Redirect URI** (must match exactly):
 
 - Local: `http://127.0.0.1:3000/`
-- Production: `https://songguessr.ayangabryl.workers.dev/`
+- Production: `https://songguessr.lol/`
 
 Users connect their own **Spotify Premium** account in the game settings. **From the start** and **Main hook** use full-song playback via the Spotify Web Playback SDK. Without Premium, only 30-second preview clips play.
 
@@ -161,7 +163,7 @@ Production admin UI for catalog management and system health monitoring.
 
 | | |
 |---|---|
-| **URL** | `https://songguessr.ayangabryl.workers.dev/admin` |
+| **URL** | `https://songguessr.lol/admin` |
 | **Password** | `wizard123` (override with `ADMIN_PASSWORD` in `wrangler.jsonc` or `wrangler secret put ADMIN_PASSWORD`) |
 
 Sign in with the password on the login page. Sessions use an httpOnly cookie (7 days).
@@ -182,7 +184,7 @@ Sign in with the password on the login page. Sessions use an httpOnly cookie (7 
 
 Manual adds validate OPM artists via `isOpmSpotifyTrack` and resolve preview URLs before writing to R2.
 
-> **Note:** `admin.songguessr.ayangabryl.workers.dev` requires a custom domain route on Cloudflare. The worker also accepts requests on that host if configured; otherwise use `/admin` on the main workers.dev URL.
+> **Note:** Admin lives at `/admin` on the production domain. `www.songguessr.lol` serves the same Worker. The workers.dev URL (`https://songguessr.ayangabryl.workers.dev/`) remains as a fallback.
 
 ## Scripts
 

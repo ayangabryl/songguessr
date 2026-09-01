@@ -62,6 +62,14 @@ function parseCatalogFiltersFromBody(body: {
 
 const app = new Hono<{ Bindings: Env }>()
 const adminApp = createAdminApp()
+const APEX_HOSTNAME = 'songguessr.lol'
+
+function redirectWwwToApex(request: Request): Response | null {
+  const url = new URL(request.url)
+  if (url.hostname !== `www.${APEX_HOSTNAME}`) return null
+  url.hostname = APEX_HOSTNAME
+  return Response.redirect(url.toString(), 301)
+}
 
 function catalogUnavailable(c: { json: (body: unknown, status?: number) => Response }, error: CatalogUnavailableError) {
   return c.json(
@@ -358,6 +366,8 @@ app.post('/api/guess', async (c) => {
 
 export default {
   fetch: async (request: Request, env: Env, ctx: ExecutionContext) => {
+    const wwwRedirect = redirectWwwToApex(request)
+    if (wwwRedirect) return wwwRedirect
     const adminResponse = await handleAdminRequest(request, env, adminApp, ctx)
     if (adminResponse) return adminResponse
     return app.fetch(request, env, ctx)

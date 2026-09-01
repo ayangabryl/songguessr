@@ -16,9 +16,17 @@
       "remote": true
     }
   ],
+  "workers_dev": true,
   "triggers": {
     "crons": ["0 */6 * * *"]
   },
+  // Custom Domains (custom_domain: true) refused existing Namecheap URL-forward
+  // A/CNAME records on this zone. Zone routes attach the Worker in front of those
+  // records (already orange-clouded) without needing DNS write.
+  "routes": [
+    { "pattern": "songguessr.lol/*", "zone_name": "songguessr.lol" },
+    { "pattern": "www.songguessr.lol/*", "zone_name": "songguessr.lol" }
+  ],
   "vars": {
     "ADMIN_PASSWORD": "wizard123"
   }

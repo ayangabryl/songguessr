@@ -37,7 +37,7 @@ export async function fetchItunesPreview(title, artist, market = MARKET) {
 
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'SongguessrCatalog/1.0 (https://songguessr.ayangabryl.workers.dev)',
+      'User-Agent': 'SongguessrCatalog/1.0 (https://songguessr.lol)',
       Accept: 'application/json',
     },
   })
