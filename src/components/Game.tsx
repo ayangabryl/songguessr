@@ -43,7 +43,6 @@ import {
 import { hasPlayableAudio, resolvePlaybackSource } from '../lib/playback-source'
 import { spotifyStartPositionMs } from '../lib/spotify-playback'
 import {
-  getSpotifyPositionSeconds,
   pauseSpotifyPlayback,
   playSpotifyTrack,
   setSpotifyVolume,
@@ -146,8 +145,9 @@ export function Game() {
   const rafRef = useRef<number | null>(null)
   const playSessionRef = useRef(0)
   const usingSpotifyRef = useRef(false)
-  const spotifyBaseMsRef = useRef(0)
   const spotifyTimelineRef = useRef(0)
+  const spotifySegmentStartRef = useRef(0)
+  const spotifyPlayStartedAtRef = useRef(0)
   const autoRerollIntervalRef = useRef<number | null>(null)
   const suggestionsRef = useRef<HTMLDivElement | null>(null)
   const startModeRef = useRef<StartMode>(loadStartMode())
@@ -456,9 +456,14 @@ export function Game() {
     return resolvePlaybackSource(round, startModeRef.current, { previewOnly: true }).offsetSeconds
   }
 
+  function getSpotifyTimelineSeconds(): number {
+    const elapsed = (performance.now() - spotifyPlayStartedAtRef.current) / 1000
+    return Math.max(0, spotifySegmentStartRef.current + elapsed)
+  }
+
   function getTimelineSeconds(): number {
     if (usingSpotifyRef.current) {
-      return spotifyTimelineRef.current
+      return getSpotifyTimelineSeconds()
     }
     const audio = audioRef.current
     if (!audio) return 0
@@ -467,8 +472,7 @@ export function Game() {
 
   async function syncPlaybackPosition(level: Difficulty = difficulty): Promise<number> {
     if (usingSpotifyRef.current) {
-      const positionSeconds = await getSpotifyPositionSeconds()
-      const timelineSeconds = Math.max(0, positionSeconds - spotifyBaseMsRef.current / 1000)
+      const timelineSeconds = getSpotifyTimelineSeconds()
       spotifyTimelineRef.current = timelineSeconds
       updateRound(level, { playbackSeconds: timelineSeconds })
       return timelineSeconds
@@ -506,7 +510,6 @@ export function Game() {
     if (spotify.canUseStartModes) {
       usingSpotifyRef.current = true
       const baseMs = spotifyStartPositionMs(round, startModeRef.current)
-      spotifyBaseMsRef.current = baseMs
 
       try {
         await playSpotifyTrack(round.trackId, baseMs + startTimeline * 1000, volume)
@@ -519,31 +522,31 @@ export function Game() {
           playbackSeconds: startTimeline,
         })
         spotifyTimelineRef.current = startTimeline
+        spotifySegmentStartRef.current = startTimeline
+        spotifyPlayStartedAtRef.current = performance.now()
 
         const tick = () => {
           if (session !== playSessionRef.current) return
 
-          void (async () => {
-            const positionSeconds = await getSpotifyPositionSeconds()
-            if (session !== playSessionRef.current) return
+          const timelineSeconds = getSpotifyTimelineSeconds()
+          spotifyTimelineRef.current = timelineSeconds
+          updateRound(difficulty, { playbackSeconds: timelineSeconds })
 
-            const timelineSeconds = Math.max(0, positionSeconds - baseMs / 1000)
-            spotifyTimelineRef.current = timelineSeconds
-            updateRound(difficulty, { playbackSeconds: timelineSeconds })
-
-            if (timelineSeconds >= stageEndpoint) {
+          if (timelineSeconds >= stageEndpoint) {
+            void (async () => {
               await pauseSpotifyPlayback()
+              if (session !== playSessionRef.current) return
               usingSpotifyRef.current = false
               setIsPlaying(false)
               updateRound(difficulty, {
                 unlockedSeconds: stageEndpoint,
                 playbackSeconds: stageEndpoint,
               })
-              return
-            }
+            })()
+            return
+          }
 
-            rafRef.current = window.requestAnimationFrame(tick)
-          })()
+          rafRef.current = window.requestAnimationFrame(tick)
         }
 
         rafRef.current = window.requestAnimationFrame(tick)
@@ -1155,8 +1158,8 @@ export function Game() {
             </button>
             <p className="setting-note">
               {spotify.canUseStartModes
-                ? 'Intro plays from the beginning of the full song. Hook mode jumps to the chorus section.'
-                : 'Connect Spotify Premium above to choose intro vs hook. Without it, only 30-second previews play.'}
+                ? 'Play from the intro or chorus.'
+                : 'Connect Spotify above to unlock.'}
             </p>
           </div>
 

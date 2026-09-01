@@ -8,11 +8,13 @@ interface SpotifyPlayer {
   getCurrentState: () => Promise<SpotifyPlaybackState | null>
   setVolume: (volume: number) => Promise<void>
   activateElement: () => Promise<void>
+  pause: () => Promise<void>
 }
 
 interface SpotifyPlaybackState {
   position: number
   paused: boolean
+  timestamp: number
   track_window: {
     current_track: { uri: string } | null
   }
@@ -150,15 +152,28 @@ export async function playSpotifyTrack(trackId: string, positionMs: number, volu
   await apiPlay(trackId, positionMs)
 }
 
+function extrapolatePositionMs(state: SpotifyPlaybackState): number {
+  if (state.paused) return state.position
+  return state.position + Math.max(0, Date.now() - state.timestamp)
+}
+
 export async function pauseSpotifyPlayback() {
-  if (!player) return
-  const state = await player.getCurrentState()
-  if (!state || state.paused) return
+  if (player) {
+    try {
+      await player.pause()
+    } catch {
+      // Fall through to Web API pause.
+    }
+  }
 
   const token = await getValidAccessToken()
   if (!token) return
 
-  await fetch('https://api.spotify.com/v1/me/player/pause', {
+  const pauseUrl = deviceId
+    ? `https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(deviceId)}`
+    : 'https://api.spotify.com/v1/me/player/pause'
+
+  await fetch(pauseUrl, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -168,7 +183,7 @@ export async function getSpotifyPositionSeconds(): Promise<number> {
   if (!player) return 0
   const state = await player.getCurrentState()
   if (!state) return 0
-  return state.position / 1000
+  return extrapolatePositionMs(state) / 1000
 }
 
 export async function setSpotifyVolume(volume: number) {
