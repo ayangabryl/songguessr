@@ -1,9 +1,8 @@
+import { albumArtFromSpotifyTrack } from './album-art'
+import { insertTracks, listTrackIds, MAX_CATALOG_TRACKS } from './catalog-d1'
+import { assignDifficultyFromMetrics, parseReleaseYear } from './difficulty'
 import {
-  invalidateCatalogCache,
-  loadCatalogFromR2,
   loadCheckpointFromR2,
-  MAX_CATALOG_TRACKS,
-  saveCatalogToR2,
   saveCheckpointToR2,
 } from './catalog-r2'
 import {
@@ -18,8 +17,7 @@ import {
   type GenreDiscoverSource,
 } from './genre-source'
 import { resolvePreviewSourcesForTrack } from './preview-sources'
-import { dedupeTracks } from './track-dedupe'
-import type { Catalog, Difficulty, Env, GenreFilter, Track } from './types'
+import type { Env, GenreFilter, Track } from './types'
 
 const MARKET = 'PH'
 const SEARCH_PAGE_SIZE = 10
@@ -42,17 +40,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 }
 
-function assignDifficulty(popularity: number, index: number): Difficulty {
-  if (popularity >= 70) return 'easy'
-  if (popularity >= 55) return 'medium'
-  if (popularity >= 40) return 'hard'
-  if (popularity >= 25) return 'expert'
-  if (popularity > 0) return 'impossible'
-
-  const levels: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
-  return levels[index % levels.length]
-}
-
 function inferGenreGroups(artist: string, title: string): GenreFilter[] {
   const haystack = `${artist} ${title}`.toLowerCase()
   const groups: GenreFilter[] = []
@@ -70,12 +57,6 @@ function inferGenreGroups(artist: string, title: string): GenreFilter[] {
     groups.push('pop')
   }
   return groups.length > 0 ? groups : ['other']
-}
-
-function parseReleaseYear(releaseDate?: string): number | undefined {
-  if (!releaseDate) return undefined
-  const year = Number.parseInt(String(releaseDate).slice(0, 4), 10)
-  return Number.isInteger(year) ? year : undefined
 }
 
 function spotifyErrorStatus(error: unknown): number | undefined {
@@ -371,71 +352,68 @@ async function collectArtistTracks(
   return [...trackById.values()]
 }
 
-function catalogFromTrackMap(trackMap: Map<string, Track>): Catalog {
-  const deduped = dedupeTracks([...trackMap.values()])
-  return {
-    updatedAt: new Date().toISOString(),
-    tracks: deduped.sort((left, right) => left.title.localeCompare(right.title)),
-  }
+interface CatalogBuildState {
+  existingIds: Set<string>
+  pending: Track[]
 }
 
-function addTrack(
-  trackMap: Map<string, Track>,
+type CatalogCheckpoint = {
+  completedArtists: Set<string>
+  playlistSyncedAt?: string
+  genreSyncedAt?: string
+  genrePlaylistCursor?: number
+  genreSource?: string
+}
+
+function queueTrack(
+  state: CatalogBuildState,
   track: SpotifyTrackRef,
   previews: { previewUrl: string | null; hookPreviewUrl?: string; hookStartSeconds: number },
-  index: number,
 ): boolean {
   const { previewUrl, hookPreviewUrl, hookStartSeconds } = previews
   if (!track?.id || !previewUrl) return false
   if (!isOpmSpotifyTrack(track)) return false
-  if (trackMap.has(track.id)) return false
+  if (state.existingIds.has(track.id)) return false
 
-  trackMap.set(track.id, {
+  const artist = (track.artists ?? []).map((item) => item.name).join(', ')
+  const releaseYear = parseReleaseYear(track.album?.release_date)
+  const popularity = track.popularity ?? 0
+
+  state.existingIds.add(track.id)
+  state.pending.push({
     id: track.id,
     title: track.name ?? 'Unknown',
-    artist: (track.artists ?? []).map((artist) => artist.name).join(', '),
+    artist,
     previewUrl,
     ...(hookPreviewUrl ? { hookPreviewUrl } : {}),
     hookStartSeconds,
-    albumArt: track.album?.images?.[0]?.url ?? '',
-    difficulty: assignDifficulty(track.popularity ?? 0, index),
-    releaseYear: parseReleaseYear(track.album?.release_date),
-    genreGroups: inferGenreGroups(
-      (track.artists ?? []).map((artist) => artist.name).join(', '),
-      track.name ?? '',
-    ),
+    albumArt: albumArtFromSpotifyTrack(track),
+    difficulty: assignDifficultyFromMetrics({ popularity, releaseYear }),
+    releaseYear,
+    genreGroups: inferGenreGroups(artist, track.name ?? ''),
+    popularity,
+    durationMs: track.duration_ms,
   })
   return true
 }
 
 async function persistProgress(
   env: Env,
-  trackMap: Map<string, Track>,
-  checkpoint: {
-    completedArtists: Set<string>
-    playlistSyncedAt?: string
-    genreSyncedAt?: string
-    genrePlaylistCursor?: number
-    genreSource?: string
-  },
+  state: CatalogBuildState,
+  checkpoint: CatalogCheckpoint,
 ): Promise<void> {
-  const catalog = catalogFromTrackMap(trackMap)
-  await saveCatalogToR2(env.AUDIO_BUCKET, catalog)
+  if (state.pending.length > 0) {
+    await insertTracks(env, state.pending)
+    state.pending.length = 0
+  }
   await saveCheckpointToR2(env.AUDIO_BUCKET, checkpoint)
-  invalidateCatalogCache()
 }
 
 async function processGenrePlaylists(
   env: Env,
   client: SpotifyClient,
-  trackMap: Map<string, Track>,
-  checkpoint: {
-    completedArtists: Set<string>
-    playlistSyncedAt?: string
-    genreSyncedAt?: string
-    genrePlaylistCursor?: number
-    genreSource?: string
-  },
+  state: CatalogBuildState,
+  checkpoint: CatalogCheckpoint,
   log: (message: string) => void,
   runStartedAt: number,
   previewBudget: number,
@@ -467,7 +445,7 @@ async function processGenrePlaylists(
     discovered.playlists.length
 
   for (let step = 0; step < discovered.playlists.length; step += 1) {
-    if (trackMap.size >= MAX_CATALOG_TRACKS) break
+    if (state.existingIds.size >= MAX_CATALOG_TRACKS) break
     if (previewResolves >= previewBudget) break
     if (Date.now() - runStartedAt >= CRON_TIME_BUDGET_MS) {
       log(`Time budget reached after ${playlistsProcessed} genre playlists`)
@@ -478,7 +456,7 @@ async function processGenrePlaylists(
     if (!playlist) continue
 
     try {
-      const existingIds = new Set(trackMap.keys())
+      const existingIds = state.existingIds
       const result = await fetchNewOpmTracksFromPlaylist(spotifyGet, playlist, existingIds)
       log(
         `Playlist "${result.playlist.name}": ${result.totalTracks} reported, ${result.fetchedTracks} fetched, ${result.newOpmTracks.length} new OPM (${result.source})`,
@@ -487,7 +465,7 @@ async function processGenrePlaylists(
       let addedForPlaylist = 0
       let skippedNoPreview = 0
       for (const track of result.newOpmTracks) {
-        if (trackMap.size >= MAX_CATALOG_TRACKS) break
+        if (state.existingIds.size >= MAX_CATALOG_TRACKS) break
         if (previewResolves >= previewBudget) break
         if (Date.now() - runStartedAt >= CRON_TIME_BUDGET_MS) break
 
@@ -499,7 +477,7 @@ async function processGenrePlaylists(
           spotifyPreviewUrl: track.preview_url ?? null,
         })
 
-        if (addTrack(trackMap, track, previews, trackMap.size)) {
+        if (queueTrack(state, track, previews)) {
           addedForPlaylist += 1
           tracksAdded += 1
         } else if (!previews.previewUrl) {
@@ -510,7 +488,7 @@ async function processGenrePlaylists(
       playlistsProcessed += 1
       checkpoint.genrePlaylistCursor = (startCursor + step + 1) % discovered.playlists.length
       checkpoint.genreSyncedAt = new Date().toISOString()
-      await persistProgress(env, trackMap, checkpoint)
+      await persistProgress(env, state, checkpoint)
       log(
         `Playlist "${result.playlist.name}": ${addedForPlaylist} tracks added, ${skippedNoPreview} skipped (no official preview)`,
       )
@@ -526,7 +504,7 @@ async function processGenrePlaylists(
       }
       if (client.didPauseForRateLimit) {
         checkpoint.genrePlaylistCursor = (startCursor + step) % discovered.playlists.length
-        await persistProgress(env, trackMap, checkpoint)
+        await persistProgress(env, state, checkpoint)
         log('Rate limit wait finished; continuing remaining playlists if time remains')
         continue
       }
@@ -567,21 +545,20 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     }
   }
 
-  const existingCatalog = (await loadCatalogFromR2(env.AUDIO_BUCKET)) ?? {
-    updatedAt: new Date().toISOString(),
-    tracks: [],
+  const state: CatalogBuildState = {
+    existingIds: new Set(await listTrackIds(env)),
+    pending: [],
   }
-  const trackMap = new Map(existingCatalog.tracks.map((track) => [track.id, track]))
 
-  if (trackMap.size >= MAX_CATALOG_TRACKS) {
-    log(`Catalog at cap (${trackMap.size} tracks). Skipping build.`)
+  if (state.existingIds.size >= MAX_CATALOG_TRACKS) {
+    log(`Catalog at cap (${state.existingIds.size} tracks). Skipping build.`)
     return {
       skipped: true,
       reason: 'catalog at 20k cap',
       artistsProcessed: 0,
       playlistsProcessed: 0,
       tracksAdded: 0,
-      totalTracks: trackMap.size,
+      totalTracks: state.existingIds.size,
       rateLimited: false,
       errors: [],
     }
@@ -603,7 +580,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     const genreResult = await processGenrePlaylists(
       env,
       client,
-      trackMap,
+      state,
       checkpoint,
       log,
       runStartedAt,
@@ -617,7 +594,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     const message = error instanceof Error ? error.message : String(error)
     log(`Genre ingest failed: ${message}`)
     errors.push(message)
-    await persistProgress(env, trackMap, checkpoint)
+    await persistProgress(env, state, checkpoint)
   }
 
   const remainingMs = CRON_TIME_BUDGET_MS - (Date.now() - runStartedAt)
@@ -627,11 +604,11 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     remainingMs > 60_000 &&
     playlistsProcessed === 0 &&
     pendingArtists.length > 0 &&
-    trackMap.size < MAX_CATALOG_TRACKS
+    state.existingIds.size < MAX_CATALOG_TRACKS
 
   if (shouldScrapeArtists) {
     for (const artistName of pendingArtists) {
-      if (trackMap.size >= MAX_CATALOG_TRACKS) break
+      if (state.existingIds.size >= MAX_CATALOG_TRACKS) break
       if (artistsProcessed >= ARTISTS_PER_CRON_MAX) break
       if (previewResolves >= MAX_PREVIEW_RESOLVES_PER_RUN) break
 
@@ -653,9 +630,9 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
         let addedForArtist = 0
 
         for (const track of tracks) {
-          if (trackMap.size >= MAX_CATALOG_TRACKS) break
+          if (state.existingIds.size >= MAX_CATALOG_TRACKS) break
           if (previewResolves >= MAX_PREVIEW_RESOLVES_PER_RUN) break
-          if (track.id && trackMap.has(track.id)) continue
+          if (track.id && state.existingIds.has(track.id)) continue
 
           const artist = (track.artists ?? []).map((item) => item.name).join(', ')
           previewResolves += 1
@@ -665,7 +642,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
             spotifyPreviewUrl: track.preview_url ?? null,
           })
 
-          if (addTrack(trackMap, track, previews, trackMap.size)) {
+          if (queueTrack(state, track, previews)) {
             addedForArtist += 1
             tracksAdded += 1
           }
@@ -673,12 +650,12 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
 
         checkpoint.completedArtists.add(artistName)
         artistsProcessed += 1
-        await persistProgress(env, trackMap, checkpoint)
+        await persistProgress(env, state, checkpoint)
         log(
-          `${artistName}: ${tracks.length} candidates, ${addedForArtist} added (${trackMap.size} total)`,
+          `${artistName}: ${tracks.length} candidates, ${addedForArtist} added (${state.existingIds.size} total)`,
         )
       } catch (error) {
-        await persistProgress(env, trackMap, checkpoint)
+        await persistProgress(env, state, checkpoint)
         const status = spotifyErrorStatus(error)
         const message = error instanceof Error ? error.message : String(error)
         if (status === 429) {
@@ -689,7 +666,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
         if (status === 403 || status === 404) {
           checkpoint.completedArtists.add(artistName)
           artistsProcessed += 1
-          await persistProgress(env, trackMap, checkpoint)
+          await persistProgress(env, state, checkpoint)
           log(`${artistName}: skipped after ${status}`)
           continue
         }
@@ -707,13 +684,15 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     )
   }
 
+  await persistProgress(env, state, checkpoint)
+
   return {
     skipped: tracksAdded === 0,
     reason: tracksAdded === 0 ? 'no new tracks from genre playlists' : undefined,
     artistsProcessed,
     playlistsProcessed,
     tracksAdded,
-    totalTracks: trackMap.size,
+    totalTracks: state.existingIds.size,
     genreSource,
     rateLimited: client.didPauseForRateLimit,
     errors,

@@ -88,7 +88,9 @@ export async function fetchSpotifyTrack(
 
   if (response.status === 404) return null
   if (!response.ok) {
-    throw new Error(`Spotify track fetch failed: ${response.status} ${await response.text()}`)
+    const error = new Error(`Spotify track fetch failed: ${response.status} ${await response.text()}`)
+    ;(error as Error & { status?: number }).status = response.status
+    throw error
   }
 
   return (await response.json()) as SpotifyTrackRef

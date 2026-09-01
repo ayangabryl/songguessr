@@ -1,11 +1,11 @@
-import { runCatalogBuild } from './catalog-builder'
+import { syncSpotifyMetrics } from './spotify-sync'
 import type { Env } from './types'
 
 export async function handleScheduled(_event: ScheduledEvent, env: Env): Promise<void> {
   try {
-    const result = await runCatalogBuild(env)
-    console.log('[scheduled] catalog build finished', result)
+    const result = await syncSpotifyMetrics(env)
+    console.log('[scheduled] spotify metrics sync finished', result)
   } catch (error) {
-    console.error('[scheduled] catalog build failed:', error)
+    console.error('[scheduled] spotify metrics sync failed:', error)
   }
 }

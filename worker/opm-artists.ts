@@ -301,6 +301,7 @@ export interface SpotifyTrackRef {
   name?: string
   preview_url?: string | null
   popularity?: number
+  duration_ms?: number
   artists?: SpotifyArtistRef[]
   album?: {
     images?: { url?: string }[]

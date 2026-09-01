@@ -1,17 +1,12 @@
+import {
+  albumArtFromSpotifyTrack,
+  fetchItunesArtwork,
+  fetchSpotifyOembedArtwork,
+} from './album-art'
+import { assignDifficultyFromMetrics, parseReleaseYear } from './difficulty'
 import { isOpmSpotifyTrack, type SpotifyTrackRef } from './opm-artists'
 import { resolvePreviewSourcesForTrack } from './preview-sources'
-import type { Difficulty, GenreFilter, Track } from './types'
-
-function assignDifficulty(popularity: number, index: number): Difficulty {
-  if (popularity >= 70) return 'easy'
-  if (popularity >= 55) return 'medium'
-  if (popularity >= 40) return 'hard'
-  if (popularity >= 25) return 'expert'
-  if (popularity > 0) return 'impossible'
-
-  const levels: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
-  return levels[index % levels.length]
-}
+import type { GenreFilter, Track } from './types'
 
 function inferGenreGroups(artist: string, title: string): GenreFilter[] {
   const haystack = `${artist} ${title}`.toLowerCase()
@@ -32,15 +27,8 @@ function inferGenreGroups(artist: string, title: string): GenreFilter[] {
   return groups.length > 0 ? groups : ['other']
 }
 
-function parseReleaseYear(releaseDate?: string): number | undefined {
-  if (!releaseDate) return undefined
-  const year = Number.parseInt(String(releaseDate).slice(0, 4), 10)
-  return Number.isInteger(year) ? year : undefined
-}
-
 export async function buildTrackFromSpotify(
   spotifyTrack: SpotifyTrackRef,
-  index = 0,
 ): Promise<{ track: Track | null; reason?: string }> {
   if (!spotifyTrack.id) {
     return { track: null, reason: 'Track has no Spotify ID' }
@@ -61,6 +49,14 @@ export async function buildTrackFromSpotify(
     return { track: null, reason: 'No preview URL available for this track' }
   }
 
+  const releaseYear = parseReleaseYear(spotifyTrack.album?.release_date)
+  const popularity = spotifyTrack.popularity ?? 0
+  const albumArt =
+    albumArtFromSpotifyTrack(spotifyTrack) ||
+    (await fetchSpotifyOembedArtwork(spotifyTrack.id)) ||
+    (await fetchItunesArtwork(spotifyTrack.name ?? '', artist)) ||
+    ''
+
   const track: Track = {
     id: spotifyTrack.id,
     title: spotifyTrack.name ?? 'Unknown',
@@ -68,10 +64,12 @@ export async function buildTrackFromSpotify(
     previewUrl: previews.previewUrl,
     ...(previews.hookPreviewUrl ? { hookPreviewUrl: previews.hookPreviewUrl } : {}),
     hookStartSeconds: previews.hookStartSeconds,
-    albumArt: spotifyTrack.album?.images?.[0]?.url ?? '',
-    difficulty: assignDifficulty(spotifyTrack.popularity ?? 0, index),
-    releaseYear: parseReleaseYear(spotifyTrack.album?.release_date),
+    albumArt,
+    difficulty: assignDifficultyFromMetrics({ popularity, releaseYear }),
+    releaseYear,
     genreGroups: inferGenreGroups(artist, spotifyTrack.name ?? ''),
+    popularity,
+    durationMs: spotifyTrack.duration_ms,
   }
 
   return { track }

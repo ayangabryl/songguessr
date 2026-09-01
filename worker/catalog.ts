@@ -1,47 +1,26 @@
-import { CATALOG_SEED_MESSAGE, getCachedCatalog } from './catalog-r2'
+import {
+  CATALOG_SEED_MESSAGE,
+  CatalogUnavailableError,
+  findTrackById as findTrackByIdFromD1,
+  getAvailabilityCounts as getAvailabilityCountsFromD1,
+  getCatalogStats,
+  pickRandomTrack as pickRandomTrackFromD1,
+  searchCatalog as searchCatalogFromD1,
+} from './catalog-d1'
 import type { CatalogFilters } from './filters'
-import { filterTracks } from './filters'
-import { dedupeTracks, songIdentityKey } from './track-dedupe.ts'
 import type { Catalog, Difficulty, Env, Track } from './types'
 
-export { CATALOG_SEED_MESSAGE }
-
-export class CatalogUnavailableError extends Error {
-  constructor(message = CATALOG_SEED_MESSAGE) {
-    super(message)
-    this.name = 'CatalogUnavailableError'
-  }
-}
-
-async function loadTracks(env: Env): Promise<Track[]> {
-  const catalog = await getCachedCatalog(env.AUDIO_BUCKET)
-  if (!catalog) {
-    throw new CatalogUnavailableError()
-  }
-  return dedupeTracks(catalog.tracks)
-}
+export { CATALOG_SEED_MESSAGE, CatalogUnavailableError }
 
 export async function getCatalog(env: Env): Promise<Catalog> {
-  const catalog = await getCachedCatalog(env.AUDIO_BUCKET)
-  if (!catalog) {
+  const stats = await getCatalogStats(env)
+  if (stats.count === 0) {
     throw new CatalogUnavailableError()
   }
   return {
-    ...catalog,
-    tracks: dedupeTracks(catalog.tracks),
+    updatedAt: stats.updatedAt ?? new Date().toISOString(),
+    tracks: [],
   }
-}
-
-export async function getTracksByDifficulty(
-  env: Env,
-  difficulty: Difficulty,
-  filters: CatalogFilters = { eras: [], genres: [] },
-): Promise<Track[]> {
-  const tracks = await loadTracks(env)
-  return filterTracks(
-    tracks.filter((track) => track.difficulty === difficulty),
-    filters,
-  )
 }
 
 export function hashString(value: string): number {
@@ -65,61 +44,25 @@ export function pickIndexFromSeed(seed: string, length: number): number {
 export async function pickRandomTrack(
   env: Env,
   difficulty: Difficulty,
-  seed: string,
+  _seed: string,
   filters: CatalogFilters = { eras: [], genres: [] },
   excludeIds: ReadonlySet<string> = new Set(),
   excludeSongKeys: ReadonlySet<string> = new Set(),
 ): Promise<Track | null> {
-  const allTracks = await getTracksByDifficulty(env, difficulty, filters)
-  if (allTracks.length === 0) return null
-
-  const matchesExcludes = (track: Track) =>
-    !excludeIds.has(track.id) && !excludeSongKeys.has(songIdentityKey(track))
-
-  let tracks = allTracks.filter(matchesExcludes)
-  if (tracks.length === 0) {
-    tracks = allTracks.filter((track) => !excludeSongKeys.has(songIdentityKey(track)))
-  }
-  if (tracks.length === 0) {
-    tracks = allTracks.filter((track) => !excludeIds.has(track.id))
-  }
-  if (tracks.length === 0) {
-    tracks = allTracks
-  }
-
-  const index = pickIndexFromSeed(seed, tracks.length)
-  return tracks[index] ?? null
+  return pickRandomTrackFromD1(env, difficulty, filters, excludeIds, excludeSongKeys)
 }
 
 export async function findTrackById(env: Env, id: string): Promise<Track | undefined> {
-  const tracks = await loadTracks(env)
-  return tracks.find((track) => track.id === id)
+  return findTrackByIdFromD1(env, id)
 }
 
 export async function getAvailabilityCounts(
   env: Env,
   filters: CatalogFilters,
 ): Promise<Record<Difficulty, number>> {
-  const difficulties: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
-  const counts = await Promise.all(
-    difficulties.map(async (difficulty) => [
-      difficulty,
-      (await getTracksByDifficulty(env, difficulty, filters)).length,
-    ] as const),
-  )
-  return Object.fromEntries(counts) as Record<Difficulty, number>
+  return getAvailabilityCountsFromD1(env, filters)
 }
 
 export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {
-  const normalized = query.trim().toLowerCase()
-  if (!normalized) return []
-
-  const tracks = await loadTracks(env)
-  return tracks
-    .filter((track) => {
-      const haystack = `${track.title} ${track.artist}`.toLowerCase()
-      return haystack.includes(normalized)
-    })
-    .sort((left, right) => left.title.localeCompare(right.title))
-    .slice(0, limit)
+  return searchCatalogFromD1(env, query, limit)
 }
