@@ -189,16 +189,20 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
 
     try {
       const resultPromise = runCatalogBuild(c.env)
-      c.executionCtx.waitUntil(
-        resultPromise.then(
-          (result) => {
-            console.log('[admin] cron trigger finished', result)
-          },
-          (error) => {
-            console.error('[admin] cron trigger failed', error)
-          },
-        ),
-      )
+      try {
+        c.executionCtx.waitUntil(
+          resultPromise.then(
+            (result) => {
+              console.log('[admin] cron trigger finished', result)
+            },
+            (error) => {
+              console.error('[admin] cron trigger failed', error)
+            },
+          ),
+        )
+      } catch {
+        // Some admin hosts have no ExecutionContext; awaiting the build is enough.
+      }
       const result = await resultPromise
       return c.json({
         ok: true,
