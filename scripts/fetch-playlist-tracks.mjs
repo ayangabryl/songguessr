@@ -13,8 +13,14 @@ export const OPM_PLAYLIST_ID = '37i9dQZEVXbNBz9cRCSFkY'
 export const OPM_PLAYLIST_NAME = 'Top 50 - Philippines'
 
 /** Fallback when Spotify blocks editorial playlist access (client credentials). */
-const PLAYLIST_ARCHIVE_URL =
-  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty/37i9dQZEVXbNBz9cRCSFkY.md'
+const PLAYLIST_ARCHIVE_BASES = [
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty',
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive-2/main/playlists/pretty',
+]
+const PRIVATE_PLAYLIST_ERROR =
+  'This playlist is private or blocked by Spotify. Try a public user playlist.'
+const EMBED_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 const MARKET = 'PH'
 const API_DELAY_MS = 750
@@ -329,47 +335,173 @@ function parseArchiveTrackIds(text) {
   return ids
 }
 
-async function fetchPlaylistFromArchive(token, market = MARKET) {
-  console.warn(
-    'Playlist API unavailable for editorial charts; using archive track IDs.',
-  )
+function parseSubtitleArtists(subtitle) {
+  return String(subtitle ?? '')
+    .replace(/\u00a0/g, ' ')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => ({ name }))
+}
 
-  const response = await fetch(PLAYLIST_ARCHIVE_URL)
-  if (!response.ok) {
-    throw new Error(`Archive fallback failed: ${response.status}`)
-  }
+function mergeTrackMetadata(stubs, hydrated) {
+  if (hydrated.length === 0) return stubs
+  const byId = new Map(hydrated.filter((track) => track.id).map((track) => [track.id, track]))
+  return stubs.map((stub) => {
+    const full = stub.id ? byId.get(stub.id) : undefined
+    if (!full) return stub
+    return {
+      ...full,
+      preview_url: full.preview_url ?? stub.preview_url ?? null,
+      name: full.name || stub.name,
+      artists: full.artists?.length ? full.artists : stub.artists,
+    }
+  })
+}
 
-  const markdown = await response.text()
-  const archiveTracks = parseArchiveTracks(markdown)
-  const trackIds = archiveTracks.map((track) => track.id).filter(Boolean)
-
-  let tracks = []
+async function hydrateTrackRefs(token, stubs, market = MARKET) {
+  const trackIds = stubs.map((track) => track.id).filter(Boolean)
+  let hydrated = []
   try {
-    tracks = await fetchFullTracks(token, trackIds, market)
+    hydrated = await fetchFullTracks(token, trackIds, market)
   } catch (error) {
     if (error.status !== 403 && error.status !== 404 && error.status !== 429) {
       throw error
     }
-    console.warn('Track hydration blocked; using archive title/artist metadata.')
+    console.warn('Track hydration blocked; using fallback title/artist metadata.')
   }
 
-  if (tracks.length === 0 && archiveTracks.length > 0) {
-    console.warn('Using archive markdown metadata without Spotify track hydration.')
-    tracks = archiveTracks
+  if (hydrated.length === 0 && stubs.length > 0) {
+    console.warn('Using fallback metadata without Spotify track hydration.')
+    return stubs
   }
+
+  return mergeTrackMetadata(stubs, hydrated)
+}
+
+async function fetchArchiveMarkdown(playlistId) {
+  const statuses = []
+  for (const base of PLAYLIST_ARCHIVE_BASES) {
+    const url = `${base}/${encodeURIComponent(playlistId)}.md`
+    const response = await fetch(url)
+    if (response.ok) return response.text()
+    statuses.push(String(response.status))
+  }
+  throw new Error(`Archive fallback failed: ${statuses.join(', ') || 'no sources'}`)
+}
+
+async function fetchPlaylistFromArchive(token, playlistId, market = MARKET) {
+  console.warn(`Editorial playlist ${playlistId} blocked; using archive track IDs.`)
+
+  const markdown = await fetchArchiveMarkdown(playlistId)
+  const archiveTracks = parseArchiveTracks(markdown)
+  if (archiveTracks.length === 0) {
+    const fallbackIds = parseArchiveTrackIds(markdown)
+    if (fallbackIds.length === 0) {
+      throw new Error('Archive fallback failed: no tracks')
+    }
+    archiveTracks.push(...fallbackIds.map((id) => ({ id, name: '', artists: [] })))
+  }
+
+  const heading = markdown.match(/^###\s*\[([^\]]+)\]/m)
+  const archiveName = heading?.[1] ? unescapeArchiveText(heading[1]) : ''
 
   return {
-    playlistId: OPM_PLAYLIST_ID,
-    playlistName: OPM_PLAYLIST_NAME,
-    totalTracks: archiveTracks.length || trackIds.length,
-    tracks,
+    playlistId,
+    playlistName: archiveName || (playlistId === OPM_PLAYLIST_ID ? OPM_PLAYLIST_NAME : playlistId),
+    totalTracks: archiveTracks.length,
+    tracks: await hydrateTrackRefs(token, archiveTracks, market),
     source: 'archive-fallback',
   }
 }
 
+function parseEmbedTracks(entity) {
+  const tracks = []
+  const seen = new Set()
+  for (const item of entity?.trackList ?? []) {
+    const id = item.uri?.match(/spotify:track:([A-Za-z0-9]+)/)?.[1]
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    tracks.push({
+      id,
+      name: item.title ?? '',
+      preview_url: item.audioPreview?.url ?? null,
+      artists: parseSubtitleArtists(item.subtitle ?? ''),
+    })
+  }
+  return tracks
+}
+
+async function fetchPlaylistFromEmbed(token, playlistId, market = MARKET) {
+  console.warn(`Archive miss for ${playlistId}; trying public embed snapshot.`)
+
+  const response = await fetch(
+    `https://open.spotify.com/embed/playlist/${encodeURIComponent(playlistId)}`,
+    {
+      headers: {
+        'User-Agent': EMBED_USER_AGENT,
+        Accept: 'text/html',
+      },
+    },
+  )
+  if (!response.ok) {
+    throw new Error(`Embed fallback failed: ${response.status}`)
+  }
+
+  const html = await response.text()
+  const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)
+  if (!match?.[1]) {
+    throw new Error('Embed fallback failed: missing playlist data')
+  }
+
+  const data = JSON.parse(match[1])
+  const entity = data?.props?.pageProps?.state?.data?.entity
+  const embedTracks = parseEmbedTracks(entity)
+  if (embedTracks.length === 0) {
+    throw new Error('Embed fallback failed: no tracks')
+  }
+
+  return {
+    playlistId,
+    playlistName:
+      entity?.name?.trim() ||
+      entity?.title?.trim() ||
+      (playlistId === OPM_PLAYLIST_ID ? OPM_PLAYLIST_NAME : playlistId),
+    totalTracks: embedTracks.length,
+    tracks: await hydrateTrackRefs(token, embedTracks, market),
+    source: 'embed-fallback',
+  }
+}
+
+async function fetchPlaylistViaPublicFallbacks(token, playlistId, market = MARKET) {
+  try {
+    return await fetchPlaylistFromArchive(token, playlistId, market)
+  } catch (archiveError) {
+    console.warn(
+      `Archive fallback failed for ${playlistId}: ${
+        archiveError instanceof Error ? archiveError.message : String(archiveError)
+      }`,
+    )
+  }
+
+  try {
+    return await fetchPlaylistFromEmbed(token, playlistId, market)
+  } catch (embedError) {
+    console.warn(
+      `Embed fallback failed for ${playlistId}: ${
+        embedError instanceof Error ? embedError.message : String(embedError)
+      }`,
+    )
+  }
+
+  const error = new Error(PRIVATE_PLAYLIST_ERROR)
+  error.status = 404
+  throw error
+}
+
 /**
  * Paginate all tracks from a Spotify playlist.
- * Falls back to archive + search when editorial playlists are forbidden (403/404).
+ * Falls back to archive, then public embed, when editorial playlists are forbidden (403/404).
  */
 export async function fetchPlaylistTracks(token, playlistId, market = MARKET) {
   try {
@@ -411,8 +543,8 @@ export async function fetchPlaylistTracks(token, playlistId, market = MARKET) {
       source: 'spotify-api',
     }
   } catch (error) {
-    if (playlistId === OPM_PLAYLIST_ID && (error.status === 403 || error.status === 404)) {
-      return fetchPlaylistFromArchive(token, market)
+    if (error.status === 403 || error.status === 404) {
+      return fetchPlaylistViaPublicFallbacks(token, playlistId, market)
     }
     throw error
   }
@@ -464,7 +596,10 @@ async function main() {
     throw new Error('Add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to .env.local')
   }
 
-  const playlistId = process.argv[2] ?? OPM_PLAYLIST_ID
+  const rawInput = process.argv[2] ?? OPM_PLAYLIST_ID
+  const playlistId = rawInput.includes('playlist') || rawInput.includes('?')
+    ? (rawInput.match(/playlist\/([A-Za-z0-9]+)/)?.[1] ?? rawInput.split(/[?#]/)[0])
+    : rawInput
   const token = await getSpotifyToken(
     clientId,
     clientSecret,

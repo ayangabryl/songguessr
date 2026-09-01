@@ -147,7 +147,7 @@ export interface PlaylistImportResponse {
   errors: string[]
   playlistId?: string
   playlistName?: string
-  source?: 'spotify-api' | 'archive-fallback'
+  source?: 'spotify-api' | 'archive-fallback' | 'embed-fallback'
   fetched?: number
 }
 

@@ -8,6 +8,7 @@ import {
   fetchPlaylistTracks,
   MAX_PLAYLIST_TRACKS,
   parseSpotifyPlaylistId,
+  type PlaylistTrackSource,
 } from './playlist-source'
 import { getSpotifyClientCredentialsToken, spotifyApiGet } from './spotify-api'
 import { buildTrackFromSpotify } from './track-builder'
@@ -25,7 +26,7 @@ export interface PlaylistImportResult {
   errors: string[]
   playlistId: string
   playlistName: string
-  source: 'spotify-api' | 'archive-fallback'
+  source: PlaylistTrackSource
   fetched: number
 }
 

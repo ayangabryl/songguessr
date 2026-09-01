@@ -11,10 +11,24 @@ export const OPM_PLAYLIST_ID = '37i9dQZEVXbNBz9cRCSFkY'
 export const OPM_PLAYLIST_NAME = 'Top 50 - Philippines'
 export const MAX_PLAYLIST_TRACKS = 20_000
 
-const PLAYLIST_ARCHIVE_BASE =
-  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty'
+const PLAYLIST_ARCHIVE_BASES = [
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty',
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive-2/main/playlists/pretty',
+] as const
 
 const MARKET = 'PH'
+const EMBED_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+
+export const PRIVATE_PLAYLIST_ERROR =
+  'This playlist is private or blocked by Spotify. Try a public user playlist.'
+
+export type PlaylistTrackSource = 'spotify-api' | 'archive-fallback' | 'embed-fallback'
+
+type SpotifyGet = (
+  path: string,
+  params?: Record<string, string | number | undefined>,
+) => Promise<unknown>
 
 export function parseSpotifyPlaylistId(input: string): string | null {
   const trimmed = input.trim()
@@ -28,16 +42,19 @@ export function parseSpotifyPlaylistId(input: string): string | null {
     // Not a URL — try URI or raw ID below.
   }
 
-  const uriMatch = trimmed.match(/^spotify:playlist:([A-Za-z0-9]+)$/i)
+  const withoutQuery = trimmed.split(/[?#]/)[0] ?? trimmed
+
+  const uriMatch = withoutQuery.match(/^spotify:playlist:([A-Za-z0-9]+)$/i)
   if (uriMatch?.[1]) return uriMatch[1]
 
-  if (/^[A-Za-z0-9]{10,34}$/.test(trimmed)) return trimmed
+  if (/^[A-Za-z0-9]{10,34}$/.test(withoutQuery)) return withoutQuery
 
   return null
 }
 
-function playlistArchiveUrl(playlistId: string): string {
-  return `${PLAYLIST_ARCHIVE_BASE}/${encodeURIComponent(playlistId)}.md`
+function playlistArchiveUrls(playlistId: string): string[] {
+  const file = `${encodeURIComponent(playlistId)}.md`
+  return PLAYLIST_ARCHIVE_BASES.map((base) => `${base}/${file}`)
 }
 
 const NON_OPM_BLOCKLIST = new Set(
@@ -202,14 +219,11 @@ export interface PlaylistFetchResult {
   playlistName: string
   totalTracks: number
   tracks: SpotifyTrackRef[]
-  source: 'spotify-api' | 'archive-fallback'
+  source: PlaylistTrackSource
 }
 
 export async function fetchPlaylistTracks(
-  spotifyGet: (
-    path: string,
-    params?: Record<string, string | number | undefined>,
-  ) => Promise<unknown>,
+  spotifyGet: SpotifyGet,
   playlistId: string,
   market = MARKET,
 ): Promise<PlaylistFetchResult> {
@@ -255,19 +269,38 @@ export async function fetchPlaylistTracks(
   } catch (error) {
     const status = (error as { status?: number }).status
     if (status === 403 || status === 404) {
-      try {
-        return await fetchPlaylistFromArchive(spotifyGet, playlistId, market)
-      } catch (archiveError) {
-        console.warn(
-          `[playlist] Archive fallback failed for ${playlistId}: ${
-            archiveError instanceof Error ? archiveError.message : String(archiveError)
-          }`,
-        )
-        throw error
-      }
+      return fetchPlaylistViaPublicFallbacks(spotifyGet, playlistId, market)
     }
     throw error
   }
+}
+
+async function fetchPlaylistViaPublicFallbacks(
+  spotifyGet: SpotifyGet,
+  playlistId: string,
+  market = MARKET,
+): Promise<PlaylistFetchResult> {
+  try {
+    return await fetchPlaylistFromArchive(spotifyGet, playlistId, market)
+  } catch (archiveError) {
+    console.warn(
+      `[playlist] Archive fallback failed for ${playlistId}: ${
+        archiveError instanceof Error ? archiveError.message : String(archiveError)
+      }`,
+    )
+  }
+
+  try {
+    return await fetchPlaylistFromEmbed(spotifyGet, playlistId, market)
+  } catch (embedError) {
+    console.warn(
+      `[playlist] Embed fallback failed for ${playlistId}: ${
+        embedError instanceof Error ? embedError.message : String(embedError)
+      }`,
+    )
+  }
+
+  throw Object.assign(new Error(PRIVATE_PLAYLIST_ERROR), { status: 404 })
 }
 
 function unescapeArchiveText(value: string): string {
@@ -327,11 +360,98 @@ function parseArchiveTrackIds(text: string): string[] {
   return ids
 }
 
+function parseSubtitleArtists(subtitle: string): { name: string }[] {
+  return subtitle
+    .replace(/\u00a0/g, ' ')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => ({ name }))
+}
+
+function parseArchivePlaylistName(markdown: string): string | null {
+  const heading = markdown.match(/^###\s*\[([^\]]+)\]/m)
+  if (!heading?.[1]) return null
+  const name = unescapeArchiveText(heading[1])
+  return name || null
+}
+
+function mergeTrackMetadata(
+  stubs: SpotifyTrackRef[],
+  hydrated: SpotifyTrackRef[],
+): SpotifyTrackRef[] {
+  if (hydrated.length === 0) return stubs
+  const byId = new Map(
+    hydrated
+      .filter((track): track is SpotifyTrackRef & { id: string } => Boolean(track.id))
+      .map((track) => [track.id, track]),
+  )
+
+  return stubs.map((stub) => {
+    const full = stub.id ? byId.get(stub.id) : undefined
+    if (!full) return stub
+    return {
+      ...full,
+      preview_url: full.preview_url ?? stub.preview_url ?? null,
+      name: full.name || stub.name,
+      artists: full.artists?.length ? full.artists : stub.artists,
+    }
+  })
+}
+
+async function fetchOembedPlaylistName(playlistId: string): Promise<string | null> {
+  try {
+    const url = `https://open.spotify.com/oembed?url=${encodeURIComponent(
+      `https://open.spotify.com/playlist/${playlistId}`,
+    )}`
+    const response = await fetch(url)
+    if (!response.ok) return null
+    const data = (await response.json()) as { title?: string }
+    return data.title?.trim() || null
+  } catch {
+    return null
+  }
+}
+
+async function resolvePlaylistDisplayName(
+  playlistId: string,
+  candidates: Array<string | null | undefined>,
+): Promise<string> {
+  for (const candidate of candidates) {
+    const name = candidate?.trim()
+    if (name) return name
+  }
+  if (playlistId === OPM_PLAYLIST_ID) return OPM_PLAYLIST_NAME
+  return (await fetchOembedPlaylistName(playlistId)) ?? playlistId
+}
+
+async function hydrateTrackRefs(
+  spotifyGet: SpotifyGet,
+  stubs: SpotifyTrackRef[],
+  market = MARKET,
+): Promise<SpotifyTrackRef[]> {
+  const trackIds = stubs.map((track) => track.id).filter((id): id is string => Boolean(id))
+  let hydrated: SpotifyTrackRef[] = []
+  try {
+    hydrated = await fetchFullTracksByIds(spotifyGet, trackIds, market)
+  } catch (error) {
+    const status = (error as { status?: number }).status
+    if (status !== 403 && status !== 404 && status !== 429) {
+      throw error
+    }
+    console.warn('[playlist] Track hydration blocked; using fallback title/artist metadata.')
+  }
+
+  if (hydrated.length === 0 && stubs.length > 0) {
+    console.warn('[playlist] Using fallback metadata without Spotify track hydration.')
+    return stubs
+  }
+
+  return mergeTrackMetadata(stubs, hydrated)
+}
+
 async function fetchFullTracksByIds(
-  spotifyGet: (
-    path: string,
-    params?: Record<string, string | number | undefined>,
-  ) => Promise<unknown>,
+  spotifyGet: SpotifyGet,
   trackIds: string[],
   market = MARKET,
 ): Promise<SpotifyTrackRef[]> {
@@ -361,47 +481,127 @@ async function fetchFullTracksByIds(
   return tracks
 }
 
+async function fetchArchiveMarkdown(playlistId: string): Promise<string> {
+  const statuses: string[] = []
+  for (const url of playlistArchiveUrls(playlistId)) {
+    const response = await fetch(url)
+    if (response.ok) return response.text()
+    statuses.push(`${response.status}`)
+  }
+  throw new Error(`Archive fallback failed: ${statuses.join(', ') || 'no sources'}`)
+}
+
 async function fetchPlaylistFromArchive(
-  spotifyGet: (
-    path: string,
-    params?: Record<string, string | number | undefined>,
-  ) => Promise<unknown>,
+  spotifyGet: SpotifyGet,
   playlistId: string,
   market = MARKET,
 ): Promise<PlaylistFetchResult> {
   console.warn(`[playlist] Editorial playlist ${playlistId} blocked; using archive track IDs.`)
 
-  const response = await fetch(playlistArchiveUrl(playlistId))
-  if (!response.ok) {
-    throw new Error(`Archive fallback failed: ${response.status}`)
-  }
-
-  const markdown = await response.text()
+  const markdown = await fetchArchiveMarkdown(playlistId)
   const archiveTracks = parseArchiveTracks(markdown).slice(0, MAX_PLAYLIST_TRACKS)
-  const trackIds = archiveTracks.map((track) => track.id).filter((id): id is string => Boolean(id))
-
-  let tracks: SpotifyTrackRef[] = []
-  try {
-    tracks = await fetchFullTracksByIds(spotifyGet, trackIds, market)
-  } catch (error) {
-    const status = (error as { status?: number }).status
-    if (status !== 403 && status !== 404 && status !== 429) {
-      throw error
+  if (archiveTracks.length === 0) {
+    const fallbackIds = parseArchiveTrackIds(markdown).slice(0, MAX_PLAYLIST_TRACKS)
+    if (fallbackIds.length === 0) {
+      throw new Error('Archive fallback failed: no tracks')
     }
-    console.warn('[playlist] Track hydration blocked; using archive title/artist metadata.')
+    archiveTracks.push(...fallbackIds.map((id) => ({ id, name: '', artists: [] })))
   }
 
-  if (tracks.length === 0 && archiveTracks.length > 0) {
-    console.warn('[playlist] Using archive markdown metadata without Spotify track hydration.')
-    tracks = archiveTracks
-  }
+  const tracks = await hydrateTrackRefs(spotifyGet, archiveTracks, market)
 
   return {
     playlistId,
-    playlistName: playlistId === OPM_PLAYLIST_ID ? OPM_PLAYLIST_NAME : playlistId,
-    totalTracks: archiveTracks.length || trackIds.length,
+    playlistName: await resolvePlaylistDisplayName(playlistId, [
+      parseArchivePlaylistName(markdown),
+    ]),
+    totalTracks: archiveTracks.length,
     tracks: tracks.slice(0, MAX_PLAYLIST_TRACKS),
     source: 'archive-fallback',
+  }
+}
+
+interface EmbedTrackItem {
+  uri?: string
+  title?: string
+  subtitle?: string
+  audioPreview?: { url?: string }
+}
+
+interface EmbedEntity {
+  name?: string
+  title?: string
+  trackList?: EmbedTrackItem[]
+}
+
+function parseEmbedTracks(entity: EmbedEntity | undefined): SpotifyTrackRef[] {
+  const tracks: SpotifyTrackRef[] = []
+  const seen = new Set<string>()
+
+  for (const item of entity?.trackList ?? []) {
+    const id = item.uri?.match(/spotify:track:([A-Za-z0-9]+)/)?.[1]
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    tracks.push({
+      id,
+      name: item.title ?? '',
+      preview_url: item.audioPreview?.url ?? null,
+      artists: parseSubtitleArtists(item.subtitle ?? ''),
+    })
+  }
+
+  return tracks
+}
+
+async function fetchPlaylistFromEmbed(
+  spotifyGet: SpotifyGet,
+  playlistId: string,
+  market = MARKET,
+): Promise<PlaylistFetchResult> {
+  console.warn(`[playlist] Archive miss for ${playlistId}; trying public embed snapshot.`)
+
+  const response = await fetch(
+    `https://open.spotify.com/embed/playlist/${encodeURIComponent(playlistId)}`,
+    {
+      headers: {
+        'User-Agent': EMBED_USER_AGENT,
+        Accept: 'text/html',
+      },
+    },
+  )
+  if (!response.ok) {
+    throw new Error(`Embed fallback failed: ${response.status}`)
+  }
+
+  const html = await response.text()
+  const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)
+  if (!match?.[1]) {
+    throw new Error('Embed fallback failed: missing playlist data')
+  }
+
+  let entity: EmbedEntity | undefined
+  try {
+    const data = JSON.parse(match[1]) as {
+      props?: { pageProps?: { state?: { data?: { entity?: EmbedEntity } } } }
+    }
+    entity = data.props?.pageProps?.state?.data?.entity
+  } catch {
+    throw new Error('Embed fallback failed: invalid playlist data')
+  }
+
+  const embedTracks = parseEmbedTracks(entity).slice(0, MAX_PLAYLIST_TRACKS)
+  if (embedTracks.length === 0) {
+    throw new Error('Embed fallback failed: no tracks')
+  }
+
+  const tracks = await hydrateTrackRefs(spotifyGet, embedTracks, market)
+
+  return {
+    playlistId,
+    playlistName: await resolvePlaylistDisplayName(playlistId, [entity?.name, entity?.title]),
+    totalTracks: embedTracks.length,
+    tracks: tracks.slice(0, MAX_PLAYLIST_TRACKS),
+    source: 'embed-fallback',
   }
 }
 

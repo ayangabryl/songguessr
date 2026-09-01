@@ -3,6 +3,7 @@ import {
   fetchPlaylistTracks,
   OPM_PLAYLIST_ID,
   OPM_PLAYLIST_NAME,
+  type PlaylistTrackSource,
 } from './playlist-source'
 
 const MARKET = 'PH'
@@ -183,7 +184,7 @@ export interface GenrePlaylistTracksResult {
   totalTracks: number
   fetchedTracks: number
   newOpmTracks: SpotifyTrackRef[]
-  source: 'spotify-api' | 'archive-fallback'
+  source: PlaylistTrackSource
 }
 
 export async function fetchNewOpmTracksFromPlaylist(

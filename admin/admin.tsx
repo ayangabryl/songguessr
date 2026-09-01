@@ -493,7 +493,11 @@ function AddSongsPanel() {
             {playlistResult.playlistName ? (
               <p className="panel-note">
                 {playlistResult.playlistName}
-                {playlistResult.source === 'archive-fallback' ? ' · archive' : ''}
+                {playlistResult.source === 'archive-fallback'
+                  ? ' · archive'
+                  : playlistResult.source === 'embed-fallback'
+                    ? ' · embed'
+                    : ''}
               </p>
             ) : null}
             {playlistResult.errors[0] ? (

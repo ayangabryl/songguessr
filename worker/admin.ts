@@ -16,6 +16,7 @@ import { buildTrackFromSpotify } from './track-builder'
 import type { Env, Track } from './types'
 
 const ADMIN_HOSTS = new Set([
+  'admin.songguessr.lol',
   'admin.songguessr.ayangabryl.workers.dev',
   'admin.songguessr.localhost',
 ])
@@ -426,7 +427,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     } catch (error) {
       const status = (error as { status?: number }).status
       const message = error instanceof Error ? error.message : 'Playlist import failed'
-      if (status === 400 || status === 503) {
+      if (status === 400 || status === 404 || status === 503) {
         return c.json({ error: message }, status)
       }
       return c.json({ error: message }, 500)
