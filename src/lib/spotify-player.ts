@@ -35,12 +35,19 @@ declare global {
 
 type StateChangeCallback = (state: SpotifyPlaybackState | null) => void
 
+export interface PlaySpotifyOptions {
+  waitForStart?: boolean
+}
+
 let sdkPromise: Promise<void> | null = null
 let player: SpotifyPlayer | null = null
 let deviceId: string | null = null
 let readyPromise: Promise<void> | null = null
 let lastVolume = 1
 let lastState: SpotifyPlaybackState | null = null
+let lastTrackId: string | null = null
+let deviceTransferred = false
+let playerWarmedUp = false
 const stateListeners = new Set<StateChangeCallback>()
 
 function notifyStateListeners(state: SpotifyPlaybackState | null) {
@@ -48,6 +55,12 @@ function notifyStateListeners(state: SpotifyPlaybackState | null) {
   for (const listener of stateListeners) {
     listener(state)
   }
+}
+
+function resetPlayerSessionState() {
+  lastTrackId = null
+  deviceTransferred = false
+  playerWarmedUp = false
 }
 
 export function extrapolatePositionMs(state: SpotifyPlaybackState): number {
@@ -76,6 +89,17 @@ export function getSpotifyDeviceId(): string | null {
   return deviceId
 }
 
+export function isSpotifyPlayerReady(): boolean {
+  return Boolean(player && deviceId)
+}
+
+export function isSameSpotifyTrackLoaded(trackId: string): boolean {
+  if (lastTrackId !== trackId || !isSpotifyPlayerReady()) return false
+  const uri = lastState?.track_window.current_track?.uri
+  if (!uri) return true
+  return uri === `spotify:track:${trackId}`
+}
+
 function loadSdk(): Promise<void> {
   if (window.Spotify) return Promise.resolve()
   if (sdkPromise) return sdkPromise
@@ -101,7 +125,17 @@ function loadSdk(): Promise<void> {
 
 async function ensurePlayer(volume: number): Promise<SpotifyPlayer> {
   await loadSdk()
-  if (player && deviceId) return player
+  if (player && deviceId) {
+    if (volume !== lastVolume) {
+      lastVolume = volume
+      try {
+        await player.setVolume(volume)
+      } catch {
+        // Volume update is best-effort on warm player.
+      }
+    }
+    return player
+  }
 
   if (!readyPromise) {
     readyPromise = new Promise((resolve, reject) => {
@@ -146,6 +180,7 @@ async function ensurePlayer(volume: number): Promise<SpotifyPlayer> {
 
   await readyPromise
   if (!player) throw new Error('Spotify player failed to initialize')
+  lastVolume = volume
   return player
 }
 
@@ -165,15 +200,64 @@ async function transferPlaybackToDevice(): Promise<void> {
     }),
   })
 
-  if (response.status === 204 || response.ok) return
-  if (response.status === 404) return
+  if (response.status === 204 || response.ok) {
+    deviceTransferred = true
+    return
+  }
+  if (response.status === 404) {
+    deviceTransferred = true
+    return
+  }
 }
 
-async function apiPlay(trackId: string, positionMs: number) {
+async function apiSeek(positionMs: number): Promise<void> {
   const token = await getValidAccessToken()
   if (!token || !deviceId) throw new Error('Spotify player not ready')
 
-  await transferPlaybackToDevice()
+  const response = await fetch(
+    `https://api.spotify.com/v1/me/player/seek?position_ms=${Math.floor(Math.max(0, positionMs))}&device_id=${encodeURIComponent(deviceId)}`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+
+  if (response.status === 204 || response.ok || response.status === 404) return
+  const body = await response.text()
+  throw new Error(body || `Spotify seek failed (${response.status})`)
+}
+
+async function apiResume(): Promise<void> {
+  const token = await getValidAccessToken()
+  if (!token || !deviceId) throw new Error('Spotify player not ready')
+
+  const response = await fetch(
+    `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    },
+  )
+
+  if (response.status === 204 || response.ok) return
+  if (response.status === 403) {
+    throw new Error('Spotify Premium is required for full-song playback.')
+  }
+  const body = await response.text()
+  throw new Error(body || `Spotify resume failed (${response.status})`)
+}
+
+async function apiPlay(trackId: string, positionMs: number, options?: { transfer?: boolean }) {
+  const token = await getValidAccessToken()
+  if (!token || !deviceId) throw new Error('Spotify player not ready')
+
+  if (options?.transfer !== false && !deviceTransferred) {
+    await transferPlaybackToDevice()
+  }
 
   const response = await fetch(
     `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
@@ -190,7 +274,10 @@ async function apiPlay(trackId: string, positionMs: number) {
     },
   )
 
-  if (response.status === 204 || response.ok) return
+  if (response.status === 204 || response.ok) {
+    lastTrackId = trackId
+    return
+  }
 
   if (response.status === 403) {
     throw new Error('Spotify Premium is required for full-song playback.')
@@ -200,20 +287,69 @@ async function apiPlay(trackId: string, positionMs: number) {
   throw new Error(body || `Spotify play failed (${response.status})`)
 }
 
-export async function initSpotifyPlayer(volume: number) {
-  lastVolume = volume
+async function resumeSpotifyTrack(positionMs: number, volume: number): Promise<void> {
   const instance = await ensurePlayer(volume)
-  await instance.setVolume(volume)
   try {
     await instance.activateElement()
   } catch {
     // Optional in some browsers.
   }
-  return instance
+  await apiSeek(positionMs)
+  await apiResume()
+}
+
+export async function warmupSpotifyPlayer(volume: number): Promise<void> {
+  if (playerWarmedUp && player && deviceId) {
+    if (volume !== lastVolume) {
+      lastVolume = volume
+      try {
+        await player.setVolume(volume)
+      } catch {
+        // Volume update is best-effort on warm player.
+      }
+    }
+    return
+  }
+
+  lastVolume = volume
+  const instance = await ensurePlayer(volume)
+  if (!deviceTransferred) {
+    await transferPlaybackToDevice()
+  }
+  try {
+    await instance.activateElement()
+  } catch {
+    // Optional in some browsers.
+  }
+  playerWarmedUp = true
+}
+
+export async function initSpotifyPlayer(volume: number) {
+  await warmupSpotifyPlayer(volume)
+  if (!player) throw new Error('Spotify player failed to initialize')
+  return player
+}
+
+export async function preloadSpotifyTrack(trackId: string, positionMs: number, volume: number) {
+  await warmupSpotifyPlayer(volume)
+  if (isSameSpotifyTrackLoaded(trackId)) {
+    await apiSeek(positionMs)
+    return
+  }
+
+  await apiPlay(trackId, positionMs, { transfer: false })
+  await restPause(positionMs)
+  lastTrackId = trackId
 }
 
 async function waitForSpotifyPlaybackStarted(timeoutMs = 5000): Promise<void> {
   if (!player) throw new Error('Spotify player not ready')
+
+  if (lastState && !lastState.paused) return
+
+  const initial = await player.getCurrentState()
+  if (initial) notifyStateListeners(initial)
+  if (initial && !initial.paused) return
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -227,10 +363,28 @@ async function waitForSpotifyPlaybackStarted(timeoutMs = 5000): Promise<void> {
   throw new Error('Spotify playback did not start in time')
 }
 
-export async function playSpotifyTrack(trackId: string, positionMs: number, volume: number) {
-  await initSpotifyPlayer(volume)
-  await apiPlay(trackId, positionMs)
-  await waitForSpotifyPlaybackStarted()
+export async function playSpotifyTrack(
+  trackId: string,
+  positionMs: number,
+  volume: number,
+  options: PlaySpotifyOptions = {},
+) {
+  const waitForStart = options.waitForStart ?? true
+  const canResume = isSameSpotifyTrackLoaded(trackId)
+
+  if (canResume) {
+    await resumeSpotifyTrack(positionMs, volume)
+    if (waitForStart) {
+      await waitForSpotifyPlaybackStarted(800)
+    }
+  } else {
+    await warmupSpotifyPlayer(volume)
+    await apiPlay(trackId, positionMs, { transfer: !deviceTransferred })
+    if (waitForStart) {
+      await waitForSpotifyPlaybackStarted(3000)
+    }
+  }
+
   if (player) {
     const state = await player.getCurrentState()
     if (state) notifyStateListeners(state)
@@ -370,4 +524,5 @@ export function disconnectSpotifyPlayer() {
   deviceId = null
   readyPromise = null
   lastState = null
+  resetPlayerSessionState()
 }

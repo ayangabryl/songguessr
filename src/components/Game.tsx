@@ -44,10 +44,13 @@ import { hasPlayableAudio, resolvePlaybackSource } from '../lib/playback-source'
 import { spotifyStartPositionMs } from '../lib/spotify-playback'
 import {
   getSpotifyExtrapolatedPositionMs,
+  isSameSpotifyTrackLoaded,
   onSpotifyStateChange,
   pauseSpotifyPlayback,
   playSpotifyTrack,
+  preloadSpotifyTrack,
   setSpotifyVolume,
+  warmupSpotifyPlayer,
 } from '../lib/spotify-player'
 import { useSpotify } from '../hooks/useSpotify'
 import {
@@ -153,6 +156,9 @@ export function Game() {
   const spotifyLevelRef = useRef<Difficulty>('easy')
   const spotifyEndStageRef = useRef<(() => void) | null>(null)
   const spotifyPauseTimeoutRef = useRef<number | null>(null)
+  const clipLoadingDelayRef = useRef<number | null>(null)
+  const clipLoadingPendingRef = useRef(false)
+  const preloadedTrackRef = useRef<string | null>(null)
   const autoRerollIntervalRef = useRef<number | null>(null)
   const suggestionsRef = useRef<HTMLDivElement | null>(null)
   const startModeRef = useRef<StartMode>(loadStartMode())
@@ -323,6 +329,50 @@ export function Game() {
   }, [difficulty])
 
   useEffect(() => {
+    if (!spotify.canUseStartModes) {
+      preloadedTrackRef.current = null
+      return
+    }
+
+    const round = activeState.round
+    if (!round?.trackId || isPlaying) return
+    if (preloadedTrackRef.current === round.trackId) return
+
+    const trackId = round.trackId
+    const baseMs = spotifyStartPositionMs(round, startModeRef.current)
+
+    void warmupSpotifyPlayer(volume)
+      .then(() => preloadSpotifyTrack(trackId, baseMs, volume))
+      .then(() => {
+        preloadedTrackRef.current = trackId
+      })
+      .catch(() => {
+        // Preload is best-effort; play will load the track on demand.
+      })
+  }, [spotify.canUseStartModes, activeState.round?.trackId, isPlaying, volume, startMode])
+
+  function beginClipLoading() {
+    clipLoadingPendingRef.current = true
+    if (clipLoadingDelayRef.current) {
+      window.clearTimeout(clipLoadingDelayRef.current)
+    }
+    clipLoadingDelayRef.current = window.setTimeout(() => {
+      if (clipLoadingPendingRef.current) {
+        setIsLoadingClip(true)
+      }
+    }, 200)
+  }
+
+  function endClipLoading() {
+    clipLoadingPendingRef.current = false
+    if (clipLoadingDelayRef.current) {
+      window.clearTimeout(clipLoadingDelayRef.current)
+      clipLoadingDelayRef.current = null
+    }
+    setIsLoadingClip(false)
+  }
+
+  useEffect(() => {
     if (!spotify.canUseStartModes) return
 
     return onSpotifyStateChange((state) => {
@@ -389,6 +439,7 @@ export function Game() {
       if (timerRef.current) window.clearTimeout(timerRef.current)
       if (rafRef.current) window.cancelAnimationFrame(rafRef.current)
       if (spotifyPauseTimeoutRef.current) window.clearTimeout(spotifyPauseTimeoutRef.current)
+      if (clipLoadingDelayRef.current) window.clearTimeout(clipLoadingDelayRef.current)
       if (autoRerollIntervalRef.current) window.clearInterval(autoRerollIntervalRef.current)
     }
   }, [])
@@ -482,7 +533,7 @@ export function Game() {
       usingSpotifyRef.current = false
     }
     setIsPlaying(false)
-    setIsLoadingClip(false)
+    endClipLoading()
     if (timerRef.current) window.clearTimeout(timerRef.current)
     if (rafRef.current) window.cancelAnimationFrame(rafRef.current)
 
@@ -547,7 +598,7 @@ export function Game() {
     const session = playSessionRef.current + 1
     playSessionRef.current = session
 
-    setIsLoadingClip(true)
+    beginClipLoading()
     setAudioError(null)
 
     if (spotify.canUseStartModes) {
@@ -556,12 +607,19 @@ export function Game() {
       const seekMs = baseMs + startTimeline * 1000
       spotifyBaseMsRef.current = baseMs
       spotifyStageEndpointRef.current = stageEndpoint
+      const canFastReplay = isSameSpotifyTrackLoaded(round.trackId)
+
+      if (canFastReplay) {
+        setIsPlaying(true)
+      }
 
       try {
-        await playSpotifyTrack(round.trackId, seekMs, volume)
+        await playSpotifyTrack(round.trackId, seekMs, volume, {
+          waitForStart: !canFastReplay,
+        })
         if (session !== playSessionRef.current) return
 
-        setIsLoadingClip(false)
+        endClipLoading()
         setIsPlaying(true)
         updateRound(difficulty, {
           unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
@@ -620,7 +678,7 @@ export function Game() {
         if (session !== playSessionRef.current) return
         usingSpotifyRef.current = false
         spotifyEndStageRef.current = null
-        setIsLoadingClip(false)
+        endClipLoading()
         setIsPlaying(false)
         setAudioError('The clip could not be played. Check your Spotify Premium connection.')
       }
@@ -633,7 +691,7 @@ export function Game() {
 
     const previewSource = resolvePlaybackSource(round, 'intro', { previewOnly: true })
     if (!previewSource.url) {
-      setIsLoadingClip(false)
+      endClipLoading()
       setAudioError('The clip could not be played.')
       return
     }
@@ -655,7 +713,7 @@ export function Game() {
       await audio.play()
       if (session !== playSessionRef.current) return
 
-      setIsLoadingClip(false)
+      endClipLoading()
       setIsPlaying(true)
       updateRound(difficulty, {
         unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
@@ -684,7 +742,7 @@ export function Game() {
       rafRef.current = window.requestAnimationFrame(tick)
     } catch {
       if (session !== playSessionRef.current) return
-      setIsLoadingClip(false)
+      endClipLoading()
       setIsPlaying(false)
       setAudioError('The clip could not be played.')
     }

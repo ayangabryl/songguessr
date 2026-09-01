@@ -7,7 +7,7 @@ import {
   loadSpotifySession,
   type SpotifySession,
 } from '../lib/spotify-auth'
-import { disconnectSpotifyPlayer } from '../lib/spotify-player'
+import { disconnectSpotifyPlayer, warmupSpotifyPlayer } from '../lib/spotify-player'
 
 export function useSpotify() {
   const [session, setSession] = useState<SpotifySession | null>(() => loadSpotifySession())
@@ -26,6 +26,13 @@ export function useSpotify() {
         setAuthError(error instanceof Error ? error.message : 'Spotify login failed')
       })
   }, [])
+
+  useEffect(() => {
+    if (!session?.isPremium) return
+    void warmupSpotifyPlayer(1).catch(() => {
+      // Warm-up is best-effort; play will retry initialization.
+    })
+  }, [session?.isPremium])
 
   const connect = useCallback(async () => {
     setConnecting(true)
