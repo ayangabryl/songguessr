@@ -612,101 +612,94 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
   }
 
   const remainingMs = CRON_TIME_BUDGET_MS - (Date.now() - runStartedAt)
+  const pendingArtists = UNIQUE_OPM_ARTISTS.filter((name) => !checkpoint.completedArtists.has(name))
   const shouldScrapeArtists =
     ENABLE_ARTIST_SCRAPE &&
     remainingMs > 60_000 &&
     playlistsProcessed === 0 &&
+    pendingArtists.length > 0 &&
     trackMap.size < MAX_CATALOG_TRACKS
 
-  if (!shouldScrapeArtists) {
-    log(
-      ENABLE_ARTIST_SCRAPE
-        ? 'Skipping artist scrape (genre ingest ran or time budget leftover is too small)'
-        : 'Skipping artist scrape (deprioritized; genre playlists are the primary source)',
-    )
-    return {
-      skipped: tracksAdded === 0,
-      reason: tracksAdded === 0 ? 'no new tracks from genre playlists' : undefined,
-      artistsProcessed: 0,
-      playlistsProcessed,
-      tracksAdded,
-      totalTracks: trackMap.size,
-      genreSource,
-    }
-  }
+  if (shouldScrapeArtists) {
+    for (const artistName of pendingArtists) {
+      if (trackMap.size >= MAX_CATALOG_TRACKS) break
+      if (artistsProcessed >= ARTISTS_PER_CRON_MAX) break
+      if (previewResolves >= MAX_PREVIEW_RESOLVES_PER_RUN) break
 
-  const pendingArtists = UNIQUE_OPM_ARTISTS.filter((name) => !checkpoint.completedArtists.has(name))
-  if (pendingArtists.length === 0) {
-    log('All artists completed.')
-    return {
-      skipped: tracksAdded === 0,
-      reason: tracksAdded === 0 ? 'all artists done' : undefined,
-      artistsProcessed: 0,
-      playlistsProcessed,
-      tracksAdded,
-      totalTracks: trackMap.size,
-      genreSource,
-    }
-  }
-
-  for (const artistName of pendingArtists) {
-    if (trackMap.size >= MAX_CATALOG_TRACKS) break
-    if (artistsProcessed >= ARTISTS_PER_CRON_MAX) break
-    if (previewResolves >= MAX_PREVIEW_RESOLVES_PER_RUN) break
-
-    const elapsedMs = Date.now() - runStartedAt
-    if (artistsProcessed >= ARTISTS_PER_CRON_MIN && elapsedMs >= CRON_TIME_BUDGET_MS) {
-      log(
-        `Time budget reached after ${artistsProcessed} artists (${Math.round(elapsedMs / 1000)}s); deferring remainder to next cron`,
-      )
-      break
-    }
-
-    client.currentArtistName = artistName
-    log(
-      `Processing ${artistName} (${checkpoint.completedArtists.size + 1}/${UNIQUE_OPM_ARTISTS.length})`,
-    )
-
-    try {
-      const tracks = await collectArtistTracks(client, artistName)
-      let addedForArtist = 0
-
-      for (const track of tracks) {
-        if (trackMap.size >= MAX_CATALOG_TRACKS) break
-        if (previewResolves >= MAX_PREVIEW_RESOLVES_PER_RUN) break
-        if (track.id && trackMap.has(track.id)) continue
-
-        const artist = (track.artists ?? []).map((item) => item.name).join(', ')
-        previewResolves += 1
-        const previews = await resolvePreviewSourcesForTrack({
-          title: track.name ?? '',
-          artist,
-          spotifyPreviewUrl: track.preview_url ?? null,
-        })
-
-        if (addTrack(trackMap, track, previews, trackMap.size)) {
-          addedForArtist += 1
-          tracksAdded += 1
-        }
+      const elapsedMs = Date.now() - runStartedAt
+      if (artistsProcessed >= ARTISTS_PER_CRON_MIN && elapsedMs >= CRON_TIME_BUDGET_MS) {
+        log(
+          `Time budget reached after ${artistsProcessed} artists (${Math.round(elapsedMs / 1000)}s); deferring remainder to next cron`,
+        )
+        break
       }
 
-      checkpoint.completedArtists.add(artistName)
-      artistsProcessed += 1
-      await persistProgress(env, trackMap, checkpoint)
+      client.currentArtistName = artistName
       log(
-        `${artistName}: ${tracks.length} candidates, ${addedForArtist} added (${trackMap.size} total)`,
+        `Processing ${artistName} (${checkpoint.completedArtists.size + 1}/${UNIQUE_OPM_ARTISTS.length})`,
       )
-    } catch (error) {
-      await persistProgress(env, trackMap, checkpoint)
-      log(`Paused at ${artistName}: ${error instanceof Error ? error.message : String(error)}`)
-      break
-    } finally {
-      client.currentArtistName = null
+
+      try {
+        const tracks = await collectArtistTracks(client, artistName)
+        let addedForArtist = 0
+
+        for (const track of tracks) {
+          if (trackMap.size >= MAX_CATALOG_TRACKS) break
+          if (previewResolves >= MAX_PREVIEW_RESOLVES_PER_RUN) break
+          if (track.id && trackMap.has(track.id)) continue
+
+          const artist = (track.artists ?? []).map((item) => item.name).join(', ')
+          previewResolves += 1
+          const previews = await resolvePreviewSourcesForTrack({
+            title: track.name ?? '',
+            artist,
+            spotifyPreviewUrl: track.preview_url ?? null,
+          })
+
+          if (addTrack(trackMap, track, previews, trackMap.size)) {
+            addedForArtist += 1
+            tracksAdded += 1
+          }
+        }
+
+        checkpoint.completedArtists.add(artistName)
+        artistsProcessed += 1
+        await persistProgress(env, trackMap, checkpoint)
+        log(
+          `${artistName}: ${tracks.length} candidates, ${addedForArtist} added (${trackMap.size} total)`,
+        )
+      } catch (error) {
+        await persistProgress(env, trackMap, checkpoint)
+        const status = spotifyErrorStatus(error)
+        const message = error instanceof Error ? error.message : String(error)
+        if (status === 429) {
+          log(`Rate limit pause at ${artistName}; deferring to next cron`)
+          break
+        }
+        if (status === 403 || status === 404) {
+          checkpoint.completedArtists.add(artistName)
+          artistsProcessed += 1
+          await persistProgress(env, trackMap, checkpoint)
+          log(`${artistName}: skipped after ${status}`)
+          continue
+        }
+        log(`Paused at ${artistName}: ${message}`)
+        break
+      } finally {
+        client.currentArtistName = null
+      }
     }
+  } else {
+    log(
+      ENABLE_ARTIST_SCRAPE
+        ? 'Skipping artist scrape (genre ingest ran or leftover time is too small)'
+        : 'Skipping artist scrape (deprioritized; genre playlists are the primary source)',
+    )
   }
 
   return {
-    skipped: false,
+    skipped: tracksAdded === 0,
+    reason: tracksAdded === 0 ? 'no new tracks from genre playlists' : undefined,
     artistsProcessed,
     playlistsProcessed,
     tracksAdded,

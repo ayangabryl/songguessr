@@ -39,13 +39,21 @@ export async function fetchItunesPreview(
   url.searchParams.set('country', market)
   url.searchParams.set('limit', '5')
 
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      Accept: 'application/json',
-    },
-  })
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept: 'application/json',
+      },
+    })
+  } catch (error) {
+    console.warn(
+      `[preview] iTunes network error for "${artist} ${title}": ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return null
+  }
   if (!response.ok) {
     console.warn(`[preview] iTunes ${response.status} for "${artist} ${title}"`)
     return null
