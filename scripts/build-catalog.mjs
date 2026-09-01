@@ -16,7 +16,9 @@ const MAX_ALBUMS_PER_ARTIST = 15
 const MAX_TRACKS_PER_ALBUM = 30
 const ALBUM_PAGE_SIZE = 10
 const API_DELAY_MS = 750
-const MAX_RETRY_AFTER_SECONDS = 120
+const RATE_LIMIT_BASE_DELAY_SECONDS = 2
+const RATE_LIMIT_MAX_BACKOFF_SECONDS = 300
+const TRANSIENT_ERROR_MAX_ATTEMPTS = 8
 
 function loadEnvFile() {
   const envPath = resolve(process.cwd(), '.env.local')
@@ -41,6 +43,8 @@ function sleep(ms) {
 }
 
 let lastRequestAt = 0
+let consecutiveRateLimits = 0
+let currentArtistName = null
 
 async function throttle() {
   const elapsed = Date.now() - lastRequestAt
@@ -131,7 +135,19 @@ async function getSpotifyToken(clientId, clientSecret) {
   return data.access_token
 }
 
-async function spotifyGet(token, path, params = {}, attempt = 0) {
+function parseRetryAfterSeconds(response, rateLimitAttempt) {
+  const header = response.headers.get('retry-after')
+  if (header) {
+    const seconds = Number(header)
+    if (Number.isFinite(seconds) && seconds > 0) return seconds
+  }
+  return Math.min(
+    RATE_LIMIT_MAX_BACKOFF_SECONDS,
+    RATE_LIMIT_BASE_DELAY_SECONDS * (2 ** rateLimitAttempt),
+  )
+}
+
+async function spotifyGet(token, path, params = {}, rateLimitAttempt = 0, transientAttempt = 0) {
   await throttle()
 
   const url = new URL(`https://api.spotify.com/v1/${path}`)
@@ -141,19 +157,47 @@ async function spotifyGet(token, path, params = {}, attempt = 0) {
     }
   }
 
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-
-  if (response.status === 429 && attempt < 8) {
-    const retryAfter = Math.min(
-      MAX_RETRY_AFTER_SECONDS,
-      Number(response.headers.get('retry-after') ?? 2),
-    )
-    console.warn(`Rate limited. Waiting ${retryAfter}s...`)
-    await sleep(retryAfter * 1000)
-    return spotifyGet(token, path, params, attempt + 1)
+  let response
+  try {
+    response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch (error) {
+    if (transientAttempt < TRANSIENT_ERROR_MAX_ATTEMPTS) {
+      const waitSeconds = Math.min(60, 2 ** transientAttempt)
+      console.warn(
+        `Network error on ${path}, retrying in ${waitSeconds}s... (${error instanceof Error ? error.message : error})`,
+      )
+      await sleep(waitSeconds * 1000)
+      return spotifyGet(token, path, params, rateLimitAttempt, transientAttempt + 1)
+    }
+    throw error
   }
+
+  if (response.status === 429) {
+    const retryAfterSeconds = parseRetryAfterSeconds(response, rateLimitAttempt)
+    const backoffBonus = Math.min(60, consecutiveRateLimits * 5)
+    const waitSeconds = retryAfterSeconds + backoffBonus
+    consecutiveRateLimits += 1
+
+    console.warn(`Rate limited, waiting ${waitSeconds}s... (${path})`)
+    await sleep(waitSeconds * 1000)
+
+    if (currentArtistName) {
+      console.log(`Resuming artist ${currentArtistName}...`)
+    }
+
+    return spotifyGet(token, path, params, rateLimitAttempt + 1, 0)
+  }
+
+  if (response.status >= 500 && transientAttempt < TRANSIENT_ERROR_MAX_ATTEMPTS) {
+    const waitSeconds = Math.min(60, 2 ** transientAttempt)
+    console.warn(`Spotify server error ${response.status} on ${path}, retrying in ${waitSeconds}s...`)
+    await sleep(waitSeconds * 1000)
+    return spotifyGet(token, path, params, rateLimitAttempt, transientAttempt + 1)
+  }
+
+  consecutiveRateLimits = 0
 
   if (!response.ok) {
     const body = await response.text()
@@ -164,31 +208,26 @@ async function spotifyGet(token, path, params = {}, attempt = 0) {
 }
 
 async function searchArtist(token, artistName) {
-  try {
-    const data = await spotifyGet(token, 'search', {
-      q: artistName,
-      type: 'artist',
-      market: MARKET,
-      limit: 5,
-    })
+  const data = await spotifyGet(token, 'search', {
+    q: artistName,
+    type: 'artist',
+    market: MARKET,
+    limit: 5,
+  })
 
-    const artists = data.artists?.items ?? []
-    let bestArtist = null
-    let bestScore = 0
+  const artists = data.artists?.items ?? []
+  let bestArtist = null
+  let bestScore = 0
 
-    for (const artist of artists) {
-      const score = artistNameScore(artist.name, artistName)
-      if (score > bestScore) {
-        bestScore = score
-        bestArtist = artist
-      }
+  for (const artist of artists) {
+    const score = artistNameScore(artist.name, artistName)
+    if (score > bestScore) {
+      bestScore = score
+      bestArtist = artist
     }
-
-    return bestScore >= 60 ? bestArtist : null
-  } catch (error) {
-    console.warn(`  ${artistName}: artist lookup failed (${error instanceof Error ? error.message : error})`)
-    return null
   }
+
+  return bestScore >= 60 ? bestArtist : null
 }
 
 async function fetchArtistTopTracks(token, artistId) {
@@ -218,18 +257,12 @@ async function fetchArtistAlbumTracks(token, artistId) {
 
   for (let albumPage = 0; albumPage < Math.ceil(MAX_ALBUMS_PER_ARTIST / ALBUM_PAGE_SIZE); albumPage += 1) {
     const offset = albumPage * ALBUM_PAGE_SIZE
-    let data
-    try {
-      data = await spotifyGet(token, `artists/${artistId}/albums`, {
-        include_groups: 'album,single,compilation',
-        market: MARKET,
-        limit: ALBUM_PAGE_SIZE,
-        offset,
-      })
-    } catch (error) {
-      console.warn(`  albums page ${albumPage + 1} failed (${error instanceof Error ? error.message : error})`)
-      break
-    }
+    const data = await spotifyGet(token, `artists/${artistId}/albums`, {
+      include_groups: 'album,single,compilation',
+      market: MARKET,
+      limit: ALBUM_PAGE_SIZE,
+      offset,
+    })
 
     const albums = data.items ?? []
     if (albums.length === 0) break
@@ -237,15 +270,10 @@ async function fetchArtistAlbumTracks(token, artistId) {
     for (const album of albums) {
       for (let trackPage = 0; trackPage < Math.ceil(MAX_TRACKS_PER_ALBUM / 50); trackPage += 1) {
         const trackOffset = trackPage * 50
-        let albumData
-        try {
-          albumData = await spotifyGet(token, `albums/${album.id}/tracks`, {
-            limit: 50,
-            offset: trackOffset,
-          })
-        } catch {
-          break
-        }
+        const albumData = await spotifyGet(token, `albums/${album.id}/tracks`, {
+          limit: 50,
+          offset: trackOffset,
+        })
 
         const items = albumData.items ?? []
         if (items.length === 0) break
@@ -273,19 +301,13 @@ async function searchArtistTracks(token, artistName) {
     const offset = pageIndex * SEARCH_PAGE_SIZE
     if (offset > MAX_SEARCH_OFFSET) break
 
-    let data
-    try {
-      data = await spotifyGet(token, 'search', {
-        q: `artist:"${escapedName}"`,
-        type: 'track',
-        market: MARKET,
-        limit: SEARCH_PAGE_SIZE,
-        offset,
-      })
-    } catch (error) {
-      console.warn(`  ${artistName}: search page ${pageIndex + 1} failed (${error instanceof Error ? error.message : error})`)
-      break
-    }
+    const data = await spotifyGet(token, 'search', {
+      q: `artist:"${escapedName}"`,
+      type: 'track',
+      market: MARKET,
+      limit: SEARCH_PAGE_SIZE,
+      offset,
+    })
 
     const page = data.tracks?.items ?? []
     if (page.length === 0) break
@@ -315,23 +337,15 @@ async function collectArtistTracks(token, artistName) {
       // Top tracks are optional; album + search pagination are the main sources.
     }
 
-    try {
-      for (const track of await fetchArtistAlbumTracks(token, artist.id)) {
-        if (isOpmSpotifyTrack(track)) {
-          trackById.set(track.id, track)
-        }
+    for (const track of await fetchArtistAlbumTracks(token, artist.id)) {
+      if (isOpmSpotifyTrack(track)) {
+        trackById.set(track.id, track)
       }
-    } catch (error) {
-      console.warn(`  ${artistName}: album scan failed (${error instanceof Error ? error.message : error})`)
     }
   }
 
-  try {
-    for (const track of await searchArtistTracks(token, artistName)) {
-      trackById.set(track.id, track)
-    }
-  } catch (error) {
-    console.warn(`  ${artistName}: search failed (${error instanceof Error ? error.message : error})`)
+  for (const track of await searchArtistTracks(token, artistName)) {
+    trackById.set(track.id, track)
   }
 
   return [...trackById.values()]
@@ -417,20 +431,34 @@ async function main() {
       continue
     }
 
-    const tracks = await collectArtistTracks(token, artistName)
-    let added = 0
+    currentArtistName = artistName
+    console.log(`Processing artist ${artistName}...`)
 
-    for (const track of tracks) {
-      const previews = await resolvePreview(track)
-      if (previews.previewUrl && addTrack(trackMap, track, previews, trackMap.size)) {
-        added += 1
+    try {
+      const tracks = await collectArtistTracks(token, artistName)
+      let added = 0
+
+      for (const track of tracks) {
+        const previews = await resolvePreview(track)
+        if (previews.previewUrl && addTrack(trackMap, track, previews, trackMap.size)) {
+          added += 1
+        }
       }
-    }
 
-    completedArtists.add(artistName)
-    saveCatalog(outputPath, trackMap)
-    saveCheckpoint(checkpointPath, completedArtists)
-    console.log(`  ${artistName}: ${tracks.length} candidates, ${added} added (${trackMap.size} total)`)
+      completedArtists.add(artistName)
+      saveCatalog(outputPath, trackMap)
+      saveCheckpoint(checkpointPath, completedArtists)
+      console.log(`  ${artistName}: ${tracks.length} candidates, ${added} added (${trackMap.size} total)`)
+    } catch (error) {
+      saveCatalog(outputPath, trackMap)
+      saveCheckpoint(checkpointPath, completedArtists)
+      console.error(
+        `Build paused at ${artistName} (${completedArtists.size}/${UNIQUE_OPM_ARTISTS.length} artists done). Checkpoint saved.`,
+      )
+      throw error
+    } finally {
+      currentArtistName = null
+    }
   }
 
   const catalog = saveCatalog(outputPath, trackMap)
@@ -452,5 +480,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error)
-  process.exit(1)
+  process.exit(2)
 })
