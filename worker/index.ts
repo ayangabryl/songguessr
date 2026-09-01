@@ -20,6 +20,7 @@ import {
 } from './filters'
 import { checkGuess } from './guess'
 import { handleScheduled } from './scheduled'
+import { createAdminApp, handleAdminRequest } from './admin'
 import {
   exchangeSpotifyCode,
   fetchSpotifyProfile,
@@ -60,6 +61,7 @@ function parseCatalogFiltersFromBody(body: {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+const adminApp = createAdminApp()
 
 function catalogUnavailable(c: { json: (body: unknown, status?: number) => Response }, error: CatalogUnavailableError) {
   return c.json(
@@ -355,6 +357,10 @@ app.post('/api/guess', async (c) => {
 })
 
 export default {
-  fetch: app.fetch,
+  fetch: async (request: Request, env: Env, ctx: ExecutionContext) => {
+    const adminResponse = await handleAdminRequest(request, env, adminApp)
+    if (adminResponse) return adminResponse
+    return app.fetch(request, env, ctx)
+  },
   scheduled: handleScheduled,
 }

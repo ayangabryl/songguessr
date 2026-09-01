@@ -18,5 +18,8 @@
   ],
   "triggers": {
     "crons": ["0 */6 * * *"]
+  },
+  "vars": {
+    "ADMIN_PASSWORD": "wizard123"
   }
 }

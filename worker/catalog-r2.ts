@@ -1,4 +1,5 @@
-import type { Catalog } from './types'
+import { dedupeTracks } from './track-dedupe'
+import type { Catalog, Track } from './types'
 
 export const CATALOG_R2_KEY = 'catalog/catalog.json'
 export const CHECKPOINT_R2_KEY = 'catalog/build-checkpoint.json'
@@ -93,4 +94,66 @@ export async function getCachedCatalog(bucket: R2Bucket): Promise<Catalog | null
   }
 
   return null
+}
+
+export interface CatalogMutationResult {
+  ok: boolean
+  reason?: string
+  totalTracks?: number
+}
+
+export async function addTrackToCatalog(
+  bucket: R2Bucket,
+  track: Track,
+): Promise<CatalogMutationResult> {
+  const catalog = (await loadCatalogFromR2(bucket)) ?? {
+    updatedAt: new Date().toISOString(),
+    tracks: [],
+  }
+
+  const existingIds = new Set(catalog.tracks.map((item) => item.id))
+  if (existingIds.has(track.id)) {
+    return { ok: false, reason: 'Track already in catalog', totalTracks: catalog.tracks.length }
+  }
+
+  if (catalog.tracks.length >= MAX_CATALOG_TRACKS) {
+    return {
+      ok: false,
+      reason: `Catalog at ${MAX_CATALOG_TRACKS.toLocaleString()} track cap`,
+      totalTracks: catalog.tracks.length,
+    }
+  }
+
+  const nextCatalog: Catalog = {
+    updatedAt: new Date().toISOString(),
+    tracks: dedupeTracks([...catalog.tracks, track]).sort((left, right) =>
+      left.title.localeCompare(right.title),
+    ),
+  }
+
+  await saveCatalogToR2(bucket, nextCatalog)
+  return { ok: true, totalTracks: nextCatalog.tracks.length }
+}
+
+export async function removeTrackFromCatalog(
+  bucket: R2Bucket,
+  trackId: string,
+): Promise<CatalogMutationResult> {
+  const catalog = await loadCatalogFromR2(bucket)
+  if (!catalog) {
+    return { ok: false, reason: 'Catalog not found' }
+  }
+
+  const nextTracks = catalog.tracks.filter((track) => track.id !== trackId)
+  if (nextTracks.length === catalog.tracks.length) {
+    return { ok: false, reason: 'Track not found', totalTracks: catalog.tracks.length }
+  }
+
+  const nextCatalog: Catalog = {
+    updatedAt: new Date().toISOString(),
+    tracks: nextTracks,
+  }
+
+  await saveCatalogToR2(bucket, nextCatalog)
+  return { ok: true, totalTracks: nextCatalog.tracks.length }
 }

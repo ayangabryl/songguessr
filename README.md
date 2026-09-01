@@ -155,6 +155,35 @@ npm run upload:catalog
 
 Use `--force` to overwrite an existing R2 catalog.
 
+## Admin panel
+
+Production admin UI for catalog management and system health monitoring.
+
+| | |
+|---|---|
+| **URL** | `https://songgussr.ayangabryl.workers.dev/admin` |
+| **Password** | `wizard123` (override with `ADMIN_PASSWORD` in `wrangler.jsonc` or `wrangler secret put ADMIN_PASSWORD`) |
+
+Sign in with the password on the login page. Sessions use an httpOnly cookie (7 days).
+
+### Routes
+
+| Route | Description |
+|-------|-------------|
+| `/admin` | Admin SPA (Dashboard, Catalog, Add songs) |
+| `GET /admin/api/status` | Health, track count, R2 timestamps, artist checkpoint, cron schedule |
+| `GET /admin/api/catalog` | Paginated catalog (`?page=1&pageSize=50&q=`) |
+| `GET /admin/api/catalog/search` | Search existing catalog (`?q=`) |
+| `GET /admin/api/spotify/search` | Spotify track search for manual add (`?q=`) |
+| `POST /admin/api/catalog/add` | Add track by Spotify ID (`{ "trackId": "..." }`) |
+| `DELETE /admin/api/catalog/:trackId` | Remove track from catalog |
+| `POST /admin/api/login` | Authenticate (`{ "password": "..." }`) |
+| `POST /admin/api/logout` | Clear session |
+
+Manual adds validate OPM artists via `isOpmSpotifyTrack` and resolve preview URLs before writing to R2.
+
+> **Note:** `admin.songgussr.ayangabryl.workers.dev` requires a custom domain route on Cloudflare. The worker also accepts requests on that host if configured; otherwise use `/admin` on the main workers.dev URL.
+
 ## Scripts
 
 | Command | Description |
