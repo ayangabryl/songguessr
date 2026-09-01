@@ -41,11 +41,15 @@ export async function fetchItunesPreview(
 
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'SonggussrCatalog/1.0 (https://songgussr.ayangabryl.workers.dev)',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       Accept: 'application/json',
     },
   })
-  if (!response.ok) return null
+  if (!response.ok) {
+    console.warn(`[preview] iTunes ${response.status} for "${artist} ${title}"`)
+    return null
+  }
 
   const data = (await response.json()) as {
     results?: { trackName?: string; artistName?: string; previewUrl?: string }[]
@@ -61,7 +65,13 @@ export async function fetchItunesPreview(
     }
   }
 
-  return data.results?.[0]?.previewUrl ?? null
+  const fallback = data.results?.[0]?.previewUrl ?? null
+  if (!fallback) {
+    console.warn(
+      `[preview] iTunes returned ${data.results?.length ?? 0} results without a preview for "${artist} ${title}"`,
+    )
+  }
+  return fallback
 }
 
 export function pickPreviewSources({
