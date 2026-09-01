@@ -147,9 +147,23 @@ export async function initSpotifyPlayer(volume: number) {
   return instance
 }
 
+async function waitForSpotifyPlaybackStarted(timeoutMs = 3000): Promise<void> {
+  if (!player) throw new Error('Spotify player not ready')
+
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const state = await player.getCurrentState()
+    if (state && !state.paused) return
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  throw new Error('Spotify playback did not start in time')
+}
+
 export async function playSpotifyTrack(trackId: string, positionMs: number, volume: number) {
   await initSpotifyPlayer(volume)
   await apiPlay(trackId, positionMs)
+  await waitForSpotifyPlaybackStarted()
 }
 
 function extrapolatePositionMs(state: SpotifyPlaybackState): number {
@@ -158,7 +172,18 @@ function extrapolatePositionMs(state: SpotifyPlaybackState): number {
 }
 
 export async function pauseSpotifyPlayback() {
+  let positionMs: number | undefined
+
   if (player) {
+    try {
+      const state = await player.getCurrentState()
+      if (state) {
+        positionMs = extrapolatePositionMs(state)
+      }
+    } catch {
+      // Fall through to Web API pause.
+    }
+
     try {
       await player.pause()
     } catch {
@@ -169,14 +194,22 @@ export async function pauseSpotifyPlayback() {
   const token = await getValidAccessToken()
   if (!token) return
 
-  const pauseUrl = deviceId
-    ? `https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(deviceId)}`
-    : 'https://api.spotify.com/v1/me/player/pause'
+  const deviceQuery = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ''
 
-  await fetch(pauseUrl, {
+  await fetch(`https://api.spotify.com/v1/me/player/pause${deviceQuery}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}` },
   })
+
+  if (positionMs !== undefined && deviceId) {
+    await fetch(
+      `https://api.spotify.com/v1/me/player/seek?position_ms=${Math.floor(positionMs)}&device_id=${encodeURIComponent(deviceId)}`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    )
+  }
 }
 
 export async function getSpotifyPositionSeconds(): Promise<number> {

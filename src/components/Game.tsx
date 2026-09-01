@@ -148,6 +148,7 @@ export function Game() {
   const spotifyTimelineRef = useRef(0)
   const spotifySegmentStartRef = useRef(0)
   const spotifyPlayStartedAtRef = useRef(0)
+  const spotifyPauseTimeoutRef = useRef<number | null>(null)
   const autoRerollIntervalRef = useRef<number | null>(null)
   const suggestionsRef = useRef<HTMLDivElement | null>(null)
   const startModeRef = useRef<StartMode>(loadStartMode())
@@ -350,6 +351,7 @@ export function Game() {
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current)
       if (rafRef.current) window.cancelAnimationFrame(rafRef.current)
+      if (spotifyPauseTimeoutRef.current) window.clearTimeout(spotifyPauseTimeoutRef.current)
       if (autoRerollIntervalRef.current) window.clearInterval(autoRerollIntervalRef.current)
     }
   }, [])
@@ -427,14 +429,18 @@ export function Game() {
     }))
   }
 
-  function stopClip(options?: { preserveProgress?: boolean }) {
+  async function stopClip(options?: { preserveProgress?: boolean }) {
     const audio = audioRef.current
     playSessionRef.current += 1
     if (audio) {
       audio.pause()
     }
+    if (spotifyPauseTimeoutRef.current) {
+      window.clearTimeout(spotifyPauseTimeoutRef.current)
+      spotifyPauseTimeoutRef.current = null
+    }
     if (usingSpotifyRef.current) {
-      void pauseSpotifyPlayback()
+      await pauseSpotifyPlayback()
       usingSpotifyRef.current = false
     }
     setIsPlaying(false)
@@ -490,7 +496,7 @@ export function Game() {
     if (isPlaying || isLoadingClip) {
       const timelineSeconds = await syncPlaybackPosition()
       const preservedSeconds = Math.min(timelineSeconds, currentStageEndpoint)
-      stopClip({ preserveProgress: true })
+      await stopClip({ preserveProgress: true })
       updateRound(difficulty, {
         unlockedSeconds: preservedSeconds,
         playbackSeconds: preservedSeconds,
@@ -525,6 +531,33 @@ export function Game() {
         spotifySegmentStartRef.current = startTimeline
         spotifyPlayStartedAtRef.current = performance.now()
 
+        let stageEnded = false
+        const endSpotifyStage = () => {
+          if (stageEnded || session !== playSessionRef.current) return
+          stageEnded = true
+          if (spotifyPauseTimeoutRef.current) {
+            window.clearTimeout(spotifyPauseTimeoutRef.current)
+            spotifyPauseTimeoutRef.current = null
+          }
+          if (rafRef.current) {
+            window.cancelAnimationFrame(rafRef.current)
+            rafRef.current = null
+          }
+          void (async () => {
+            await pauseSpotifyPlayback()
+            if (session !== playSessionRef.current) return
+            usingSpotifyRef.current = false
+            setIsPlaying(false)
+            updateRound(difficulty, {
+              unlockedSeconds: stageEndpoint,
+              playbackSeconds: stageEndpoint,
+            })
+          })()
+        }
+
+        const remainingMs = Math.max(0, (stageEndpoint - startTimeline) * 1000)
+        spotifyPauseTimeoutRef.current = window.setTimeout(endSpotifyStage, remainingMs)
+
         const tick = () => {
           if (session !== playSessionRef.current) return
 
@@ -533,16 +566,7 @@ export function Game() {
           updateRound(difficulty, { playbackSeconds: timelineSeconds })
 
           if (timelineSeconds >= stageEndpoint) {
-            void (async () => {
-              await pauseSpotifyPlayback()
-              if (session !== playSessionRef.current) return
-              usingSpotifyRef.current = false
-              setIsPlaying(false)
-              updateRound(difficulty, {
-                unlockedSeconds: stageEndpoint,
-                playbackSeconds: stageEndpoint,
-              })
-            })()
+            endSpotifyStage()
             return
           }
 
