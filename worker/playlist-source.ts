@@ -235,7 +235,48 @@ export async function fetchPlaylistTracks(
   }
 }
 
+function unescapeArchiveText(value: string): string {
+  return value.replace(/\\([\\`*_{}\[\]()#+\-.!])/g, '$1').trim()
+}
+
+function parseArchiveTracks(text: string): SpotifyTrackRef[] {
+  const tracks: SpotifyTrackRef[] = []
+  const seen = new Set<string>()
+  const rowPattern =
+    /\|\s*\d+\s*\|\s*\[([^\]]+)\]\(https:\/\/open\.spotify\.com\/track\/([A-Za-z0-9]+)\)\s*\|\s*([^|]+)\|/g
+
+  for (const match of text.matchAll(rowPattern)) {
+    const title = unescapeArchiveText(match[1] ?? '')
+    const id = match[2]
+    const artistsCell = match[3] ?? ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+
+    const artists: { id?: string; name: string }[] = []
+    const artistPattern = /\[([^\]]+)\]\(https:\/\/open\.spotify\.com\/artist\/([A-Za-z0-9]+)\)/g
+    for (const artistMatch of artistsCell.matchAll(artistPattern)) {
+      artists.push({
+        id: artistMatch[2],
+        name: unescapeArchiveText(artistMatch[1] ?? ''),
+      })
+    }
+
+    tracks.push({
+      id,
+      name: title,
+      artists,
+    })
+  }
+
+  return tracks
+}
+
 function parseArchiveTrackIds(text: string): string[] {
+  const fromRows = parseArchiveTracks(text)
+    .map((track) => track.id)
+    .filter((id): id is string => Boolean(id))
+  if (fromRows.length > 0) return fromRows
+
   const ids: string[] = []
   const seen = new Set<string>()
   const pattern = /open\.spotify\.com\/track\/([A-Za-z0-9]+)/g
@@ -299,13 +340,30 @@ async function fetchPlaylistFromArchive(
     throw new Error(`Archive fallback failed: ${response.status}`)
   }
 
-  const trackIds = parseArchiveTrackIds(await response.text())
-  const tracks = await fetchFullTracksByIds(spotifyGet, trackIds, market)
+  const markdown = await response.text()
+  const archiveTracks = parseArchiveTracks(markdown)
+  const trackIds = archiveTracks.map((track) => track.id).filter((id): id is string => Boolean(id))
+
+  let tracks: SpotifyTrackRef[] = []
+  try {
+    tracks = await fetchFullTracksByIds(spotifyGet, trackIds, market)
+  } catch (error) {
+    const status = (error as { status?: number }).status
+    if (status !== 403 && status !== 404 && status !== 429) {
+      throw error
+    }
+    console.warn('[playlist] Track hydration blocked; using archive title/artist metadata.')
+  }
+
+  if (tracks.length === 0 && archiveTracks.length > 0) {
+    console.warn('[playlist] Using archive markdown metadata without Spotify track hydration.')
+    tracks = archiveTracks
+  }
 
   return {
     playlistId: OPM_PLAYLIST_ID,
     playlistName: OPM_PLAYLIST_NAME,
-    totalTracks: trackIds.length,
+    totalTracks: archiveTracks.length || trackIds.length,
     tracks,
     source: 'archive-fallback',
   }

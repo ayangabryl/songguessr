@@ -278,7 +278,42 @@ async function fetchFullTracks(token, trackIds, market = MARKET) {
   return tracks
 }
 
+function unescapeArchiveText(value) {
+  return value.replace(/\\([\\`*_{}\[\]()#+\-.!])/g, '$1').trim()
+}
+
+function parseArchiveTracks(text) {
+  const tracks = []
+  const seen = new Set()
+  const rowPattern =
+    /\|\s*\d+\s*\|\s*\[([^\]]+)\]\(https:\/\/open\.spotify\.com\/track\/([A-Za-z0-9]+)\)\s*\|\s*([^|]+)\|/g
+
+  for (const match of text.matchAll(rowPattern)) {
+    const title = unescapeArchiveText(match[1] ?? '')
+    const id = match[2]
+    const artistsCell = match[3] ?? ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+
+    const artists = []
+    const artistPattern = /\[([^\]]+)\]\(https:\/\/open\.spotify\.com\/artist\/([A-Za-z0-9]+)\)/g
+    for (const artistMatch of artistsCell.matchAll(artistPattern)) {
+      artists.push({
+        id: artistMatch[2],
+        name: unescapeArchiveText(artistMatch[1] ?? ''),
+      })
+    }
+
+    tracks.push({ id, name: title, artists })
+  }
+
+  return tracks
+}
+
 function parseArchiveTrackIds(text) {
+  const fromRows = parseArchiveTracks(text).map((track) => track.id).filter(Boolean)
+  if (fromRows.length > 0) return fromRows
+
   const ids = []
   const seen = new Set()
   const pattern = /open\.spotify\.com\/track\/([A-Za-z0-9]+)/g
@@ -304,13 +339,29 @@ async function fetchPlaylistFromArchive(token, market = MARKET) {
     throw new Error(`Archive fallback failed: ${response.status}`)
   }
 
-  const trackIds = parseArchiveTrackIds(await response.text())
-  const tracks = await fetchFullTracks(token, trackIds, market)
+  const markdown = await response.text()
+  const archiveTracks = parseArchiveTracks(markdown)
+  const trackIds = archiveTracks.map((track) => track.id).filter(Boolean)
+
+  let tracks = []
+  try {
+    tracks = await fetchFullTracks(token, trackIds, market)
+  } catch (error) {
+    if (error.status !== 403 && error.status !== 404 && error.status !== 429) {
+      throw error
+    }
+    console.warn('Track hydration blocked; using archive title/artist metadata.')
+  }
+
+  if (tracks.length === 0 && archiveTracks.length > 0) {
+    console.warn('Using archive markdown metadata without Spotify track hydration.')
+    tracks = archiveTracks
+  }
 
   return {
     playlistId: OPM_PLAYLIST_ID,
     playlistName: OPM_PLAYLIST_NAME,
-    totalTracks: trackIds.length,
+    totalTracks: archiveTracks.length || trackIds.length,
     tracks,
     source: 'archive-fallback',
   }
