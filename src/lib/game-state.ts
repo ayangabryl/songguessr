@@ -14,9 +14,9 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   impossible: 'Impossible',
 }
 
-const STAGES_KEY = 'songless-stages-v2'
-const START_MODE_KEY = 'songless-start-mode'
-const VOLUME_KEY = 'songless-volume-v2'
+const STAGES_KEY = 'songgussr-stages-v2'
+const START_MODE_KEY = 'songgussr-start-mode'
+const VOLUME_KEY = 'songgussr-volume-v2'
 
 export function loadEnabledStages(): number[] {
   try {

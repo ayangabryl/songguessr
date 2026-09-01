@@ -1,6 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "opm-songless",
+  // Worker name for branding. R2 bucket_name stays opm-songless-audio (existing Cloudflare resource).
+  // If production was deployed as opm-songless, point your custom domain at this worker or redeploy.
+  "name": "songgussr",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-01-01",
   "compatibility_flags": ["nodejs_compat"],

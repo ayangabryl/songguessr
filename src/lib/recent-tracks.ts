@@ -1,4 +1,4 @@
-const RECENT_TRACKS_KEY = 'songless-recent-tracks-v2'
+const RECENT_TRACKS_KEY = 'songgussr-recent-tracks-v2'
 const LEGACY_RECENT_TRACKS_KEY = 'songless-recent-track-ids'
 const MAX_RECENT_TRACKS = 40
 

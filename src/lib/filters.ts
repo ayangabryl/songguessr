@@ -27,8 +27,8 @@ export const GENRE_LABELS: Record<GenreFilter | 'all', string> = {
   other: 'Other / Unclassified',
 }
 
-const ERA_KEY = 'songless-era-filter'
-const GENRE_KEY = 'songless-genre-filter'
+const ERA_KEY = 'songgussr-era-filter'
+const GENRE_KEY = 'songgussr-genre-filter'
 
 export function loadEraFilters(): EraFilter[] {
   try {

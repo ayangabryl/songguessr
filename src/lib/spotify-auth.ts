@@ -1,5 +1,5 @@
-const STORAGE_KEY = 'songless-spotify-session'
-const VERIFIER_KEY = 'songless-spotify-pkce'
+const STORAGE_KEY = 'songgussr-spotify-session'
+const VERIFIER_KEY = 'songgussr-spotify-pkce'
 
 export const SPOTIFY_SCOPES = ['streaming', 'user-read-email', 'user-read-private'].join(' ')
 
@@ -79,7 +79,7 @@ export async function buildAuthorizeUrl(clientId: string): Promise<string> {
   saveCodeVerifier(verifier)
   const challenge = await createCodeChallenge(verifier)
   const state = crypto.randomUUID()
-  sessionStorage.setItem('songless-spotify-state', state)
+  sessionStorage.setItem('songgussr-spotify-state', state)
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -156,9 +156,9 @@ export async function handleSpotifyOAuthCallback(): Promise<SpotifySession | nul
   const error = url.searchParams.get('error')
   if (!code && !error) return null
 
-  const savedState = sessionStorage.getItem('songless-spotify-state')
+  const savedState = sessionStorage.getItem('songgussr-spotify-state')
   const returnedState = url.searchParams.get('state')
-  sessionStorage.removeItem('songless-spotify-state')
+  sessionStorage.removeItem('songgussr-spotify-state')
 
   if (error) {
     url.searchParams.delete('error')

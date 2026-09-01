@@ -1,6 +1,6 @@
-# OPM Songless
+# Songgussr
 
-Guess the Filipino (OPM) song from short Spotify preview clips — Songless-style, built for Cloudflare Workers.
+Guess the Filipino (OPM) song from short Spotify preview clips — built for Cloudflare Workers.
 
 ## Setup
 
@@ -40,6 +40,8 @@ npm run dev
 ```bash
 npm run deploy
 ```
+
+The Worker is named `songgussr` in `wrangler.jsonc`. The R2 audio bucket remains `opm-songless-audio` (existing Cloudflare resource). If you previously deployed as `opm-songless`, update your custom domain to the new worker or remove the old deployment after migrating.
 
 ## Hosted audio on R2 (optional)
 
