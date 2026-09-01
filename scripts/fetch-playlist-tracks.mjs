@@ -14,7 +14,7 @@ export const OPM_PLAYLIST_NAME = 'Top 50 - Philippines'
 
 /** Fallback when Spotify blocks editorial playlist access (client credentials). */
 const PLAYLIST_ARCHIVE_URL =
-  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/plain/37i9dQZEVXbNBz9cRCSFkY'
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty/37i9dQZEVXbNBz9cRCSFkY.md'
 
 const MARKET = 'PH'
 const API_DELAY_MS = 750
@@ -278,52 +278,25 @@ async function fetchFullTracks(token, trackIds, market = MARKET) {
   return tracks
 }
 
-function parseArchivePlainText(text) {
-  const entries = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('Your daily update')) continue
-    if (trimmed === OPM_PLAYLIST_NAME) continue
+function parseArchiveTrackIds(text) {
+  const ids = []
+  const seen = new Set()
+  const pattern = /open\.spotify\.com\/track\/([A-Za-z0-9]+)/g
 
-    const parts = trimmed.split(' -- ')
-    if (parts.length < 2) continue
-
-    entries.push({
-      title: parts[0].trim(),
-      artist: parts[1].trim(),
-    })
-  }
-  return entries
-}
-
-async function searchTrackByTitleArtist(token, title, artist, market = MARKET) {
-  const escapedTitle = title.replace(/"/g, '\\"')
-  const primaryArtist = artist.split(',')[0]?.trim() ?? artist
-  const escapedArtist = primaryArtist.replace(/"/g, '\\"')
-
-  const data = await spotifyGet(token, 'search', {
-    q: `track:"${escapedTitle}" artist:"${escapedArtist}"`,
-    type: 'track',
-    market,
-    limit: 5,
-  })
-
-  const items = data.tracks?.items ?? []
-  const titleNorm = normalizeName(title)
-
-  for (const track of items) {
-    const trackTitleNorm = normalizeName(track.name ?? '')
-    if (trackTitleNorm === titleNorm || trackTitleNorm.includes(titleNorm)) {
-      return track
+  for (const match of text.matchAll(pattern)) {
+    const id = match[1]
+    if (!seen.has(id)) {
+      seen.add(id)
+      ids.push(id)
     }
   }
 
-  return items[0] ?? null
+  return ids
 }
 
 async function fetchPlaylistFromArchive(token, market = MARKET) {
   console.warn(
-    'Playlist API unavailable for editorial charts; using archive fallback + track search.',
+    'Playlist API unavailable for editorial charts; using archive track IDs.',
   )
 
   const response = await fetch(PLAYLIST_ARCHIVE_URL)
@@ -331,18 +304,13 @@ async function fetchPlaylistFromArchive(token, market = MARKET) {
     throw new Error(`Archive fallback failed: ${response.status}`)
   }
 
-  const entries = parseArchivePlainText(await response.text())
-  const tracks = []
-
-  for (const entry of entries) {
-    const track = await searchTrackByTitleArtist(token, entry.title, entry.artist, market)
-    if (track?.id) tracks.push(track)
-  }
+  const trackIds = parseArchiveTrackIds(await response.text())
+  const tracks = await fetchFullTracks(token, trackIds, market)
 
   return {
     playlistId: OPM_PLAYLIST_ID,
     playlistName: OPM_PLAYLIST_NAME,
-    totalTracks: entries.length,
+    totalTracks: trackIds.length,
     tracks,
     source: 'archive-fallback',
   }

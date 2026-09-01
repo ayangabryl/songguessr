@@ -11,10 +11,9 @@ export const OPM_PLAYLIST_ID = '37i9dQZEVXbNBz9cRCSFkY'
 export const OPM_PLAYLIST_NAME = 'Top 50 - Philippines'
 
 const PLAYLIST_ARCHIVE_URL =
-  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/plain/37i9dQZEVXbNBz9cRCSFkY'
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty/37i9dQZEVXbNBz9cRCSFkY.md'
 
 const MARKET = 'PH'
-const API_DELAY_MS = 750
 
 const NON_OPM_BLOCKLIST = new Set(
   [
@@ -173,10 +172,6 @@ export function isLikelyOpmPlaylistTrack(
   })
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
-}
-
 export interface PlaylistFetchResult {
   playlistId: string
   playlistName: string
@@ -240,55 +235,45 @@ export async function fetchPlaylistTracks(
   }
 }
 
-function parseArchivePlainText(text: string) {
-  const entries: { title: string; artist: string }[] = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('Your daily update')) continue
-    if (trimmed === OPM_PLAYLIST_NAME) continue
+function parseArchiveTrackIds(text: string): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  const pattern = /open\.spotify\.com\/track\/([A-Za-z0-9]+)/g
 
-    const parts = trimmed.split(' -- ')
-    if (parts.length < 2) continue
-
-    entries.push({
-      title: parts[0].trim(),
-      artist: parts[1].trim(),
-    })
+  for (const match of text.matchAll(pattern)) {
+    const id = match[1]
+    if (!seen.has(id)) {
+      seen.add(id)
+      ids.push(id)
+    }
   }
-  return entries
+
+  return ids
 }
 
-async function searchTrackByTitleArtist(
+async function fetchFullTracksByIds(
   spotifyGet: (
     path: string,
     params?: Record<string, string | number | undefined>,
   ) => Promise<unknown>,
-  title: string,
-  artist: string,
+  trackIds: string[],
   market = MARKET,
-): Promise<SpotifyTrackRef | null> {
-  const escapedTitle = title.replace(/"/g, '\\"')
-  const primaryArtist = artist.split(',')[0]?.trim() ?? artist
-  const escapedArtist = primaryArtist.replace(/"/g, '\\"')
+): Promise<SpotifyTrackRef[]> {
+  const tracks: SpotifyTrackRef[] = []
 
-  const data = (await spotifyGet('search', {
-    q: `track:"${escapedTitle}" artist:"${escapedArtist}"`,
-    type: 'track',
-    market,
-    limit: 5,
-  })) as { tracks?: { items?: SpotifyTrackRef[] } }
+  for (let index = 0; index < trackIds.length; index += 50) {
+    const batch = trackIds.slice(index, index + 50)
+    const data = (await spotifyGet('tracks', {
+      ids: batch.join(','),
+      market,
+    })) as { tracks?: (SpotifyTrackRef | null)[] }
 
-  const items = data.tracks?.items ?? []
-  const titleNorm = normalizeName(title)
-
-  for (const track of items) {
-    const trackTitleNorm = normalizeName(track.name ?? '')
-    if (trackTitleNorm === titleNorm || trackTitleNorm.includes(titleNorm)) {
-      return track
+    for (const track of data.tracks ?? []) {
+      if (track?.id) tracks.push(track)
     }
   }
 
-  return items[0] ?? null
+  return tracks
 }
 
 async function fetchPlaylistFromArchive(
@@ -298,32 +283,20 @@ async function fetchPlaylistFromArchive(
   ) => Promise<unknown>,
   market = MARKET,
 ): Promise<PlaylistFetchResult> {
-  console.warn(
-    '[playlist] Editorial playlist blocked; using archive fallback + track search.',
-  )
+  console.warn('[playlist] Editorial playlist blocked; using archive track IDs.')
 
   const response = await fetch(PLAYLIST_ARCHIVE_URL)
   if (!response.ok) {
     throw new Error(`Archive fallback failed: ${response.status}`)
   }
 
-  const entries = parseArchivePlainText(await response.text())
-  const tracks: SpotifyTrackRef[] = []
-
-  for (const entry of entries) {
-    const track = await searchTrackByTitleArtist(
-      spotifyGet,
-      entry.title,
-      entry.artist,
-      market,
-    )
-    if (track?.id) tracks.push(track)
-  }
+  const trackIds = parseArchiveTrackIds(await response.text())
+  const tracks = await fetchFullTracksByIds(spotifyGet, trackIds, market)
 
   return {
     playlistId: OPM_PLAYLIST_ID,
     playlistName: OPM_PLAYLIST_NAME,
-    totalTracks: entries.length,
+    totalTracks: trackIds.length,
     tracks,
     source: 'archive-fallback',
   }
