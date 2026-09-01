@@ -42,6 +42,11 @@ export interface PlaySpotifyOptions {
   waitForStart?: boolean
 }
 
+export interface PlaySpotifyResult {
+  started: boolean
+  replayed: boolean
+}
+
 let sdkPromise: Promise<void> | null = null
 let player: SpotifyPlayer | null = null
 let deviceId: string | null = null
@@ -280,39 +285,86 @@ async function activatePlayer(instance: SpotifyPlayer): Promise<void> {
   }
 }
 
-async function waitUntilPlaying(timeoutMs: number): Promise<void> {
-  if (isSpotifyPlaying()) return
+const FIRST_PLAY_WAIT_MS = 5000
+const REPLAY_WAIT_MS = 1500
+
+function stateMatchesTrack(state: SpotifyPlaybackState, trackId: string): boolean {
+  const uri = state.track_window.current_track?.uri
+  if (!uri) return true
+  return uri === trackUri(trackId)
+}
+
+function isActivelyPlaying(state: SpotifyPlaybackState | null, trackId: string): boolean {
+  return Boolean(state && !state.paused && stateMatchesTrack(state, trackId))
+}
+
+/** Resolve when SDK reports playing AND position is advancing. Never throws; false on timeout. */
+async function waitUntilPlaying(
+  trackId: string,
+  fromPositionMs: number,
+  timeoutMs: number,
+): Promise<boolean> {
+  let seenPlayingPosition: number | null = null
+
+  const isConfirmed = (state: SpotifyPlaybackState | null): boolean => {
+    if (!state || !isActivelyPlaying(state, trackId)) return false
+
+    const position = state.position
+    // Still loading/seeking from 0 (or an older track position) toward the requested start.
+    if (position + 500 < fromPositionMs) return false
+
+    if (seenPlayingPosition === null) {
+      seenPlayingPosition = position
+      return false
+    }
+
+    return position > seenPlayingPosition
+  }
 
   if (player) {
     try {
       const state = await player.getCurrentState()
       if (state) {
         notifyStateListeners(state)
-        if (!state.paused) return
+        if (isConfirmed(state)) return true
       }
     } catch {
       // SDK state read is best-effort.
     }
   }
 
-  await new Promise<void>((resolve, reject) => {
+  return await new Promise<boolean>((resolve) => {
     let settled = false
 
-    const finish = (error?: Error) => {
+    const finish = (started: boolean) => {
       if (settled) return
       settled = true
       window.clearTimeout(timeoutId)
+      window.clearInterval(pollId)
       unsubscribe()
-      if (error) reject(error)
-      else resolve()
+      resolve(started)
     }
 
     const unsubscribe = subscribeState((state) => {
-      if (state && !state.paused) finish()
+      if (isConfirmed(state)) finish(true)
     })
 
+    const pollId = window.setInterval(() => {
+      if (!player || settled) return
+      void player
+        .getCurrentState()
+        .then((state) => {
+          if (!state || settled) return
+          notifyStateListeners(state)
+          if (isConfirmed(state)) finish(true)
+        })
+        .catch(() => {
+          // Poll is best-effort.
+        })
+    }, 80)
+
     const timeoutId = window.setTimeout(() => {
-      finish(new Error('Spotify playback did not start in time'))
+      finish(false)
     }, timeoutMs)
   })
 }
@@ -367,7 +419,7 @@ export async function playSpotifyTrack(
   positionMs: number,
   volume: number,
   options: PlaySpotifyOptions = {},
-) {
+): Promise<PlaySpotifyResult> {
   const waitForStart = options.waitForStart ?? true
   const instance = await ensurePlayer(volume)
   await activatePlayer(instance)
@@ -377,10 +429,9 @@ export async function playSpotifyTrack(
   if (canResume) {
     try {
       await resumeLoadedTrack(positionMs)
-      if (waitForStart) {
-        await waitUntilPlaying(1500)
-      }
-      return
+      if (!waitForStart) return { started: true, replayed: true }
+      const started = await waitUntilPlaying(trackId, positionMs, REPLAY_WAIT_MS)
+      return { started, replayed: true }
     } catch {
       lastPlayedTrackId = null
     }
@@ -388,9 +439,9 @@ export async function playSpotifyTrack(
 
   await warmupSpotifyPlayer(volume)
   await apiPlay(trackId, positionMs)
-  if (waitForStart) {
-    await waitUntilPlaying(4000)
-  }
+  if (!waitForStart) return { started: true, replayed: false }
+  const started = await waitUntilPlaying(trackId, positionMs, FIRST_PLAY_WAIT_MS)
+  return { started, replayed: false }
 }
 
 export async function pauseSpotifyPlayback() {
