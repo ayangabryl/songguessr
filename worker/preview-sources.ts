@@ -39,7 +39,12 @@ export async function fetchItunesPreview(
   url.searchParams.set('country', market)
   url.searchParams.set('limit', '5')
 
-  const response = await fetch(url)
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'SonggussrCatalog/1.0 (https://songgussr.ayangabryl.workers.dev)',
+      Accept: 'application/json',
+    },
+  })
   if (!response.ok) return null
 
   const data = (await response.json()) as {

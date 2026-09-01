@@ -485,6 +485,7 @@ async function processGenrePlaylists(
       )
 
       let addedForPlaylist = 0
+      let skippedNoPreview = 0
       for (const track of result.newOpmTracks) {
         if (trackMap.size >= MAX_CATALOG_TRACKS) break
         if (previewResolves >= previewBudget) break
@@ -501,6 +502,8 @@ async function processGenrePlaylists(
         if (addTrack(trackMap, track, previews, trackMap.size)) {
           addedForPlaylist += 1
           tracksAdded += 1
+        } else if (!previews.previewUrl) {
+          skippedNoPreview += 1
         }
       }
 
@@ -508,7 +511,9 @@ async function processGenrePlaylists(
       checkpoint.genrePlaylistCursor = (startCursor + step + 1) % discovered.playlists.length
       checkpoint.genreSyncedAt = new Date().toISOString()
       await persistProgress(env, trackMap, checkpoint)
-      log(`Playlist "${result.playlist.name}": ${addedForPlaylist} tracks added`)
+      log(
+        `Playlist "${result.playlist.name}": ${addedForPlaylist} tracks added, ${skippedNoPreview} skipped (no official preview)`,
+      )
     } catch (error) {
       const status = spotifyErrorStatus(error)
       log(
