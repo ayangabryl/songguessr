@@ -481,7 +481,7 @@ function AddSongsPanel() {
               items={[
                 { label: 'Added', value: playlistResult.added, tone: playlistResult.added > 0 ? 'ok' : undefined },
                 { label: 'Existing', value: playlistResult.skippedExisting },
-                { label: 'Not OPM', value: playlistResult.skippedNonOpm },
+                { label: 'Not on our artist list', value: playlistResult.skippedNonOpm },
                 { label: 'No preview', value: playlistResult.skippedNoPreview, tone: playlistResult.skippedNoPreview > 0 ? 'warn' : undefined },
                 {
                   label: 'Errors',
@@ -498,6 +498,11 @@ function AddSongsPanel() {
                   : playlistResult.source === 'embed-fallback'
                     ? ' · embed'
                     : ''}
+              </p>
+            ) : null}
+            {playlistResult.skippedNonOpm > 0 ? (
+              <p className="panel-note">
+                Skipped tracks are missing from our artist list — Spotify has no country-of-origin field.
               </p>
             ) : null}
             {playlistResult.errors[0] ? (
@@ -549,7 +554,7 @@ function AddSongsPanel() {
                   {track.isOpm ? (
                     <span className="badge ok">OPM</span>
                   ) : (
-                    <span className="badge warn">Not OPM</span>
+                    <span className="badge warn">Not on our artist list</span>
                   )}
                   {track.inCatalog ? (
                     <span className="badge muted">In catalog</span>

@@ -433,7 +433,7 @@ function parseEmbedTracks(entity) {
 }
 
 async function fetchPlaylistFromEmbed(token, playlistId, market = MARKET) {
-  console.warn(`Archive miss for ${playlistId}; trying public embed snapshot.`)
+  console.warn(`Trying public embed snapshot for ${playlistId}.`)
 
   const response = await fetch(
     `https://open.spotify.com/embed/playlist/${encodeURIComponent(playlistId)}`,
@@ -475,21 +475,21 @@ async function fetchPlaylistFromEmbed(token, playlistId, market = MARKET) {
 
 async function fetchPlaylistViaPublicFallbacks(token, playlistId, market = MARKET) {
   try {
-    return await fetchPlaylistFromArchive(token, playlistId, market)
-  } catch (archiveError) {
-    console.warn(
-      `Archive fallback failed for ${playlistId}: ${
-        archiveError instanceof Error ? archiveError.message : String(archiveError)
-      }`,
-    )
-  }
-
-  try {
     return await fetchPlaylistFromEmbed(token, playlistId, market)
   } catch (embedError) {
     console.warn(
       `Embed fallback failed for ${playlistId}: ${
         embedError instanceof Error ? embedError.message : String(embedError)
+      }`,
+    )
+  }
+
+  try {
+    return await fetchPlaylistFromArchive(token, playlistId, market)
+  } catch (archiveError) {
+    console.warn(
+      `Archive fallback failed for ${playlistId}: ${
+        archiveError instanceof Error ? archiveError.message : String(archiveError)
       }`,
     )
   }
@@ -501,7 +501,7 @@ async function fetchPlaylistViaPublicFallbacks(token, playlistId, market = MARKE
 
 /**
  * Paginate all tracks from a Spotify playlist.
- * Falls back to archive, then public embed, when editorial playlists are forbidden (403/404).
+ * Falls back to public embed, then archive, when editorial playlists are forbidden (403/404).
  */
 export async function fetchPlaylistTracks(token, playlistId, market = MARKET) {
   try {

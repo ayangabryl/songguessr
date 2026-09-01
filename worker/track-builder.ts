@@ -47,7 +47,7 @@ export async function buildTrackFromSpotify(
   }
 
   if (!isOpmSpotifyTrack(spotifyTrack)) {
-    return { track: null, reason: 'Track is not by an OPM artist' }
+    return { track: null, reason: 'Artist is not on our OPM list' }
   }
 
   const artist = (spotifyTrack.artists ?? []).map((item) => item.name).join(', ')

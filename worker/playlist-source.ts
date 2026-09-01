@@ -281,21 +281,21 @@ async function fetchPlaylistViaPublicFallbacks(
   market = MARKET,
 ): Promise<PlaylistFetchResult> {
   try {
-    return await fetchPlaylistFromArchive(spotifyGet, playlistId, market)
-  } catch (archiveError) {
-    console.warn(
-      `[playlist] Archive fallback failed for ${playlistId}: ${
-        archiveError instanceof Error ? archiveError.message : String(archiveError)
-      }`,
-    )
-  }
-
-  try {
     return await fetchPlaylistFromEmbed(spotifyGet, playlistId, market)
   } catch (embedError) {
     console.warn(
       `[playlist] Embed fallback failed for ${playlistId}: ${
         embedError instanceof Error ? embedError.message : String(embedError)
+      }`,
+    )
+  }
+
+  try {
+    return await fetchPlaylistFromArchive(spotifyGet, playlistId, market)
+  } catch (archiveError) {
+    console.warn(
+      `[playlist] Archive fallback failed for ${playlistId}: ${
+        archiveError instanceof Error ? archiveError.message : String(archiveError)
       }`,
     )
   }
@@ -558,7 +558,7 @@ async function fetchPlaylistFromEmbed(
   playlistId: string,
   market = MARKET,
 ): Promise<PlaylistFetchResult> {
-  console.warn(`[playlist] Archive miss for ${playlistId}; trying public embed snapshot.`)
+  console.warn(`[playlist] Trying public embed snapshot for ${playlistId}.`)
 
   const response = await fetch(
     `https://open.spotify.com/embed/playlist/${encodeURIComponent(playlistId)}`,
