@@ -9,11 +9,36 @@ import {
 /** Philippines Top 50 — high-priority trending OPM source. */
 export const OPM_PLAYLIST_ID = '37i9dQZEVXbNBz9cRCSFkY'
 export const OPM_PLAYLIST_NAME = 'Top 50 - Philippines'
+export const MAX_PLAYLIST_TRACKS = 20_000
 
-const PLAYLIST_ARCHIVE_URL =
-  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty/37i9dQZEVXbNBz9cRCSFkY.md'
+const PLAYLIST_ARCHIVE_BASE =
+  'https://raw.githubusercontent.com/mackorone/spotify-playlist-archive/main/playlists/pretty'
 
 const MARKET = 'PH'
+
+export function parseSpotifyPlaylistId(input: string): string | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+
+  try {
+    const url = new URL(trimmed)
+    const match = url.pathname.match(/\/playlist\/([A-Za-z0-9]+)/)
+    if (match?.[1]) return match[1]
+  } catch {
+    // Not a URL — try URI or raw ID below.
+  }
+
+  const uriMatch = trimmed.match(/^spotify:playlist:([A-Za-z0-9]+)$/i)
+  if (uriMatch?.[1]) return uriMatch[1]
+
+  if (/^[A-Za-z0-9]{10,34}$/.test(trimmed)) return trimmed
+
+  return null
+}
+
+function playlistArchiveUrl(playlistId: string): string {
+  return `${PLAYLIST_ARCHIVE_BASE}/${encodeURIComponent(playlistId)}.md`
+}
 
 const NON_OPM_BLOCKLIST = new Set(
   [
@@ -198,7 +223,7 @@ export async function fetchPlaylistTracks(
     let offset = 0
     const limit = 100
 
-    while (true) {
+    while (tracks.length < MAX_PLAYLIST_TRACKS) {
       const page = (await spotifyGet(`playlists/${playlistId}/tracks`, {
         market,
         limit,
@@ -213,6 +238,7 @@ export async function fetchPlaylistTracks(
       for (const item of items) {
         const track = item?.track
         if (track?.id) tracks.push(track)
+        if (tracks.length >= MAX_PLAYLIST_TRACKS) break
       }
 
       offset += items.length
@@ -221,15 +247,24 @@ export async function fetchPlaylistTracks(
 
     return {
       playlistId,
-      playlistName: playlist.name ?? OPM_PLAYLIST_NAME,
+      playlistName: playlist.name ?? (playlistId === OPM_PLAYLIST_ID ? OPM_PLAYLIST_NAME : playlistId),
       totalTracks: playlist.tracks?.total ?? tracks.length,
       tracks,
       source: 'spotify-api',
     }
   } catch (error) {
     const status = (error as { status?: number }).status
-    if (playlistId === OPM_PLAYLIST_ID && (status === 403 || status === 404)) {
-      return fetchPlaylistFromArchive(spotifyGet, market)
+    if (status === 403 || status === 404) {
+      try {
+        return await fetchPlaylistFromArchive(spotifyGet, playlistId, market)
+      } catch (archiveError) {
+        console.warn(
+          `[playlist] Archive fallback failed for ${playlistId}: ${
+            archiveError instanceof Error ? archiveError.message : String(archiveError)
+          }`,
+        )
+        throw error
+      }
     }
     throw error
   }
@@ -331,17 +366,18 @@ async function fetchPlaylistFromArchive(
     path: string,
     params?: Record<string, string | number | undefined>,
   ) => Promise<unknown>,
+  playlistId: string,
   market = MARKET,
 ): Promise<PlaylistFetchResult> {
-  console.warn('[playlist] Editorial playlist blocked; using archive track IDs.')
+  console.warn(`[playlist] Editorial playlist ${playlistId} blocked; using archive track IDs.`)
 
-  const response = await fetch(PLAYLIST_ARCHIVE_URL)
+  const response = await fetch(playlistArchiveUrl(playlistId))
   if (!response.ok) {
     throw new Error(`Archive fallback failed: ${response.status}`)
   }
 
   const markdown = await response.text()
-  const archiveTracks = parseArchiveTracks(markdown)
+  const archiveTracks = parseArchiveTracks(markdown).slice(0, MAX_PLAYLIST_TRACKS)
   const trackIds = archiveTracks.map((track) => track.id).filter((id): id is string => Boolean(id))
 
   let tracks: SpotifyTrackRef[] = []
@@ -361,10 +397,10 @@ async function fetchPlaylistFromArchive(
   }
 
   return {
-    playlistId: OPM_PLAYLIST_ID,
-    playlistName: OPM_PLAYLIST_NAME,
+    playlistId,
+    playlistName: playlistId === OPM_PLAYLIST_ID ? OPM_PLAYLIST_NAME : playlistId,
     totalTracks: archiveTracks.length || trackIds.length,
-    tracks,
+    tracks: tracks.slice(0, MAX_PLAYLIST_TRACKS),
     source: 'archive-fallback',
   }
 }

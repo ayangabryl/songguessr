@@ -82,6 +82,12 @@ export async function fetchItunesPreview(
   return fallback
 }
 
+export function isOfficialPreviewUrl(url: string | null | undefined): url is string {
+  if (!url) return false
+  const lower = url.toLowerCase()
+  return !lower.includes('dzcdn.net') && !lower.includes('deezer.com')
+}
+
 export function pickPreviewSources({
   spotify = null,
   itunes = null,
@@ -93,8 +99,10 @@ export function pickPreviewSources({
   hookPreviewUrl?: string
   hookStartSeconds: number
 } {
-  const introPreviewUrl = itunes ?? spotify ?? null
-  const hookPreviewUrl = itunes ?? spotify ?? null
+  const officialSpotify = isOfficialPreviewUrl(spotify) ? spotify : null
+  const officialItunes = isOfficialPreviewUrl(itunes) ? itunes : null
+  const introPreviewUrl = officialItunes ?? officialSpotify ?? null
+  const hookPreviewUrl = officialItunes ?? officialSpotify ?? null
 
   if (!introPreviewUrl) {
     return {
@@ -132,10 +140,11 @@ export async function resolvePreviewSourcesForTrack({
   hookPreviewUrl?: string
   hookStartSeconds: number
 }> {
-  if (spotifyPreviewUrl) {
-    return pickPreviewSources({ spotify: spotifyPreviewUrl })
+  const officialSpotify = isOfficialPreviewUrl(spotifyPreviewUrl) ? spotifyPreviewUrl : null
+  if (officialSpotify) {
+    return pickPreviewSources({ spotify: officialSpotify })
   }
 
   const itunes = await fetchItunesPreview(title, artist)
-  return pickPreviewSources({ spotify: spotifyPreviewUrl, itunes })
+  return pickPreviewSources({ spotify: officialSpotify, itunes })
 }

@@ -11,6 +11,7 @@ import { CatalogUnavailableError, getCatalog, searchCatalog } from './catalog'
 import { isOpmSpotifyTrack, UNIQUE_OPM_ARTISTS } from './opm-artists'
 import { fetchSpotifyTrack, getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
 import { runCatalogBuild } from './catalog-builder'
+import { importPlaylistToCatalog } from './playlist-import'
 import { buildTrackFromSpotify } from './track-builder'
 import type { Env, Track } from './types'
 
@@ -97,6 +98,12 @@ function readSessionCookie(request: Request): string | null {
   return null
 }
 
+async function hasValidAdminSession(request: Request, env: Env): Promise<boolean> {
+  const token = readSessionCookie(request)
+  if (!token) return false
+  return verifySession(getAdminPassword(env), token)
+}
+
 function sessionCookieOptions(hostname: string): string {
   const path = isAdminHost(hostname) ? '/' : '/admin'
   return `Path=${path}; HttpOnly; Secure; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`
@@ -180,11 +187,12 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
   })
 
   admin.post('/admin/api/cron/trigger', async (c) => {
+    const cookieOk = await hasValidAdminSession(c.req.raw, c.env)
     const body = await c.req.json<{ password?: string }>().catch(() => ({ password: undefined }))
-    const password = body.password?.trim() ?? ''
+    const passwordOk = body.password?.trim() === getAdminPassword(c.env)
 
-    if (password !== getAdminPassword(c.env)) {
-      return c.json({ error: 'Invalid password' }, 401)
+    if (!cookieOk && !passwordOk) {
+      return c.json({ error: 'Unauthorized' }, 401)
     }
 
     try {
@@ -209,6 +217,9 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         message: result.skipped
           ? `Catalog build skipped${result.reason ? `: ${result.reason}` : ''}`
           : 'Catalog build cron completed',
+        tracksAdded: result.tracksAdded,
+        rateLimited: result.rateLimited,
+        errors: result.errors,
         ...result,
         tracks: result.totalTracks,
       })
@@ -217,6 +228,9 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         {
           ok: false,
           message: 'Catalog build cron failed',
+          tracksAdded: 0,
+          rateLimited: false,
+          errors: [error instanceof Error ? error.message : 'Catalog build failed'],
           error: error instanceof Error ? error.message : 'Catalog build failed',
         },
         500,
@@ -276,7 +290,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       genreSource: checkpoint.genreSource ?? null,
       genrePlaylistCursor: checkpoint.genrePlaylistCursor ?? 0,
       cronSchedule: CRON_SCHEDULE,
-      cronDescription: 'Every 6 hours (UTC): genre playlists first, add new OPM tracks only',
+      cronDescription: 'Every 6 hours (UTC): artist backlog first, then genre playlists',
       nextCronEstimate: estimateNextCronRun(),
       catalogError,
     })
@@ -390,6 +404,26 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     })
   })
 
+  admin.post('/admin/api/catalog/playlist', async (c) => {
+    const body = await c.req.json<{ playlistUrl?: string }>().catch(() => ({ playlistUrl: undefined }))
+    const playlistUrl = body.playlistUrl?.trim() ?? ''
+    if (!playlistUrl) {
+      return c.json({ error: 'playlistUrl is required' }, 400)
+    }
+
+    try {
+      const result = await importPlaylistToCatalog(c.env, playlistUrl)
+      return c.json(result)
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      const message = error instanceof Error ? error.message : 'Playlist import failed'
+      if (status === 400 || status === 503) {
+        return c.json({ error: message }, status)
+      }
+      return c.json({ error: message }, 500)
+    }
+  })
+
   admin.delete('/admin/api/catalog/:trackId', async (c) => {
     const trackId = c.req.param('trackId')
     const result = await removeTrackFromCatalog(c.env.AUDIO_BUCKET, trackId)
@@ -440,12 +474,13 @@ export async function handleAdminRequest(
   request: Request,
   env: Env,
   adminApp: Hono<{ Bindings: Env }>,
+  ctx?: ExecutionContext,
 ): Promise<Response | null> {
   const url = new URL(request.url)
   if (!isAdminRequest(url)) return null
 
   const rewritten = rewriteAdminRequest(request)
-  const response = await adminApp.fetch(rewritten, env)
+  const response = await adminApp.fetch(rewritten, env, ctx)
 
   if (response.status !== 404) return response
 

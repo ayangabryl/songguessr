@@ -358,7 +358,7 @@ app.post('/api/guess', async (c) => {
 
 export default {
   fetch: async (request: Request, env: Env, ctx: ExecutionContext) => {
-    const adminResponse = await handleAdminRequest(request, env, adminApp)
+    const adminResponse = await handleAdminRequest(request, env, adminApp, ctx)
     if (adminResponse) return adminResponse
     return app.fetch(request, env, ctx)
   },

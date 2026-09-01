@@ -545,6 +545,8 @@ export interface CatalogBuildResult {
   tracksAdded: number
   totalTracks: number
   genreSource?: GenreDiscoverSource
+  rateLimited: boolean
+  errors: string[]
 }
 
 export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
@@ -560,6 +562,8 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
       playlistsProcessed: 0,
       tracksAdded: 0,
       totalTracks: 0,
+      rateLimited: false,
+      errors: [],
     }
   }
 
@@ -578,6 +582,8 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
       playlistsProcessed: 0,
       tracksAdded: 0,
       totalTracks: trackMap.size,
+      rateLimited: false,
+      errors: [],
     }
   }
 
@@ -591,6 +597,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
   let previewResolves = 0
   let playlistsProcessed = 0
   let genreSource: GenreDiscoverSource | undefined
+  const errors: string[] = []
 
   try {
     const genreResult = await processGenrePlaylists(
@@ -607,7 +614,9 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     playlistsProcessed += genreResult.playlistsProcessed
     genreSource = genreResult.source
   } catch (error) {
-    log(`Genre ingest failed: ${error instanceof Error ? error.message : String(error)}`)
+    const message = error instanceof Error ? error.message : String(error)
+    log(`Genre ingest failed: ${message}`)
+    errors.push(message)
     await persistProgress(env, trackMap, checkpoint)
   }
 
@@ -674,6 +683,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
         const message = error instanceof Error ? error.message : String(error)
         if (status === 429) {
           log(`Rate limit pause at ${artistName}; deferring to next cron`)
+          errors.push(`Rate limited at ${artistName}`)
           break
         }
         if (status === 403 || status === 404) {
@@ -705,5 +715,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
     tracksAdded,
     totalTracks: trackMap.size,
     genreSource,
+    rateLimited: client.didPauseForRateLimit,
+    errors,
   }
 }

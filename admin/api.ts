@@ -116,3 +116,44 @@ export async function addTrack(trackId: string): Promise<void> {
 export async function removeTrack(trackId: string): Promise<void> {
   await request(`/catalog/${trackId}`, { method: 'DELETE' })
 }
+
+export interface CronTriggerResponse {
+  ok: boolean
+  message: string
+  skipped?: boolean
+  reason?: string
+  tracksAdded: number
+  totalTracks?: number
+  tracks?: number
+  rateLimited: boolean
+  errors: string[]
+  playlistsProcessed?: number
+  artistsProcessed?: number
+  error?: string
+}
+
+export async function triggerCron(): Promise<CronTriggerResponse> {
+  return request<CronTriggerResponse>('/cron/trigger', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export interface PlaylistImportResponse {
+  added: number
+  skippedExisting: number
+  skippedNonOpm: number
+  skippedNoPreview: number
+  errors: string[]
+  playlistId?: string
+  playlistName?: string
+  source?: 'spotify-api' | 'archive-fallback'
+  fetched?: number
+}
+
+export async function importPlaylist(playlistUrl: string): Promise<PlaylistImportResponse> {
+  return request<PlaylistImportResponse>('/catalog/playlist', {
+    method: 'POST',
+    body: JSON.stringify({ playlistUrl }),
+  })
+}

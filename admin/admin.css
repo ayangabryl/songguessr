@@ -479,6 +479,82 @@ input {
   font-weight: 500;
 }
 
+.admin-main .panel + .panel {
+  margin-top: 24px;
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  padding: 16px 20px;
+}
+
+.inline-form .search-input {
+  flex: 1;
+  max-width: none;
+}
+
+.result-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 20px;
+}
+
+.result-count {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 88px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.result-count strong {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.result-count span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.result-count.ok strong {
+  color: var(--success);
+}
+
+.result-count.warn strong {
+  color: var(--warning);
+}
+
+.result-count.danger strong {
+  color: var(--danger);
+}
+
+.panel-banner {
+  margin: 0 20px 12px;
+}
+
+.panel-note {
+  margin: 0;
+  padding: 0 20px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.panel-note.warn {
+  color: var(--warning);
+}
+
+.empty-state.compact {
+  padding: 20px;
+}
+
 @media (max-width: 720px) {
   .admin-header {
     flex-direction: column;
@@ -501,6 +577,10 @@ input {
 
   .search-input {
     max-width: none;
+  }
+
+  .inline-form {
+    flex-direction: column;
   }
 
   .data-table th:nth-child(4),

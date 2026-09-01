@@ -49,6 +49,32 @@ export async function searchSpotifyTracks(
   return data.tracks?.items ?? []
 }
 
+export async function spotifyApiGet(
+  token: string,
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+): Promise<unknown> {
+  const url = new URL(`https://api.spotify.com/v1/${path}`)
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value))
+    }
+  }
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    const error = new Error(`Spotify GET ${path} failed: ${response.status} ${body.slice(0, 200)}`)
+    ;(error as Error & { status?: number }).status = response.status
+    throw error
+  }
+
+  return response.json()
+}
+
 export async function fetchSpotifyTrack(
   token: string,
   trackId: string,

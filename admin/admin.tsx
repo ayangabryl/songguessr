@@ -4,11 +4,15 @@ import {
   AuthError,
   fetchCatalog,
   fetchStatus,
+  importPlaylist,
   login,
   logout,
   removeTrack,
   searchSpotify,
+  triggerCron,
   type CatalogTrack,
+  type CronTriggerResponse,
+  type PlaylistImportResponse,
   type SpotifySearchResult,
   type StatusResponse,
 } from './api'
@@ -69,7 +73,44 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   )
 }
 
-function DashboardPanel({ status }: { status: StatusResponse | null }) {
+const CRON_COOLDOWN_MS = 30_000
+
+function ResultCounts({
+  items,
+}: {
+  items: { label: string; value: number | string; tone?: 'ok' | 'warn' | 'danger' }[]
+}) {
+  return (
+    <div className="result-counts">
+      {items.map((item) => (
+        <div className={`result-count ${item.tone ?? ''}`} key={item.label}>
+          <strong>{typeof item.value === 'number' ? formatNumber(item.value) : item.value}</strong>
+          <span>{item.label}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DashboardPanel({
+  status,
+  onStatusRefresh,
+}: {
+  status: StatusResponse | null
+  onStatusRefresh: () => void
+}) {
+  const [running, setRunning] = useState(false)
+  const [cooldownUntil, setCooldownUntil] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
+  const [lastRun, setLastRun] = useState<CronTriggerResponse | null>(null)
+  const [runError, setRunError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (cooldownUntil <= Date.now()) return
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [cooldownUntil])
+
   if (!status) {
     return <div className="empty-state">Loading status…</div>
   }
@@ -78,6 +119,24 @@ function DashboardPanel({ status }: { status: StatusResponse | null }) {
     ? Math.round((status.artistsDone / status.artistsTotal) * 100)
     : 0
   const catalogPct = Math.round((status.tracks / status.catalogCap) * 100)
+  const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - now) / 1000))
+  const disabled = running || cooldownLeft > 0
+
+  const handleRunCron = async () => {
+    setRunning(true)
+    setCooldownUntil(Date.now() + CRON_COOLDOWN_MS)
+    setNow(Date.now())
+    setRunError(null)
+    try {
+      const result = await triggerCron()
+      setLastRun(result)
+      onStatusRefresh()
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Catalog update failed')
+    } finally {
+      setRunning(false)
+    }
+  }
 
   return (
     <>
@@ -113,6 +172,37 @@ function DashboardPanel({ status }: { status: StatusResponse | null }) {
           </div>
           <div className="stat-meta">{status.cronDescription}</div>
         </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <h3>Catalog update</h3>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={disabled}
+            onClick={() => void handleRunCron()}
+          >
+            {running ? 'Running…' : cooldownLeft > 0 ? `Wait ${cooldownLeft}s` : 'Run catalog update'}
+          </button>
+        </div>
+        {runError ? <div className="error-banner panel-banner">{runError}</div> : null}
+        {lastRun ? (
+          <>
+            <ResultCounts
+              items={[
+                { label: 'Added', value: lastRun.tracksAdded, tone: lastRun.tracksAdded > 0 ? 'ok' : undefined },
+                { label: 'Errors', value: lastRun.errors?.length ?? 0, tone: (lastRun.errors?.length ?? 0) > 0 ? 'danger' : undefined },
+                { label: 'Rate limited', value: lastRun.rateLimited ? 'Yes' : 'No', tone: lastRun.rateLimited ? 'warn' : undefined },
+              ]}
+            />
+            {lastRun.message ? (
+              <p className="panel-note">{lastRun.message}</p>
+            ) : null}
+          </>
+        ) : (
+          <div className="empty-state compact">No manual run yet this session.</div>
+        )}
       </div>
 
       <div className="panel">
@@ -307,6 +397,10 @@ function AddSongsPanel() {
   const [error, setError] = useState<string | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [playlistUrl, setPlaylistUrl] = useState('')
+  const [playlistLoading, setPlaylistLoading] = useState(false)
+  const [playlistError, setPlaylistError] = useState<string | null>(null)
+  const [playlistResult, setPlaylistResult] = useState<PlaylistImportResponse | null>(null)
 
   const handleSearch = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -343,9 +437,72 @@ function AddSongsPanel() {
     }
   }
 
+  const handlePlaylistImport = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!playlistUrl.trim() || playlistLoading) return
+
+    setPlaylistLoading(true)
+    setPlaylistError(null)
+    setPlaylistResult(null)
+    try {
+      const result = await importPlaylist(playlistUrl.trim())
+      setPlaylistResult(result)
+    } catch (err) {
+      setPlaylistError(err instanceof Error ? err.message : 'Playlist import failed')
+    } finally {
+      setPlaylistLoading(false)
+    }
+  }
+
   return (
     <>
       <h2 className="section-title">Add songs</h2>
+      <div className="panel">
+        <div className="panel-header">
+          <h3>Spotify playlist</h3>
+        </div>
+        <form className="inline-form" onSubmit={(event) => void handlePlaylistImport(event)}>
+          <input
+            className="search-input"
+            type="text"
+            placeholder="Playlist URL or ID"
+            value={playlistUrl}
+            onChange={(event) => setPlaylistUrl(event.target.value)}
+            disabled={playlistLoading}
+          />
+          <button className="btn btn-primary" type="submit" disabled={playlistLoading || !playlistUrl.trim()}>
+            {playlistLoading ? 'Adding…' : 'Add playlist'}
+          </button>
+        </form>
+        {playlistError ? <div className="error-banner panel-banner">{playlistError}</div> : null}
+        {playlistResult ? (
+          <>
+            <ResultCounts
+              items={[
+                { label: 'Added', value: playlistResult.added, tone: playlistResult.added > 0 ? 'ok' : undefined },
+                { label: 'Existing', value: playlistResult.skippedExisting },
+                { label: 'Not OPM', value: playlistResult.skippedNonOpm },
+                { label: 'No preview', value: playlistResult.skippedNoPreview, tone: playlistResult.skippedNoPreview > 0 ? 'warn' : undefined },
+                {
+                  label: 'Errors',
+                  value: playlistResult.errors.length,
+                  tone: playlistResult.errors.length > 0 ? 'danger' : undefined,
+                },
+              ]}
+            />
+            {playlistResult.playlistName ? (
+              <p className="panel-note">
+                {playlistResult.playlistName}
+                {playlistResult.source === 'archive-fallback' ? ' · archive' : ''}
+              </p>
+            ) : null}
+            {playlistResult.errors[0] ? (
+              <p className="panel-note warn">{playlistResult.errors[0]}</p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+
       <div className="panel">
         <div className="panel-header">
           <h3>Spotify search</h3>
@@ -496,7 +653,9 @@ export function AdminApp() {
       </header>
 
       <main className="admin-main">
-        {tab === 'dashboard' ? <DashboardPanel status={status} /> : null}
+        {tab === 'dashboard' ? (
+          <DashboardPanel status={status} onStatusRefresh={() => void checkAuth()} />
+        ) : null}
         {tab === 'catalog' ? <CatalogPanel /> : null}
         {tab === 'add' ? <AddSongsPanel /> : null}
       </main>

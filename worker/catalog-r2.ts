@@ -150,6 +150,65 @@ export async function addTrackToCatalog(
   return { ok: true, totalTracks: nextCatalog.tracks.length }
 }
 
+export interface AddTracksToCatalogResult {
+  added: number
+  totalTracks: number
+  skippedExisting: number
+  skippedCap: number
+}
+
+export async function addTracksToCatalog(
+  bucket: R2Bucket,
+  tracks: Track[],
+): Promise<AddTracksToCatalogResult> {
+  const catalog = (await loadCatalogFromR2(bucket)) ?? {
+    updatedAt: new Date().toISOString(),
+    tracks: [],
+  }
+
+  const existingIds = new Set(catalog.tracks.map((item) => item.id))
+  let skippedExisting = 0
+  let skippedCap = 0
+  const incoming: Track[] = []
+
+  for (const track of tracks) {
+    if (existingIds.has(track.id)) {
+      skippedExisting += 1
+      continue
+    }
+    if (catalog.tracks.length + incoming.length >= MAX_CATALOG_TRACKS) {
+      skippedCap += 1
+      continue
+    }
+    existingIds.add(track.id)
+    incoming.push(track)
+  }
+
+  if (incoming.length === 0) {
+    return {
+      added: 0,
+      totalTracks: catalog.tracks.length,
+      skippedExisting,
+      skippedCap,
+    }
+  }
+
+  const nextCatalog: Catalog = {
+    updatedAt: new Date().toISOString(),
+    tracks: dedupeTracks([...catalog.tracks, ...incoming]).sort((left, right) =>
+      left.title.localeCompare(right.title),
+    ),
+  }
+
+  await saveCatalogToR2(bucket, nextCatalog)
+  return {
+    added: incoming.length,
+    totalTracks: nextCatalog.tracks.length,
+    skippedExisting,
+    skippedCap,
+  }
+}
+
 export async function removeTrackFromCatalog(
   bucket: R2Bucket,
   trackId: string,
