@@ -231,3 +231,32 @@ export async function removeTrackFromCatalog(
   await saveCatalogToR2(bucket, nextCatalog)
   return { ok: true, totalTracks: nextCatalog.tracks.length }
 }
+
+export async function applyAlbumArtPatches(
+  bucket: R2Bucket,
+  patches: Array<{ id: string; albumArt: string }>,
+): Promise<number> {
+  const byId = new Map(
+    patches.filter((patch) => patch.id && patch.albumArt).map((patch) => [patch.id, patch.albumArt]),
+  )
+  if (byId.size === 0) return 0
+
+  const catalog = await loadCatalogFromR2(bucket)
+  if (!catalog) return 0
+
+  let updated = 0
+  const tracks = catalog.tracks.map((track) => {
+    const albumArt = byId.get(track.id)
+    if (!albumArt || track.albumArt) return track
+    updated += 1
+    return { ...track, albumArt }
+  })
+
+  if (updated === 0) return 0
+
+  await saveCatalogToR2(bucket, {
+    updatedAt: new Date().toISOString(),
+    tracks,
+  })
+  return updated
+}
