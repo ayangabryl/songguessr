@@ -43,6 +43,8 @@ import {
 import { hasPlayableAudio, resolvePlaybackSource } from '../lib/playback-source'
 import { spotifyStartPositionMs } from '../lib/spotify-playback'
 import {
+  getSpotifyExtrapolatedPositionMs,
+  onSpotifyStateChange,
   pauseSpotifyPlayback,
   playSpotifyTrack,
   setSpotifyVolume,
@@ -146,8 +148,10 @@ export function Game() {
   const playSessionRef = useRef(0)
   const usingSpotifyRef = useRef(false)
   const spotifyTimelineRef = useRef(0)
-  const spotifySegmentStartRef = useRef(0)
-  const spotifyPlayStartedAtRef = useRef(0)
+  const spotifyBaseMsRef = useRef(0)
+  const spotifyStageEndpointRef = useRef(0)
+  const spotifyLevelRef = useRef<Difficulty>('easy')
+  const spotifyEndStageRef = useRef<(() => void) | null>(null)
   const spotifyPauseTimeoutRef = useRef<number | null>(null)
   const autoRerollIntervalRef = useRef<number | null>(null)
   const suggestionsRef = useRef<HTMLDivElement | null>(null)
@@ -315,6 +319,39 @@ export function Game() {
   }, [startMode])
 
   useEffect(() => {
+    spotifyLevelRef.current = difficulty
+  }, [difficulty])
+
+  useEffect(() => {
+    if (!spotify.canUseStartModes) return
+
+    return onSpotifyStateChange((state) => {
+      if (!usingSpotifyRef.current) return
+
+      if (!state) {
+        setIsPlaying(false)
+        return
+      }
+
+      setIsPlaying(!state.paused)
+
+      const timelineSeconds = Math.max(
+        0,
+        (getSpotifyExtrapolatedPositionMs() - spotifyBaseMsRef.current) / 1000,
+      )
+      spotifyTimelineRef.current = timelineSeconds
+
+      if (!state.paused) {
+        updateRound(spotifyLevelRef.current, { playbackSeconds: timelineSeconds })
+
+        if (timelineSeconds >= spotifyStageEndpointRef.current) {
+          spotifyEndStageRef.current?.()
+        }
+      }
+    })
+  }, [spotify.canUseStartModes])
+
+  useEffect(() => {
     saveEraFilters(eraFilters)
   }, [eraFilters])
 
@@ -439,6 +476,7 @@ export function Game() {
       window.clearTimeout(spotifyPauseTimeoutRef.current)
       spotifyPauseTimeoutRef.current = null
     }
+    spotifyEndStageRef.current = null
     if (usingSpotifyRef.current) {
       await pauseSpotifyPlayback()
       usingSpotifyRef.current = false
@@ -463,8 +501,7 @@ export function Game() {
   }
 
   function getSpotifyTimelineSeconds(): number {
-    const elapsed = (performance.now() - spotifyPlayStartedAtRef.current) / 1000
-    return Math.max(0, spotifySegmentStartRef.current + elapsed)
+    return Math.max(0, (getSpotifyExtrapolatedPositionMs() - spotifyBaseMsRef.current) / 1000)
   }
 
   function getTimelineSeconds(): number {
@@ -516,9 +553,12 @@ export function Game() {
     if (spotify.canUseStartModes) {
       usingSpotifyRef.current = true
       const baseMs = spotifyStartPositionMs(round, startModeRef.current)
+      const seekMs = baseMs + startTimeline * 1000
+      spotifyBaseMsRef.current = baseMs
+      spotifyStageEndpointRef.current = stageEndpoint
 
       try {
-        await playSpotifyTrack(round.trackId, baseMs + startTimeline * 1000, volume)
+        await playSpotifyTrack(round.trackId, seekMs, volume)
         if (session !== playSessionRef.current) return
 
         setIsLoadingClip(false)
@@ -528,13 +568,12 @@ export function Game() {
           playbackSeconds: startTimeline,
         })
         spotifyTimelineRef.current = startTimeline
-        spotifySegmentStartRef.current = startTimeline
-        spotifyPlayStartedAtRef.current = performance.now()
 
         let stageEnded = false
         const endSpotifyStage = () => {
           if (stageEnded || session !== playSessionRef.current) return
           stageEnded = true
+          spotifyEndStageRef.current = null
           if (spotifyPauseTimeoutRef.current) {
             window.clearTimeout(spotifyPauseTimeoutRef.current)
             spotifyPauseTimeoutRef.current = null
@@ -555,7 +594,9 @@ export function Game() {
           })()
         }
 
-        const remainingMs = Math.max(0, (stageEndpoint - startTimeline) * 1000)
+        spotifyEndStageRef.current = endSpotifyStage
+
+        const remainingMs = Math.max(50, (stageEndpoint - startTimeline) * 1000 + 100)
         spotifyPauseTimeoutRef.current = window.setTimeout(endSpotifyStage, remainingMs)
 
         const tick = () => {
@@ -563,6 +604,7 @@ export function Game() {
 
           const timelineSeconds = getSpotifyTimelineSeconds()
           spotifyTimelineRef.current = timelineSeconds
+          setIsPlaying(true)
           updateRound(difficulty, { playbackSeconds: timelineSeconds })
 
           if (timelineSeconds >= stageEndpoint) {
@@ -577,6 +619,7 @@ export function Game() {
       } catch {
         if (session !== playSessionRef.current) return
         usingSpotifyRef.current = false
+        spotifyEndStageRef.current = null
         setIsLoadingClip(false)
         setIsPlaying(false)
         setAudioError('The clip could not be played. Check your Spotify Premium connection.')

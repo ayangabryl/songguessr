@@ -1,5 +1,14 @@
 import { getValidAccessToken } from './spotify-auth'
 
+export interface SpotifyPlaybackState {
+  position: number
+  paused: boolean
+  timestamp: number
+  track_window: {
+    current_track: { uri: string } | null
+  }
+}
+
 interface SpotifyPlayer {
   connect: () => Promise<boolean>
   disconnect: () => void
@@ -9,15 +18,6 @@ interface SpotifyPlayer {
   setVolume: (volume: number) => Promise<void>
   activateElement: () => Promise<void>
   pause: () => Promise<void>
-}
-
-interface SpotifyPlaybackState {
-  position: number
-  paused: boolean
-  timestamp: number
-  track_window: {
-    current_track: { uri: string } | null
-  }
 }
 
 declare global {
@@ -33,10 +33,48 @@ declare global {
   }
 }
 
+type StateChangeCallback = (state: SpotifyPlaybackState | null) => void
+
 let sdkPromise: Promise<void> | null = null
 let player: SpotifyPlayer | null = null
 let deviceId: string | null = null
 let readyPromise: Promise<void> | null = null
+let lastVolume = 1
+let lastState: SpotifyPlaybackState | null = null
+const stateListeners = new Set<StateChangeCallback>()
+
+function notifyStateListeners(state: SpotifyPlaybackState | null) {
+  lastState = state
+  for (const listener of stateListeners) {
+    listener(state)
+  }
+}
+
+export function extrapolatePositionMs(state: SpotifyPlaybackState): number {
+  if (state.paused) return state.position
+  return state.position + Math.max(0, Date.now() - state.timestamp)
+}
+
+export function onSpotifyStateChange(callback: StateChangeCallback): () => void {
+  stateListeners.add(callback)
+  callback(lastState)
+  return () => {
+    stateListeners.delete(callback)
+  }
+}
+
+export function isSpotifyPlaying(): boolean {
+  return Boolean(lastState && !lastState.paused)
+}
+
+export function getSpotifyExtrapolatedPositionMs(): number {
+  if (!lastState) return 0
+  return extrapolatePositionMs(lastState)
+}
+
+export function getSpotifyDeviceId(): string | null {
+  return deviceId
+}
 
 function loadSdk(): Promise<void> {
   if (window.Spotify) return Promise.resolve()
@@ -88,6 +126,10 @@ async function ensurePlayer(volume: number): Promise<SpotifyPlayer> {
         resolve()
       })
 
+      instance.addListener('player_state_changed', (payload) => {
+        notifyStateListeners(payload as SpotifyPlaybackState | null)
+      })
+
       instance.addListener('authentication_error', (payload) => {
         const { message } = payload as { message: string }
         reject(new Error(message))
@@ -107,9 +149,31 @@ async function ensurePlayer(volume: number): Promise<SpotifyPlayer> {
   return player
 }
 
+async function transferPlaybackToDevice(): Promise<void> {
+  const token = await getValidAccessToken()
+  if (!token || !deviceId) return
+
+  const response = await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      device_ids: [deviceId],
+      play: false,
+    }),
+  })
+
+  if (response.status === 204 || response.ok) return
+  if (response.status === 404) return
+}
+
 async function apiPlay(trackId: string, positionMs: number) {
   const token = await getValidAccessToken()
   if (!token || !deviceId) throw new Error('Spotify player not ready')
+
+  await transferPlaybackToDevice()
 
   const response = await fetch(
     `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
@@ -137,6 +201,7 @@ async function apiPlay(trackId: string, positionMs: number) {
 }
 
 export async function initSpotifyPlayer(volume: number) {
+  lastVolume = volume
   const instance = await ensurePlayer(volume)
   await instance.setVolume(volume)
   try {
@@ -147,14 +212,16 @@ export async function initSpotifyPlayer(volume: number) {
   return instance
 }
 
-async function waitForSpotifyPlaybackStarted(timeoutMs = 3000): Promise<void> {
+async function waitForSpotifyPlaybackStarted(timeoutMs = 5000): Promise<void> {
   if (!player) throw new Error('Spotify player not ready')
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
+    if (lastState && !lastState.paused) return
     const state = await player.getCurrentState()
+    if (state) notifyStateListeners(state)
     if (state && !state.paused) return
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 30))
   }
 
   throw new Error('Spotify playback did not start in time')
@@ -164,42 +231,30 @@ export async function playSpotifyTrack(trackId: string, positionMs: number, volu
   await initSpotifyPlayer(volume)
   await apiPlay(trackId, positionMs)
   await waitForSpotifyPlaybackStarted()
-}
-
-function extrapolatePositionMs(state: SpotifyPlaybackState): number {
-  if (state.paused) return state.position
-  return state.position + Math.max(0, Date.now() - state.timestamp)
-}
-
-export async function pauseSpotifyPlayback() {
-  let positionMs: number | undefined
-
   if (player) {
-    try {
-      const state = await player.getCurrentState()
-      if (state) {
-        positionMs = extrapolatePositionMs(state)
-      }
-    } catch {
-      // Fall through to Web API pause.
-    }
-
-    try {
-      await player.pause()
-    } catch {
-      // Fall through to Web API pause.
-    }
+    const state = await player.getCurrentState()
+    if (state) notifyStateListeners(state)
   }
+}
 
+async function restPause(positionMs?: number): Promise<void> {
   const token = await getValidAccessToken()
   if (!token) return
 
-  const deviceQuery = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ''
+  const attempts = [
+    'https://api.spotify.com/v1/me/player/pause',
+    ...(deviceId
+      ? [`https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(deviceId)}`]
+      : []),
+  ]
 
-  await fetch(`https://api.spotify.com/v1/me/player/pause${deviceQuery}`, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  for (const url of attempts) {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.status === 204 || response.ok || response.status === 404) break
+  }
 
   if (positionMs !== undefined && deviceId) {
     await fetch(
@@ -212,14 +267,99 @@ export async function pauseSpotifyPlayback() {
   }
 }
 
+export async function pauseSpotifyPlayback() {
+  let positionMs: number | undefined
+
+  if (player) {
+    try {
+      const state = await player.getCurrentState()
+      if (state) {
+        positionMs = extrapolatePositionMs(state)
+      }
+    } catch {
+      if (lastState) {
+        positionMs = extrapolatePositionMs(lastState)
+      }
+    }
+
+    try {
+      await player.pause()
+    } catch {
+      // Fall through to additional pause strategies.
+    }
+  } else if (lastState) {
+    positionMs = extrapolatePositionMs(lastState)
+  }
+
+  let paused = lastState?.paused ?? false
+  if (player) {
+    try {
+      const state = await player.getCurrentState()
+      if (state) {
+        notifyStateListeners(state)
+        paused = state.paused
+        if (positionMs === undefined) {
+          positionMs = extrapolatePositionMs(state)
+        }
+      }
+    } catch {
+      // Continue with fallback strategies.
+    }
+  }
+
+  if (!paused) {
+    if (player) {
+      try {
+        await player.setVolume(0)
+      } catch {
+        // Mute fallback is best-effort.
+      }
+    }
+
+    await restPause(positionMs)
+
+    if (player) {
+      try {
+        const state = await player.getCurrentState()
+        if (state) {
+          notifyStateListeners(state)
+          paused = state.paused
+        }
+      } catch {
+        // Best-effort state refresh.
+      }
+    }
+  } else if (positionMs !== undefined) {
+    await restPause(positionMs)
+  }
+
+  if (player && paused) {
+    try {
+      await player.setVolume(lastVolume)
+    } catch {
+      // Volume restore is best-effort; next play sets it again.
+    }
+  }
+
+  if (paused && lastState) {
+    notifyStateListeners({
+      ...lastState,
+      paused: true,
+      position: positionMs ?? lastState.position,
+    })
+  }
+}
+
 export async function getSpotifyPositionSeconds(): Promise<number> {
   if (!player) return 0
   const state = await player.getCurrentState()
   if (!state) return 0
+  notifyStateListeners(state)
   return extrapolatePositionMs(state) / 1000
 }
 
 export async function setSpotifyVolume(volume: number) {
+  lastVolume = volume
   if (!player) return
   await player.setVolume(volume)
 }
@@ -229,4 +369,5 @@ export function disconnectSpotifyPlayer() {
   player = null
   deviceId = null
   readyPromise = null
+  lastState = null
 }
