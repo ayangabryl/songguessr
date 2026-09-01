@@ -97,6 +97,7 @@ export async function submitGuess(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      trackId: round.trackId,
       guessedTrackId: options.guessedTrackId,
       guess: options.guess,
       difficulty: round.difficulty,

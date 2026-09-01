@@ -13,11 +13,16 @@ const STOP_WORDS = new Set([
   'at',
 ])
 
+function stripParentheticals(value: string): string {
+  return value.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ')
+}
+
 export function normalizeGuess(value: string): string {
-  return value
+  return stripParentheticals(value)
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()

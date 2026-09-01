@@ -1,9 +1,22 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveR2Audio } from './audio'
-import { getAvailabilityCounts, getCatalog, pickRandomTrack, searchCatalog } from './catalog'
+import {
+  findTrackById,
+  getAvailabilityCounts,
+  getCatalog,
+  pickRandomTrack,
+  searchCatalog,
+} from './catalog'
 import { songIdentityKey } from './track-dedupe.ts'
-import { type CatalogFilters, type EraFilter, type GenreFilter, parseEraFilters, parseGenreFilters } from './filters'
+import {
+  type CatalogFilters,
+  type EraFilter,
+  type GenreFilter,
+  parseEraFilters,
+  parseGenreFilters,
+  trackMatchesFilters,
+} from './filters'
 import { checkGuess } from './guess'
 import {
   exchangeSpotifyCode,
@@ -220,8 +233,29 @@ app.get('/api/search', (c) => {
   return c.json({ results })
 })
 
+function resolveRoundTrack(
+  trackId: string | undefined,
+  seed: string | undefined,
+  difficulty: Difficulty,
+  filters: CatalogFilters,
+): ReturnType<typeof findTrackById> {
+  if (trackId) {
+    const track = findTrackById(trackId)
+    if (
+      track &&
+      track.difficulty === difficulty &&
+      trackMatchesFilters(track, filters)
+    ) {
+      return track
+    }
+  }
+
+  return pickRandomTrack(difficulty, seed ?? '', filters) ?? undefined
+}
+
 app.post('/api/guess', async (c) => {
   const body = await c.req.json<{
+    trackId?: string
     guess?: string
     guessedTrackId?: string
     difficulty?: string
@@ -234,7 +268,7 @@ app.post('/api/guess', async (c) => {
   const difficulty = parseDifficulty(body.difficulty)
   const reveal = body.reveal === true
   const filters = parseCatalogFiltersFromBody(body)
-  const track = pickRandomTrack(difficulty, body.seed ?? '', filters)
+  const track = resolveRoundTrack(body.trackId, body.seed, difficulty, filters)
 
   if (!track) {
     return c.json({ error: 'Track not found' }, 404)
