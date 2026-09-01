@@ -101,7 +101,9 @@ class SpotifyClient {
     const header = response.headers.get('retry-after')
     if (header) {
       const seconds = Number(header)
-      if (Number.isFinite(seconds) && seconds > 0) return seconds
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return Math.min(RATE_LIMIT_MAX_BACKOFF_SECONDS, seconds)
+      }
     }
     return Math.min(
       RATE_LIMIT_MAX_BACKOFF_SECONDS,
