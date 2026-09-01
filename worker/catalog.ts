@@ -1,19 +1,31 @@
-import fallbackCatalogData from '../data/catalog.json'
-import { getCachedCatalog } from './catalog-r2'
+import { CATALOG_SEED_MESSAGE, getCachedCatalog } from './catalog-r2'
 import type { CatalogFilters } from './filters'
 import { filterTracks } from './filters'
 import { dedupeTracks, songIdentityKey } from './track-dedupe.ts'
 import type { Catalog, Difficulty, Env, Track } from './types'
 
-const fallbackCatalog = fallbackCatalogData as Catalog
+export { CATALOG_SEED_MESSAGE }
+
+export class CatalogUnavailableError extends Error {
+  constructor(message = CATALOG_SEED_MESSAGE) {
+    super(message)
+    this.name = 'CatalogUnavailableError'
+  }
+}
 
 async function loadTracks(env: Env): Promise<Track[]> {
-  const catalog = await getCachedCatalog(env.AUDIO_BUCKET, fallbackCatalog)
+  const catalog = await getCachedCatalog(env.AUDIO_BUCKET)
+  if (!catalog) {
+    throw new CatalogUnavailableError()
+  }
   return dedupeTracks(catalog.tracks)
 }
 
 export async function getCatalog(env: Env): Promise<Catalog> {
-  const catalog = await getCachedCatalog(env.AUDIO_BUCKET, fallbackCatalog)
+  const catalog = await getCachedCatalog(env.AUDIO_BUCKET)
+  if (!catalog) {
+    throw new CatalogUnavailableError()
+  }
   return {
     ...catalog,
     tracks: dedupeTracks(catalog.tracks),

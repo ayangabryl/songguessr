@@ -17,6 +17,7 @@ secrets/
 *.pem
 *.key
 data/catalog-build.checkpoint.json
+data/catalog.json
 catalog-build.log
 data/audio/.upload-state.json
 data/audio/manifest.json

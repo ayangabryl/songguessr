@@ -77,10 +77,10 @@ export async function saveCheckpointToR2(
   })
 }
 
-export async function getCachedCatalog(
-  bucket: R2Bucket,
-  fallback: Catalog,
-): Promise<Catalog> {
+export const CATALOG_SEED_MESSAGE =
+  'Catalog not found in R2. Run `npm run upload:catalog` to seed the catalog.'
+
+export async function getCachedCatalog(bucket: R2Bucket): Promise<Catalog | null> {
   const now = Date.now()
   if (catalogCache && now - catalogCache.loadedAt < CACHE_TTL_MS) {
     return catalogCache.catalog
@@ -92,6 +92,5 @@ export async function getCachedCatalog(
     return fromR2
   }
 
-  catalogCache = { catalog: fallback, loadedAt: now }
-  return fallback
+  return null
 }

@@ -11,7 +11,9 @@
   "r2_buckets": [
     {
       "binding": "AUDIO_BUCKET",
-      "bucket_name": "songgussr"
+      "bucket_name": "songgussr",
+      // Local dev (`npm run dev`) reads the same remote R2 bucket as production.
+      "remote": true
     }
   ],
   "triggers": {

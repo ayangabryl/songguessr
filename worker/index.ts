@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveR2Audio } from './audio'
 import {
+  CatalogUnavailableError,
   findTrackById,
   getAvailabilityCounts,
   getCatalog,
@@ -59,6 +60,16 @@ function parseCatalogFiltersFromBody(body: {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+
+function catalogUnavailable(c: { json: (body: unknown, status?: number) => Response }, error: CatalogUnavailableError) {
+  return c.json(
+    {
+      error: 'Catalog unavailable',
+      message: error.message,
+    },
+    503,
+  )
+}
 
 app.use('/api/*', cors())
 
@@ -155,20 +166,34 @@ app.post('/api/spotify/refresh', async (c) => {
 })
 
 app.get('/api/health', async (c) => {
-  const catalog = await getCatalog(c.env)
-  return c.json({
-    ok: true,
-    tracks: catalog.tracks.length,
-    updatedAt: catalog.updatedAt,
-  })
+  try {
+    const catalog = await getCatalog(c.env)
+    return c.json({
+      ok: true,
+      tracks: catalog.tracks.length,
+      updatedAt: catalog.updatedAt,
+    })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
+  }
 })
 
 app.get('/api/catalog/availability', async (c) => {
-  const filters = parseCatalogFilters(c)
-  const counts = await getAvailabilityCounts(c.env, filters)
-  const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
+  try {
+    const filters = parseCatalogFilters(c)
+    const counts = await getAvailabilityCounts(c.env, filters)
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
 
-  return c.json({ counts, total })
+    return c.json({ counts, total })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
+  }
 })
 
 function parseExcludeList(value: string | undefined): Set<string> {
@@ -182,64 +207,78 @@ function parseExcludeList(value: string | undefined): Set<string> {
 }
 
 app.get('/api/random', async (c) => {
-  const difficulty = parseDifficulty(c.req.query('difficulty'))
-  const filters = parseCatalogFilters(c)
-  const excludeIds = parseExcludeList(c.req.query('exclude'))
-  const excludeSongKeys = parseExcludeList(c.req.query('excludeSongs'))
-  const seed = c.req.query('seed') ?? crypto.randomUUID()
-  const counts = await getAvailabilityCounts(c.env, filters)
-  const poolSize = counts[difficulty]
-  const track = await pickRandomTrack(
-    c.env,
-    difficulty,
-    seed,
-    filters,
-    excludeIds,
-    excludeSongKeys,
-  )
-
-  if (!track) {
-    return c.json(
-      {
-        error: 'Catalogue error',
-        message:
-          'No songs match these filters for this difficulty. Try another difficulty or clear the era and genre filters.',
-      },
-      404,
+  try {
+    const difficulty = parseDifficulty(c.req.query('difficulty'))
+    const filters = parseCatalogFilters(c)
+    const excludeIds = parseExcludeList(c.req.query('exclude'))
+    const excludeSongKeys = parseExcludeList(c.req.query('excludeSongs'))
+    const seed = c.req.query('seed') ?? crypto.randomUUID()
+    const counts = await getAvailabilityCounts(c.env, filters)
+    const poolSize = counts[difficulty]
+    const track = await pickRandomTrack(
+      c.env,
+      difficulty,
+      seed,
+      filters,
+      excludeIds,
+      excludeSongKeys,
     )
+
+    if (!track) {
+      return c.json(
+        {
+          error: 'Catalogue error',
+          message:
+            'No songs match these filters for this difficulty. Try another difficulty or clear the era and genre filters.',
+        },
+        404,
+      )
+    }
+
+    c.header('Cache-Control', 'no-store')
+
+    return c.json({
+      seed,
+      difficulty,
+      trackId: track.id,
+      songKey: songIdentityKey(track),
+      previewUrl: track.previewUrl,
+      hookPreviewUrl: track.hookPreviewUrl,
+      hookStartSeconds: track.hookStartSeconds ?? 12,
+      audioUrl: track.audioUrl,
+      introClipUrl: track.introClipUrl,
+      hookClipUrl: track.hookClipUrl,
+      startAtMs: track.startAtMs,
+      hookStartMs: track.hookStartMs,
+      albumArt: track.albumArt,
+      stages: DEFAULT_STAGES,
+      poolSize,
+    })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
   }
-
-  c.header('Cache-Control', 'no-store')
-
-  return c.json({
-    seed,
-    difficulty,
-    trackId: track.id,
-    songKey: songIdentityKey(track),
-    previewUrl: track.previewUrl,
-    hookPreviewUrl: track.hookPreviewUrl,
-    hookStartSeconds: track.hookStartSeconds ?? 12,
-    audioUrl: track.audioUrl,
-    introClipUrl: track.introClipUrl,
-    hookClipUrl: track.hookClipUrl,
-    startAtMs: track.startAtMs,
-    hookStartMs: track.hookStartMs,
-    albumArt: track.albumArt,
-    stages: DEFAULT_STAGES,
-    poolSize,
-  })
 })
 
 app.get('/api/search', async (c) => {
-  const query = c.req.query('q') ?? ''
-  const results = (await searchCatalog(c.env, query)).map((track) => ({
-    id: track.id,
-    title: track.title,
-    artist: track.artist,
-    albumArt: track.albumArt,
-  }))
+  try {
+    const query = c.req.query('q') ?? ''
+    const results = (await searchCatalog(c.env, query)).map((track) => ({
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      albumArt: track.albumArt,
+    }))
 
-  return c.json({ results })
+    return c.json({ results })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
+  }
 })
 
 async function resolveRoundTrack(
@@ -264,48 +303,55 @@ async function resolveRoundTrack(
 }
 
 app.post('/api/guess', async (c) => {
-  const body = await c.req.json<{
-    trackId?: string
-    guess?: string
-    guessedTrackId?: string
-    difficulty?: string
-    seed?: string
-    reveal?: boolean
-    eras?: string[]
-    genres?: string[]
-  }>()
+  try {
+    const body = await c.req.json<{
+      trackId?: string
+      guess?: string
+      guessedTrackId?: string
+      difficulty?: string
+      seed?: string
+      reveal?: boolean
+      eras?: string[]
+      genres?: string[]
+    }>()
 
-  const difficulty = parseDifficulty(body.difficulty)
-  const reveal = body.reveal === true
-  const filters = parseCatalogFiltersFromBody(body)
-  const track = await resolveRoundTrack(c.env, body.trackId, body.seed, difficulty, filters)
+    const difficulty = parseDifficulty(body.difficulty)
+    const reveal = body.reveal === true
+    const filters = parseCatalogFiltersFromBody(body)
+    const track = await resolveRoundTrack(c.env, body.trackId, body.seed, difficulty, filters)
 
-  if (!track) {
-    return c.json({ error: 'Track not found' }, 404)
+    if (!track) {
+      return c.json({ error: 'Track not found' }, 404)
+    }
+
+    let correct = false
+
+    if (body.guessedTrackId) {
+      correct = body.guessedTrackId === track.id
+    } else {
+      const guess = body.guess?.trim() ?? ''
+      correct = checkGuess(guess, track.title, track.artist).correct
+    }
+
+    const shouldReveal = reveal || correct
+
+    return c.json({
+      correct,
+      answer: shouldReveal
+        ? {
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            albumArt: track.albumArt,
+          }
+        : null,
+    })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
   }
-
-  let correct = false
-
-  if (body.guessedTrackId) {
-    correct = body.guessedTrackId === track.id
-  } else {
-    const guess = body.guess?.trim() ?? ''
-    correct = checkGuess(guess, track.title, track.artist).correct
-  }
-
-  const shouldReveal = reveal || correct
-
-  return c.json({
-    correct,
-    answer: shouldReveal
-      ? {
-          id: track.id,
-          title: track.title,
-          artist: track.artist,
-          albumArt: track.albumArt,
-        }
-      : null,
-  })
 })
 
 export default {

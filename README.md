@@ -25,7 +25,10 @@ Users connect their own **Spotify Premium** account in the game settings. **From
 ```bash
 npm run build:catalog
 npm run enrich:catalog
+npm run upload:catalog
 ```
+
+`build:catalog` writes `data/catalog.json` locally (gitignored), then `upload:catalog` pushes it to R2. **R2 is the source of truth** for prod and local dev — there is no bundled catalog in the repo.
 
 Re-run `build:catalog` any time to resume — progress is saved after each artist.
 
@@ -51,7 +54,7 @@ For **From the start** / **Main hook** behaviour like the reference app, you can
 
 ### 1. Add files under `data/audio/`
 
-Use the Spotify track `id` from `data/catalog.json` as the filename stem:
+Use the Spotify track `id` from the catalog (build locally or inspect R2) as the filename stem:
 
 | File | Catalog field |
 |------|----------------|
@@ -92,9 +95,33 @@ Audio is served from the Worker at `/api/audio/*` (R2 binding `AUDIO_BUCKET` in 
 
 ## How it scales
 
-- Spotify API is used to build the catalogue (locally via `build:catalog`, or automatically in production — see below)
+- Spotify API is used to build the catalogue (`build:catalog` locally, or automatically in production via Cron)
 - Players stream preview MP3s directly from Spotify's CDN (`p.scdn.co`)
 - Your single API key is **not** hit on every play — only during catalogue builds
+
+## Catalog source of truth (R2)
+
+The catalogue lives in **R2** at `catalog/catalog.json` in the `songgussr` bucket. Both production and local dev (`npm run dev`) read from this bucket via the `AUDIO_BUCKET` binding (`remote: true` in `wrangler.jsonc`).
+
+| Setting | Value |
+|---------|-------|
+| R2 bucket | `songgussr` |
+| Catalog key | `catalog/catalog.json` |
+| Checkpoint key | `catalog/build-checkpoint.json` |
+| Local cache | 10-minute in-memory cache in the Worker |
+
+If R2 has no catalog, API routes return **503** with a message to run `npm run upload:catalog`. There is no fallback to a local file in the repo.
+
+### First-time seed
+
+After building locally, upload the catalogue to R2:
+
+```bash
+npm run build:catalog
+npm run upload:catalog
+```
+
+Use `--force` to overwrite an existing R2 catalog.
 
 ## Automatic catalog growth (production)
 
@@ -116,17 +143,17 @@ Each cron invocation:
 5. Resolves preview URLs (Spotify / iTunes)
 6. Writes the updated catalog and checkpoint back to R2 after each artist
 
-HTTP requests read the catalog from R2 with a **10-minute in-memory cache** (falls back to bundled `data/catalog.json` if R2 is empty).
+HTTP requests read the catalog from R2 with a **10-minute in-memory cache**.
 
-### First-time seed
+### Re-seed from local build
 
-After your first deploy, upload the local catalogue to R2:
+After a local `build:catalog`, push to R2:
 
 ```bash
 npm run upload:catalog
 ```
 
-Use `--force` to overwrite an existing R2 catalog. Re-run `upload:catalog` after a local `build:catalog` if you want to reset the R2 starting point.
+Use `--force` to overwrite an existing R2 catalog.
 
 ## Scripts
 
@@ -134,7 +161,7 @@ Use `--force` to overwrite an existing R2 catalog. Re-run `upload:catalog` after
 |---------|-------------|
 | `npm run dev` | Local dev with Vite + Worker |
 | `npm run build:catalog` | Fetch OPM tracks from Spotify (full artist discographies) |
-| `npm run upload:catalog` | Seed R2 catalog from local `data/catalog.json` |
+| `npm run upload:catalog` | Upload local `data/catalog.json` to R2 (seed / reset) |
 | `npm run upload:audio` | One-shot upload from `data/audio/` to R2 |
 | `npm run sync:audio` | Incremental sync (recommended) |
 | `npm run audio:manifest` | Generate upload checklist from catalog |
