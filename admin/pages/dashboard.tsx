@@ -1,0 +1,255 @@
+import { useEffect, useState } from 'react'
+import {
+  syncSpotifyMetrics,
+  triggerCron,
+  type CronTriggerResponse,
+  type SpotifySyncResponse,
+  type StatusResponse,
+} from '@/api'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import { formatDate, formatNumber } from '@/lib/format'
+import { PlayIcon, RefreshCwIcon } from 'lucide-react'
+import { toast } from 'sonner'
+
+const CRON_COOLDOWN_MS = 30_000
+
+export function DashboardPage({
+  status,
+  onStatusRefresh,
+}: {
+  status: StatusResponse | null
+  onStatusRefresh: () => void
+}) {
+  const [running, setRunning] = useState(false)
+  const [cooldownUntil, setCooldownUntil] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
+  const [lastRun, setLastRun] = useState<CronTriggerResponse | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [lastSync, setLastSync] = useState<SpotifySyncResponse | null>(null)
+
+  useEffect(() => {
+    if (cooldownUntil <= Date.now()) return
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [cooldownUntil])
+
+  if (!status) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <Card key={index}>
+            <CardHeader>
+              <Skeleton className="h-4 w-24" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-20" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    )
+  }
+
+  const artistPct = status.artistsTotal
+    ? Math.round((status.artistsDone / status.artistsTotal) * 100)
+    : 0
+  const catalogPct = Math.round((status.tracks / status.catalogCap) * 100)
+  const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - now) / 1000))
+  const disabled = running || cooldownLeft > 0
+
+  const handleRunCron = async () => {
+    setRunning(true)
+    setCooldownUntil(Date.now() + CRON_COOLDOWN_MS)
+    setNow(Date.now())
+    try {
+      const result = await triggerCron()
+      setLastRun(result)
+      onStatusRefresh()
+      toast.success(result.message)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Catalog update failed')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader>
+            <CardDescription>Catalog tracks</CardDescription>
+            <CardTitle className="text-3xl tabular-nums">{formatNumber(status.tracks)}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              {catalogPct}% of {formatNumber(status.catalogCap)} cap
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>Last updated</CardDescription>
+            <CardTitle className="text-lg">{formatDate(status.updatedAt)}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              D1 source of truth · Spotify {formatDate(status.spotifySyncedAt ?? null)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>Cron status</CardDescription>
+            <CardTitle>
+              <Badge variant={status.ok ? 'secondary' : 'destructive'}>{status.health}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">{status.cronDescription}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>Artist backlog</CardDescription>
+            <CardTitle className="text-3xl tabular-nums">{artistPct}%</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              {formatNumber(status.artistsDone)} / {formatNumber(status.artistsTotal)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Catalog update</CardTitle>
+          <CardDescription>
+            Next scheduled run {formatDate(status.nextCronEstimate)} · {status.cronSchedule}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {status.catalogError ? (
+            <Alert>
+              <AlertTitle>Catalog error</AlertTitle>
+              <AlertDescription>{status.catalogError}</AlertDescription>
+            </Alert>
+          ) : null}
+          {lastRun ? (
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">Added {formatNumber(lastRun.tracksAdded)}</Badge>
+              <Badge variant={(lastRun.errors?.length ?? 0) > 0 ? 'destructive' : 'outline'}>
+                Errors {formatNumber(lastRun.errors?.length ?? 0)}
+              </Badge>
+              <Badge variant={lastRun.rateLimited ? 'destructive' : 'outline'}>
+                {lastRun.rateLimited ? 'Rate limited' : 'Not rate limited'}
+              </Badge>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No manual run yet this session.</p>
+          )}
+        </CardContent>
+        <CardFooter>
+          <Button disabled={disabled} onClick={() => void handleRunCron()}>
+            {running ? <Spinner data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
+            {running ? 'Running…' : cooldownLeft > 0 ? `Wait ${cooldownLeft}s` : 'Run catalog update'}
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Spotify metrics</CardTitle>
+          <CardDescription>
+            Refresh popularity and artist popularity by Spotify ID, then recompute difficulty.
+            Official play counts / listens are not available on the public Web API.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {lastSync ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">Updated {formatNumber(lastSync.updated)}</Badge>
+                <Badge variant={(lastSync.errors?.length ?? 0) > 0 ? 'destructive' : 'outline'}>
+                  Errors {formatNumber(lastSync.errors?.length ?? 0)}
+                </Badge>
+                <Badge variant={lastSync.rateLimited ? 'destructive' : 'outline'}>
+                  {lastSync.rateLimited ? 'Rate limited' : 'Not rate limited'}
+                </Badge>
+              </div>
+              {lastSync.distribution ? (
+                <p className="text-sm text-muted-foreground">
+                  {Object.entries(lastSync.distribution)
+                    .map(([level, count]) => `${level} ${count}`)
+                    .join(' · ')}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No Spotify sync yet this session.</p>
+          )}
+        </CardContent>
+        <CardFooter>
+          <Button
+            disabled={syncing}
+            onClick={() => {
+              void (async () => {
+                setSyncing(true)
+                try {
+                  const result = await syncSpotifyMetrics()
+                  setLastSync(result)
+                  onStatusRefresh()
+                  toast.success(result.message)
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Spotify sync failed')
+                } finally {
+                  setSyncing(false)
+                }
+              })()
+            }}
+          >
+            {syncing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
+            {syncing ? 'Syncing…' : 'Sync Spotify metrics'}
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>System</CardTitle>
+          <CardDescription>Ingest checkpoints from R2</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <StatusRow label="Genre ingest" value={`${formatDate(status.genreSyncedAt)}${status.genreSource ? ` · ${status.genreSource}` : ''}`} />
+          <Separator />
+          <StatusRow label="Playlist synced" value={formatDate(status.playlistSyncedAt)} />
+          <Separator />
+          <StatusRow label="Genre cursor" value={String(status.genrePlaylistCursor)} />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function StatusRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-right text-sm">{value}</span>
+    </div>
+  )
+}

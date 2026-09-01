@@ -1,8 +1,4 @@
-import {
-  addTracksToCatalog,
-  loadCatalogFromR2,
-  MAX_CATALOG_TRACKS,
-} from './catalog-r2'
+import { findExistingTrackIds, insertTracks, MAX_CATALOG_TRACKS } from './catalog-d1'
 import { isOpmSpotifyTrack } from './opm-artists'
 import {
   fetchPlaylistTracks,
@@ -17,6 +13,17 @@ import type { Env, Track } from './types'
 const IMPORT_TIME_BUDGET_MS = 90_000
 const PERSIST_EVERY_ADDED = 10
 const MAX_ERROR_MESSAGES = 8
+
+export type PlaylistImportPhase = 'fetching' | 'filtering' | 'resolving' | 'saving' | 'done'
+
+export interface PlaylistImportProgress {
+  phase: PlaylistImportPhase
+  processed: number
+  total: number
+  added: number
+  skipped: number
+  playlistName?: string
+}
 
 export interface PlaylistImportResult {
   added: number
@@ -43,6 +50,7 @@ function pushError(errors: string[], message: string): void {
 export async function importPlaylistToCatalog(
   env: Env,
   playlistUrl: string,
+  onProgress?: (progress: PlaylistImportProgress) => void,
 ): Promise<PlaylistImportResult> {
   const playlistId = parseSpotifyPlaylistId(playlistUrl)
   if (!playlistId) {
@@ -55,16 +63,25 @@ export async function importPlaylistToCatalog(
     throw Object.assign(new Error('Spotify is not configured'), { status: 503 })
   }
 
+  onProgress?.({
+    phase: 'fetching',
+    processed: 0,
+    total: 0,
+    added: 0,
+    skipped: 0,
+  })
+
   const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
   const spotifyGet = (path: string, params?: Record<string, string | number | undefined>) =>
     spotifyApiGet(token, path, params)
 
   const playlist = await fetchPlaylistTracks(spotifyGet, playlistId)
-  const existingCatalog = (await loadCatalogFromR2(env.AUDIO_BUCKET)) ?? {
-    updatedAt: new Date().toISOString(),
-    tracks: [],
-  }
-  const existingIds = new Set(existingCatalog.tracks.map((track) => track.id))
+  const existingIds = await findExistingTrackIds(
+    env,
+    playlist.tracks.map((track) => track.id).filter((id): id is string => Boolean(id)),
+  )
+  const tracks = playlist.tracks.slice(0, MAX_PLAYLIST_TRACKS)
+  const total = tracks.length
 
   const pending: Track[] = []
   let added = 0
@@ -74,9 +91,27 @@ export async function importPlaylistToCatalog(
   const errors: string[] = []
   const runStartedAt = Date.now()
 
+  const skipped = () => skippedExisting + skippedNonOpm + skippedNoPreview
+  let currentProcessed = 0
+
+  const report = (phase: PlaylistImportPhase, processed: number) => {
+    currentProcessed = processed
+    onProgress?.({
+      phase,
+      processed,
+      total,
+      added,
+      skipped: skipped(),
+      playlistName: playlist.playlistName,
+    })
+  }
+
+  report('filtering', 0)
+
   const persistPending = async (): Promise<boolean> => {
     if (pending.length === 0) return false
-    const saved = await addTracksToCatalog(env.AUDIO_BUCKET, pending)
+    report('saving', currentProcessed)
+    const saved = await insertTracks(env, pending)
     added += saved.added
     pending.length = 0
     if (saved.skippedCap > 0) {
@@ -86,7 +121,7 @@ export async function importPlaylistToCatalog(
     return false
   }
 
-  for (const track of playlist.tracks.slice(0, MAX_PLAYLIST_TRACKS)) {
+  for (const [index, track] of tracks.entries()) {
     if (existingIds.size >= MAX_CATALOG_TRACKS) {
       pushError(errors, `Catalog at ${MAX_CATALOG_TRACKS.toLocaleString()} track cap`)
       break
@@ -97,20 +132,26 @@ export async function importPlaylistToCatalog(
       break
     }
 
-    if (!track?.id) continue
+    if (!track?.id) {
+      report('filtering', index + 1)
+      continue
+    }
 
     if (existingIds.has(track.id)) {
       skippedExisting += 1
+      report('filtering', index + 1)
       continue
     }
 
     if (!isOpmSpotifyTrack(track)) {
       skippedNonOpm += 1
+      report('filtering', index + 1)
       continue
     }
 
     try {
-      const built = await buildTrackFromSpotify(track, existingIds.size + pending.length)
+      report('resolving', index + 1)
+      const built = await buildTrackFromSpotify(track)
       if (!built.track) {
         if (built.reason?.toLowerCase().includes('preview')) {
           skippedNoPreview += 1
@@ -119,6 +160,7 @@ export async function importPlaylistToCatalog(
         } else {
           pushError(errors, built.reason ?? `Could not add ${track.name ?? track.id}`)
         }
+        report('resolving', index + 1)
         continue
       }
 
@@ -127,6 +169,7 @@ export async function importPlaylistToCatalog(
 
       if (pending.length >= PERSIST_EVERY_ADDED) {
         const hitCap = await persistPending()
+        report('resolving', index + 1)
         if (hitCap) break
       }
     } catch (error) {
@@ -139,10 +182,12 @@ export async function importPlaylistToCatalog(
         errors,
         error instanceof Error ? error.message : `Failed ${track.name ?? track.id}`,
       )
+      report('resolving', index + 1)
     }
   }
 
   await persistPending()
+  report('done', total)
 
   return {
     added,

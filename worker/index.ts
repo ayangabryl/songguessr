@@ -5,10 +5,10 @@ import {
   CatalogUnavailableError,
   findTrackById,
   getAvailabilityCounts,
-  getCatalog,
   pickRandomTrack,
   searchCatalog,
 } from './catalog'
+import { getCatalogStats } from './catalog-d1'
 import { songIdentityKey } from './track-dedupe.ts'
 import {
   type CatalogFilters,
@@ -177,11 +177,16 @@ app.post('/api/spotify/refresh', async (c) => {
 
 app.get('/api/health', async (c) => {
   try {
-    const catalog = await getCatalog(c.env)
+    const stats = await getCatalogStats(c.env)
+    if (stats.count === 0) {
+      return catalogUnavailable(c, new CatalogUnavailableError())
+    }
     return c.json({
       ok: true,
-      tracks: catalog.tracks.length,
-      updatedAt: catalog.updatedAt,
+      tracks: stats.count,
+      updatedAt: stats.updatedAt,
+      source: 'd1',
+      spotifySyncedAt: stats.spotifySyncedAt,
     })
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {
@@ -370,7 +375,13 @@ export default {
     if (wwwRedirect) return wwwRedirect
     const adminResponse = await handleAdminRequest(request, env, adminApp, ctx)
     if (adminResponse) return adminResponse
-    return app.fetch(request, env, ctx)
+
+    const response = await app.fetch(request, env, ctx)
+    const pathname = new URL(request.url).pathname
+    if (response.status !== 404 || pathname.startsWith('/api/') || !env.ASSETS) {
+      return response
+    }
+    return env.ASSETS.fetch(request)
   },
   scheduled: handleScheduled,
 }

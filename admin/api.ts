@@ -1,6 +1,4 @@
-const ADMIN_BASE = window.location.hostname.startsWith('admin.')
-  ? ''
-  : '/admin'
+const ADMIN_BASE = window.location.hostname.startsWith('admin.') ? '' : '/admin'
 
 export const API_BASE = `${ADMIN_BASE}/api`
 
@@ -49,6 +47,8 @@ export interface StatusResponse {
   cronDescription: string
   nextCronEstimate: string
   catalogError: string | null
+  source?: string
+  spotifySyncedAt?: string | null
 }
 
 export interface CatalogTrack {
@@ -57,8 +57,24 @@ export interface CatalogTrack {
   artist: string
   difficulty: string
   releaseYear?: number
+  genreGroups?: string[]
+  era?: string | null
   albumArt: string
   hasPreview: boolean
+}
+
+export interface CatalogCounts {
+  difficulty: Record<string, number>
+  genre: Record<string, number>
+  era: Record<string, number>
+  missingPreview: number
+}
+
+export interface CatalogFilters {
+  difficulty?: string
+  genre?: string
+  era?: string
+  missingPreview?: boolean
 }
 
 export interface CatalogResponse {
@@ -67,6 +83,7 @@ export interface CatalogResponse {
   pageSize: number
   total: number
   totalPages: number
+  counts: CatalogCounts
 }
 
 export interface SpotifySearchResult {
@@ -77,6 +94,48 @@ export interface SpotifySearchResult {
   previewUrl: string | null
   isOpm: boolean
   inCatalog: boolean
+}
+
+export interface CronTriggerResponse {
+  ok: boolean
+  message: string
+  skipped?: boolean
+  reason?: string
+  tracksAdded: number
+  totalTracks?: number
+  tracks?: number
+  rateLimited: boolean
+  errors: string[]
+  playlistsProcessed?: number
+  artistsProcessed?: number
+  error?: string
+}
+
+export type JobStatus = 'queued' | 'running' | 'done' | 'error'
+export type JobPhase =
+  | 'queued'
+  | 'fetching'
+  | 'filtering'
+  | 'resolving'
+  | 'saving'
+  | 'done'
+  | 'error'
+
+export interface CatalogJob {
+  status: JobStatus
+  processed: number
+  total: number
+  added: number
+  skipped: number
+  phase: JobPhase
+  error?: string
+  playlistName?: string
+  skippedExisting?: number
+  skippedNonOpm?: number
+  skippedNoPreview?: number
+  errors?: string[]
+  source?: string
+  fetched?: number
 }
 
 export async function login(password: string): Promise<void> {
@@ -94,9 +153,23 @@ export async function fetchStatus(): Promise<StatusResponse> {
   return request<StatusResponse>('/status')
 }
 
-export async function fetchCatalog(page: number, query: string): Promise<CatalogResponse> {
+export async function fetchCatalog(
+  page: number,
+  query: string,
+  filters: CatalogFilters,
+): Promise<CatalogResponse> {
   const params = new URLSearchParams({ page: String(page), pageSize: '50' })
   if (query.trim()) params.set('q', query.trim())
+  if (filters.difficulty && filters.difficulty !== 'all') {
+    params.set('difficulty', filters.difficulty)
+  }
+  if (filters.genre && filters.genre !== 'all') {
+    params.set('genre', filters.genre)
+  }
+  if (filters.era && filters.era !== 'all') {
+    params.set('era', filters.era)
+  }
+  if (filters.missingPreview) params.set('missingPreview', '1')
   return request<CatalogResponse>(`/catalog?${params}`)
 }
 
@@ -117,21 +190,6 @@ export async function removeTrack(trackId: string): Promise<void> {
   await request(`/catalog/${trackId}`, { method: 'DELETE' })
 }
 
-export interface CronTriggerResponse {
-  ok: boolean
-  message: string
-  skipped?: boolean
-  reason?: string
-  tracksAdded: number
-  totalTracks?: number
-  tracks?: number
-  rateLimited: boolean
-  errors: string[]
-  playlistsProcessed?: number
-  artistsProcessed?: number
-  error?: string
-}
-
 export async function triggerCron(): Promise<CronTriggerResponse> {
   return request<CronTriggerResponse>('/cron/trigger', {
     method: 'POST',
@@ -139,21 +197,34 @@ export async function triggerCron(): Promise<CronTriggerResponse> {
   })
 }
 
-export interface PlaylistImportResponse {
-  added: number
-  skippedExisting: number
-  skippedNonOpm: number
-  skippedNoPreview: number
+export interface SpotifySyncResponse {
+  ok: boolean
+  message: string
+  skipped?: boolean
+  reason?: string
+  updated: number
+  tracks: number
+  distribution?: Record<string, number>
+  rateLimited: boolean
   errors: string[]
-  playlistId?: string
-  playlistName?: string
-  source?: 'spotify-api' | 'archive-fallback' | 'embed-fallback'
-  fetched?: number
+  error?: string
 }
 
-export async function importPlaylist(playlistUrl: string): Promise<PlaylistImportResponse> {
-  return request<PlaylistImportResponse>('/catalog/playlist', {
+export async function syncSpotifyMetrics(): Promise<SpotifySyncResponse> {
+  return request<SpotifySyncResponse>('/spotify/sync', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export async function startPlaylistImport(playlistUrl: string): Promise<string> {
+  const data = await request<{ jobId: string }>('/catalog/playlist', {
     method: 'POST',
     body: JSON.stringify({ playlistUrl }),
   })
+  return data.jobId
+}
+
+export async function fetchJob(jobId: string): Promise<CatalogJob> {
+  return request<CatalogJob>(`/jobs/${jobId}`)
 }

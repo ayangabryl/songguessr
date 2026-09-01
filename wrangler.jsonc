@@ -6,13 +6,26 @@
   "compatibility_date": "2026-01-01",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Worker must run first so admin.songguessr.lol `/` is not the game SPA.
+    "run_worker_first": true
   },
   "r2_buckets": [
     {
       "binding": "AUDIO_BUCKET",
       "bucket_name": "songguessr",
       // Local dev (`npm run dev`) reads the same remote R2 bucket as production.
+      "remote": true
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "songguessr",
+      "database_id": "84d7b879-9a50-421c-85d0-d7cd245c6ac1",
+      "migrations_dir": "migrations",
+      // Local dev uses the same remote catalog as production.
       "remote": true
     }
   ],
@@ -25,7 +38,8 @@
   // records (already orange-clouded) without needing DNS write.
   "routes": [
     { "pattern": "songguessr.lol/*", "zone_name": "songguessr.lol" },
-    { "pattern": "www.songguessr.lol/*", "zone_name": "songguessr.lol" }
+    { "pattern": "www.songguessr.lol/*", "zone_name": "songguessr.lol" },
+    { "pattern": "admin.songguessr.lol", "custom_domain": true }
   ],
   "vars": {
     "ADMIN_PASSWORD": "wizard123"

@@ -24,6 +24,12 @@ export interface Track {
   difficulty: Difficulty
   releaseYear?: number
   genreGroups?: GenreFilter[]
+  /** Official Spotify track.popularity 0–100. No public play-count exists. */
+  popularity?: number
+  /** Official Spotify primary-artist.popularity 0–100. */
+  artistPopularity?: number
+  durationMs?: number
+  spotifySyncedAt?: string
 }
 
 export interface Catalog {
@@ -36,5 +42,6 @@ export interface Env {
   SPOTIFY_CLIENT_SECRET?: string
   ADMIN_PASSWORD?: string
   AUDIO_BUCKET: R2Bucket
+  DB: D1Database
   ASSETS?: Fetcher
 }

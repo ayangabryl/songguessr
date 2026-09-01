@@ -1,19 +1,33 @@
 import { Hono } from 'hono'
 import {
-  addTrackToCatalog,
   CATALOG_R2_KEY,
-  getCachedCatalog,
   loadCheckpointFromR2,
+} from './catalog-r2'
+import { CatalogUnavailableError, searchCatalog } from './catalog'
+import {
+  addTrackToCatalog,
+  findExistingTrackIds,
+  getCatalogStats,
+  listCatalogPage,
   MAX_CATALOG_TRACKS,
   removeTrackFromCatalog,
-} from './catalog-r2'
-import { CatalogUnavailableError, getCatalog, searchCatalog } from './catalog'
+} from './catalog-d1'
+import { syncSpotifyMetrics } from './spotify-sync'
+import {
+  ERA_OPTIONS,
+  GENRE_OPTIONS,
+  type EraFilter,
+  type GenreFilter,
+} from './filters'
+import { createCatalogJob, getCatalogJob, updateCatalogJob } from './jobs'
 import { isOpmSpotifyTrack, UNIQUE_OPM_ARTISTS } from './opm-artists'
+import { importPlaylistToCatalog } from './playlist-import'
+import { parseSpotifyPlaylistId } from './playlist-source'
+import { backfillMissingAlbumArt } from './album-art'
 import { fetchSpotifyTrack, getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
 import { runCatalogBuild } from './catalog-builder'
-import { importPlaylistToCatalog } from './playlist-import'
 import { buildTrackFromSpotify } from './track-builder'
-import type { Env, Track } from './types'
+import type { Difficulty, Env } from './types'
 
 const ADMIN_HOSTS = new Set([
   'admin.songguessr.lol',
@@ -25,6 +39,9 @@ const SESSION_COOKIE = 'songguessr_admin'
 const LEGACY_SESSION_COOKIE = 'songgussr_admin'
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const CRON_SCHEDULE = '0 */6 * * *'
+const ADMIN_HOSTNAME = 'admin.songguessr.lol'
+const APEX_HOSTS = new Set(['songguessr.lol', 'www.songguessr.lol'])
+const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
 
 export function isAdminHost(hostname: string): boolean {
   return ADMIN_HOSTS.has(hostname) || hostname.startsWith('admin.')
@@ -107,19 +124,44 @@ async function hasValidAdminSession(request: Request, env: Env): Promise<boolean
   return verifySession(getAdminPassword(env), token)
 }
 
+function isSongguessrHost(hostname: string): boolean {
+  return hostname === 'songguessr.lol' || hostname.endsWith('.songguessr.lol')
+}
+
+function cookieBase(hostname: string, path: string): string {
+  const domain = isSongguessrHost(hostname) ? 'Domain=.songguessr.lol; ' : ''
+  return `${domain}Path=${path}; HttpOnly; Secure; SameSite=Lax`
+}
+
 function sessionCookieOptions(hostname: string): string {
-  const path = isAdminHost(hostname) ? '/' : '/admin'
-  return `Path=${path}; HttpOnly; Secure; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`
+  return `${cookieBase(hostname, '/')}; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`
 }
 
-function clearSessionCookie(hostname: string): string {
-  const path = isAdminHost(hostname) ? '/' : '/admin'
-  return `${SESSION_COOKIE}=; Path=${path}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
+function expiredCookie(name: string, hostname: string, path: string): string {
+  return `${name}=; ${cookieBase(hostname, path)}; Max-Age=0`
 }
 
-function clearLegacySessionCookie(hostname: string): string {
-  const path = isAdminHost(hostname) ? '/' : '/admin'
-  return `${LEGACY_SESSION_COOKIE}=; Path=${path}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
+function appendClearedSessionCookies(response: Response, hostname: string): void {
+  const paths = ['/', '/admin']
+  for (const path of paths) {
+    response.headers.append('Set-Cookie', expiredCookie(SESSION_COOKIE, hostname, path))
+    response.headers.append('Set-Cookie', expiredCookie(LEGACY_SESSION_COOKIE, hostname, path))
+  }
+}
+
+function shouldRedirectApexAdmin(url: URL): boolean {
+  if (!APEX_HOSTS.has(url.hostname)) return false
+  if (!url.pathname.startsWith('/admin')) return false
+  return !url.pathname.startsWith('/admin/api')
+}
+
+function redirectToAdminSubdomain(url: URL): Response {
+  const dest = new URL(url.toString())
+  dest.protocol = 'https:'
+  dest.hostname = ADMIN_HOSTNAME
+  dest.pathname = url.pathname.replace(/^\/admin\/?/, '/') || '/'
+  if (!dest.pathname.startsWith('/')) dest.pathname = `/${dest.pathname}`
+  return Response.redirect(dest.toString(), 302)
 }
 
 function estimateNextCronRun(): string {
@@ -143,36 +185,25 @@ function estimateNextCronRun(): string {
   return next.toISOString()
 }
 
-function paginateTracks(tracks: Track[], page: number, pageSize: number, query: string) {
-  const normalized = query.trim().toLowerCase()
-  const filtered = normalized
-    ? tracks.filter((track) => {
-        const haystack = `${track.title} ${track.artist} ${track.id}`.toLowerCase()
-        return haystack.includes(normalized)
-      })
-    : tracks
-
-  const sorted = [...filtered].sort((left, right) => left.title.localeCompare(right.title))
-  const total = sorted.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const safePage = Math.min(Math.max(page, 1), totalPages)
-  const start = (safePage - 1) * pageSize
-
-  return {
-    tracks: sorted.slice(start, start + pageSize).map((track) => ({
-      id: track.id,
-      title: track.title,
-      artist: track.artist,
-      difficulty: track.difficulty,
-      releaseYear: track.releaseYear,
-      albumArt: track.albumArt,
-      hasPreview: Boolean(track.previewUrl),
-    })),
-    page: safePage,
-    pageSize,
-    total,
-    totalPages,
+function parseListDifficulty(value: string | undefined): Difficulty | undefined {
+  if (value && DIFFICULTIES.includes(value as Difficulty)) {
+    return value as Difficulty
   }
+  return undefined
+}
+
+function parseListGenre(value: string | undefined): GenreFilter | undefined {
+  if (value && GENRE_OPTIONS.includes(value as GenreFilter)) {
+    return value as GenreFilter
+  }
+  return undefined
+}
+
+function parseListEra(value: string | undefined): EraFilter | undefined {
+  if (value && ERA_OPTIONS.includes(value as EraFilter)) {
+    return value as EraFilter
+  }
+  return undefined
 }
 
 export function createAdminApp(): Hono<{ Bindings: Env }> {
@@ -189,9 +220,47 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     const expiresAt = Date.now() + SESSION_TTL_MS
     const token = await signSession(getAdminPassword(c.env), expiresAt)
 
+    const hostname = new URL(c.req.url).hostname
     const response = c.json({ ok: true })
-    response.headers.append('Set-Cookie', `${SESSION_COOKIE}=${token}; ${sessionCookieOptions(new URL(c.req.url).hostname)}`)
+    response.headers.append(
+      'Set-Cookie',
+      `${SESSION_COOKIE}=${token}; ${sessionCookieOptions(hostname)}`,
+    )
     return response
+  })
+
+  admin.post('/admin/api/spotify/sync', async (c) => {
+    const cookieOk = await hasValidAdminSession(c.req.raw, c.env)
+    const body = await c.req.json<{ password?: string }>().catch(() => ({ password: undefined }))
+    const passwordOk = body.password?.trim() === getAdminPassword(c.env)
+
+    if (!cookieOk && !passwordOk) {
+      return c.json({ error: 'Unauthorized' }, 401)
+    }
+
+    try {
+      const result = await syncSpotifyMetrics(c.env)
+      return c.json({
+        ok: true,
+        message: result.skipped
+          ? `Spotify sync skipped${result.reason ? `: ${result.reason}` : ''}`
+          : `Synced ${result.updated} tracks from Spotify IDs`,
+        ...result,
+      })
+    } catch (error) {
+      return c.json(
+        {
+          ok: false,
+          message: 'Spotify sync failed',
+          updated: 0,
+          tracks: 0,
+          rateLimited: false,
+          errors: [error instanceof Error ? error.message : 'Spotify sync failed'],
+          error: error instanceof Error ? error.message : 'Spotify sync failed',
+        },
+        500,
+      )
+    }
   })
 
   admin.post('/admin/api/cron/trigger', async (c) => {
@@ -249,13 +318,16 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
   admin.post('/admin/api/logout', (c) => {
     const hostname = new URL(c.req.url).hostname
     const response = c.json({ ok: true })
-    response.headers.append('Set-Cookie', clearSessionCookie(hostname))
-    response.headers.append('Set-Cookie', clearLegacySessionCookie(hostname))
+    appendClearedSessionCookies(response, hostname)
     return response
   })
 
   admin.use('/admin/api/*', async (c, next) => {
-    if (c.req.path === '/admin/api/login' || c.req.path === '/admin/api/cron/trigger') {
+    if (
+      c.req.path === '/admin/api/login' ||
+      c.req.path === '/admin/api/cron/trigger' ||
+      c.req.path === '/admin/api/spotify/sync'
+    ) {
       await next()
       return
     }
@@ -275,13 +347,16 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     let catalogOk = false
     let trackCount = 0
     let updatedAt: string | null = null
+    let spotifySyncedAt: string | null = null
     let catalogError: string | null = null
 
     try {
-      const catalog = await getCatalog(c.env)
-      catalogOk = true
-      trackCount = catalog.tracks.length
-      updatedAt = catalog.updatedAt
+      const stats = await getCatalogStats(c.env)
+      catalogOk = stats.count > 0
+      trackCount = stats.count
+      updatedAt = stats.updatedAt
+      spotifySyncedAt = stats.spotifySyncedAt
+      if (!catalogOk) catalogError = 'Catalog not found in D1'
     } catch (error) {
       catalogError = error instanceof Error ? error.message : 'Catalog unavailable'
     }
@@ -292,6 +367,8 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       tracks: trackCount,
       catalogCap: MAX_CATALOG_TRACKS,
       updatedAt,
+      spotifySyncedAt,
+      source: 'd1',
       r2UpdatedAt: catalogObject?.uploaded?.toISOString() ?? null,
       artistsDone: checkpoint.completedArtists.size,
       artistsTotal: UNIQUE_OPM_ARTISTS.length,
@@ -300,7 +377,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       genreSource: checkpoint.genreSource ?? null,
       genrePlaylistCursor: checkpoint.genrePlaylistCursor ?? 0,
       cronSchedule: CRON_SCHEDULE,
-      cronDescription: 'Every 6 hours (UTC): artist backlog first, then genre playlists',
+      cronDescription: 'Every 6 hours (UTC): sync Spotify popularity/artist metrics and recompute difficulty',
       nextCronEstimate: estimateNextCronRun(),
       catalogError,
     })
@@ -308,12 +385,18 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
 
   admin.get('/admin/api/catalog', async (c) => {
     try {
-      const catalog = await getCatalog(c.env)
       const page = Number(c.req.query('page') ?? '1')
       const pageSize = Number(c.req.query('pageSize') ?? '50')
       const query = c.req.query('q') ?? c.req.query('search') ?? ''
+      const filters = {
+        difficulty: parseListDifficulty(c.req.query('difficulty')),
+        genre: parseListGenre(c.req.query('genre')),
+        era: parseListEra(c.req.query('era')),
+        missingPreview:
+          c.req.query('missingPreview') === '1' || c.req.query('missingPreview') === 'true',
+      }
 
-      return c.json(paginateTracks(catalog.tracks, page, pageSize, query))
+      return c.json(await listCatalogPage(c.env, page, pageSize, query, filters))
     } catch (error) {
       if (error instanceof CatalogUnavailableError) {
         return c.json({ error: error.message }, 503)
@@ -358,8 +441,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
     const tracks = await searchSpotifyTracks(token, query)
 
-    const existing = await getCachedCatalog(c.env.AUDIO_BUCKET)
-    const existingIds = new Set(existing?.tracks.map((track) => track.id) ?? [])
+    const existingIds = await findExistingTrackIds(
+      c.env,
+      tracks.map((track) => track.id).filter((id): id is string => Boolean(id)),
+    )
 
     return c.json({
       results: tracks.map((track) => ({
@@ -398,7 +483,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       return c.json({ error: built.reason ?? 'Could not add track' }, 400)
     }
 
-    const result = await addTrackToCatalog(c.env.AUDIO_BUCKET, built.track)
+    const result = await addTrackToCatalog(c.env, built.track)
     if (!result.ok) {
       return c.json({ error: result.reason ?? 'Could not add track' }, 409)
     }
@@ -420,23 +505,37 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     if (!playlistUrl) {
       return c.json({ error: 'playlistUrl is required' }, 400)
     }
-
-    try {
-      const result = await importPlaylistToCatalog(c.env, playlistUrl)
-      return c.json(result)
-    } catch (error) {
-      const status = (error as { status?: number }).status
-      const message = error instanceof Error ? error.message : 'Playlist import failed'
-      if (status === 400 || status === 404 || status === 503) {
-        return c.json({ error: message }, status)
-      }
-      return c.json({ error: message }, 500)
+    if (!parseSpotifyPlaylistId(playlistUrl)) {
+      return c.json({ error: 'Invalid Spotify playlist URL or ID' }, 400)
     }
+
+    const jobId = createCatalogJob()
+    const run = runPlaylistImportJob(c.env, jobId, playlistUrl)
+    try {
+      c.executionCtx.waitUntil(run)
+    } catch {
+      await run
+    }
+
+    return c.json({ jobId })
+  })
+
+  admin.post('/admin/api/catalog/backfill-art', async (c) => {
+    const result = await backfillMissingAlbumArt(c.env)
+    return c.json({ ok: true, ...result })
+  })
+
+  admin.get('/admin/api/jobs/:id', (c) => {
+    const job = getCatalogJob(c.req.param('id'))
+    if (!job) {
+      return c.json({ error: 'Job not found' }, 404)
+    }
+    return c.json(job)
   })
 
   admin.delete('/admin/api/catalog/:trackId', async (c) => {
     const trackId = c.req.param('trackId')
-    const result = await removeTrackFromCatalog(c.env.AUDIO_BUCKET, trackId)
+    const result = await removeTrackFromCatalog(c.env, trackId)
     if (!result.ok) {
       return c.json({ error: result.reason ?? 'Could not remove track' }, 404)
     }
@@ -451,7 +550,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     if (path.startsWith('/admin/api/')) {
       return c.notFound()
     }
-    return serveAdminAsset(c.env, path)
+    if (path.startsWith('/admin/assets/')) {
+      return serveAdminAsset(c.env, path)
+    }
+    return serveAdminAsset(c.env, '/admin/index.html')
   })
 
   return admin
@@ -480,6 +582,44 @@ async function serveAdminAsset(env: Env, assetPath: string): Promise<Response> {
   return response
 }
 
+async function runPlaylistImportJob(env: Env, jobId: string, playlistUrl: string): Promise<void> {
+  updateCatalogJob(jobId, { status: 'running', phase: 'fetching' })
+  try {
+    const result = await importPlaylistToCatalog(env, playlistUrl, (progress) => {
+      updateCatalogJob(jobId, {
+        status: 'running',
+        phase: progress.phase,
+        processed: progress.processed,
+        total: progress.total,
+        added: progress.added,
+        skipped: progress.skipped,
+        playlistName: progress.playlistName,
+      })
+    })
+    updateCatalogJob(jobId, {
+      status: 'done',
+      phase: 'done',
+      added: result.added,
+      skipped: result.skippedExisting + result.skippedNonOpm + result.skippedNoPreview,
+      processed: result.fetched,
+      total: result.fetched,
+      playlistName: result.playlistName,
+      skippedExisting: result.skippedExisting,
+      skippedNonOpm: result.skippedNonOpm,
+      skippedNoPreview: result.skippedNoPreview,
+      errors: result.errors,
+      source: result.source,
+      fetched: result.fetched,
+    })
+  } catch (error) {
+    updateCatalogJob(jobId, {
+      status: 'error',
+      phase: 'error',
+      error: error instanceof Error ? error.message : 'Playlist import failed',
+    })
+  }
+}
+
 export async function handleAdminRequest(
   request: Request,
   env: Env,
@@ -487,6 +627,9 @@ export async function handleAdminRequest(
   ctx?: ExecutionContext,
 ): Promise<Response | null> {
   const url = new URL(request.url)
+  if (shouldRedirectApexAdmin(url)) {
+    return redirectToAdminSubdomain(url)
+  }
   if (!isAdminRequest(url)) return null
 
   const rewritten = rewriteAdminRequest(request)
@@ -495,7 +638,8 @@ export async function handleAdminRequest(
   if (response.status !== 404) return response
 
   const path = new URL(rewritten.url).pathname
-  if (path.startsWith('/admin/') && !path.startsWith('/admin/api/')) {
+  if (path.startsWith('/admin/api/')) return response
+  if (path.startsWith('/admin')) {
     return serveAdminAsset(env, '/admin/index.html')
   }
 

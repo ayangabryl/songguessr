@@ -1,0 +1,705 @@
+import {
+  ERA_OPTIONS,
+  GENRE_OPTIONS,
+  type CatalogFilters,
+  type EraFilter,
+  type GenreFilter,
+} from './filters'
+import { songIdentityKey } from './track-dedupe'
+import type { Difficulty, Env, Track } from './types'
+
+export const MAX_CATALOG_TRACKS = 20_000
+export const CATALOG_SEED_MESSAGE =
+  'Catalog not found in D1. Run `npm run seed:d1` to import tracks from R2.'
+
+export class CatalogUnavailableError extends Error {
+  constructor(message = CATALOG_SEED_MESSAGE) {
+    super(message)
+    this.name = 'CatalogUnavailableError'
+  }
+}
+
+const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
+const MAX_IN_PARAMS = 80
+
+type SqlValue = string | number | null
+
+export interface TrackRow {
+  id: string
+  title: string
+  artist: string
+  preview_url: string | null
+  hook_preview_url: string | null
+  hook_start_seconds: number | null
+  album_art: string | null
+  difficulty: Difficulty
+  popularity: number | null
+  artist_popularity: number | null
+  release_year: number | null
+  duration_ms: number | null
+  genre_groups: string | null
+  song_key: string | null
+  updated_at: string | null
+  spotify_synced_at: string | null
+}
+
+export interface CatalogStats {
+  count: number
+  updatedAt: string | null
+  spotifySyncedAt: string | null
+}
+
+export interface CatalogMutationResult {
+  ok: boolean
+  reason?: string
+  totalTracks?: number
+}
+
+export interface AddTracksToCatalogResult {
+  added: number
+  totalTracks: number
+  skippedExisting: number
+  skippedCap: number
+}
+
+export interface CatalogListFilters {
+  difficulty?: Difficulty
+  genre?: GenreFilter
+  era?: EraFilter
+  missingPreview: boolean
+}
+
+export interface CatalogListPage {
+  tracks: Array<{
+    id: string
+    title: string
+    artist: string
+    difficulty: Difficulty
+    releaseYear?: number
+    genreGroups: GenreFilter[]
+    era: EraFilter | null
+    albumArt: string
+    hasPreview: boolean
+    popularity?: number
+  }>
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  counts: {
+    difficulty: Record<Difficulty, number>
+    genre: Record<GenreFilter, number>
+    era: Record<EraFilter, number>
+    missingPreview: number
+  }
+}
+
+function requireDb(env: Env): D1Database {
+  if (!env.DB) {
+    throw new CatalogUnavailableError('D1 database binding DB is not configured.')
+  }
+  return env.DB
+}
+
+function parseGenreGroups(value: string | null): GenreFilter[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is GenreFilter =>
+      GENRE_OPTIONS.includes(item as GenreFilter),
+    )
+  } catch {
+    return []
+  }
+}
+
+function eraFromYear(year: number | null | undefined): EraFilter | null {
+  if (!Number.isInteger(year)) return null
+  const releaseYear = year as number
+  if (releaseYear >= 2020) return 'modern'
+  if (releaseYear >= 2010) return '2010s'
+  if (releaseYear >= 2000) return '2000s'
+  return 'classics'
+}
+
+export function rowToTrack(row: TrackRow): Track {
+  const genreGroups = parseGenreGroups(row.genre_groups)
+  return {
+    id: row.id,
+    title: row.title,
+    artist: row.artist,
+    previewUrl: row.preview_url ?? '',
+    ...(row.hook_preview_url ? { hookPreviewUrl: row.hook_preview_url } : {}),
+    hookStartSeconds: row.hook_start_seconds ?? undefined,
+    albumArt: row.album_art ?? '',
+    difficulty: row.difficulty,
+    releaseYear: row.release_year ?? undefined,
+    genreGroups: genreGroups.length > 0 ? genreGroups : undefined,
+    popularity: row.popularity ?? undefined,
+    artistPopularity: row.artist_popularity ?? undefined,
+    durationMs: row.duration_ms ?? undefined,
+  }
+}
+
+function trackBindValues(track: Track, now: string): SqlValue[] {
+  return [
+    track.id,
+    track.title,
+    track.artist,
+    track.previewUrl || null,
+    track.hookPreviewUrl ?? null,
+    track.hookStartSeconds ?? null,
+    track.albumArt || null,
+    track.difficulty,
+    track.popularity ?? null,
+    track.artistPopularity ?? null,
+    track.releaseYear ?? null,
+    track.durationMs ?? null,
+    JSON.stringify(track.genreGroups ?? []),
+    songIdentityKey(track),
+    now,
+    track.spotifySyncedAt ?? null,
+  ]
+}
+
+const INSERT_COLUMNS = `id, title, artist, preview_url, hook_preview_url, hook_start_seconds,
+  album_art, difficulty, popularity, artist_popularity, release_year, duration_ms,
+  genre_groups, song_key, updated_at, spotify_synced_at`
+
+const INSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+function eraSql(era: EraFilter): string {
+  switch (era) {
+    case 'modern':
+      return 'release_year >= 2020'
+    case '2010s':
+      return '(release_year >= 2010 AND release_year <= 2019)'
+    case '2000s':
+      return '(release_year >= 2000 AND release_year <= 2009)'
+    case 'classics':
+      return '(release_year IS NOT NULL AND release_year < 2000)'
+    default: {
+      const _never: never = era
+      throw new Error(`Unhandled era: ${_never}`)
+    }
+  }
+}
+
+function buildFilterSql(filters: CatalogFilters): { sql: string; params: SqlValue[] } {
+  const clauses: string[] = []
+  const params: SqlValue[] = []
+
+  if (filters.eras.length > 0) {
+    clauses.push(`(${filters.eras.map((era) => eraSql(era)).join(' OR ')})`)
+  }
+
+  if (filters.genres.length > 0) {
+    const genreClauses = filters.genres.map(
+      () => `EXISTS (SELECT 1 FROM json_each(tracks.genre_groups) WHERE json_each.value = ?)`,
+    )
+    clauses.push(`(${genreClauses.join(' OR ')})`)
+    params.push(...filters.genres)
+  }
+
+  return {
+    sql: clauses.length > 0 ? ` AND ${clauses.join(' AND ')}` : '',
+    params,
+  }
+}
+
+function inClause(column: string, values: string[]): { sql: string; params: SqlValue[] } {
+  if (values.length === 0) return { sql: '', params: [] }
+  const limited = values.slice(0, MAX_IN_PARAMS)
+  return {
+    sql: ` AND ${column} NOT IN (${limited.map(() => '?').join(', ')})`,
+    params: limited,
+  }
+}
+
+function likePattern(query: string): string {
+  return `%${query.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
+}
+
+export async function getCatalogStats(env: Env): Promise<CatalogStats> {
+  const db = requireDb(env)
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count, MAX(updated_at) AS updated_at, MAX(spotify_synced_at) AS spotify_synced_at
+       FROM tracks`,
+    )
+    .first<{ count: number; updated_at: string | null; spotify_synced_at: string | null }>()
+
+  return {
+    count: row?.count ?? 0,
+    updatedAt: row?.updated_at ?? null,
+    spotifySyncedAt: row?.spotify_synced_at ?? null,
+  }
+}
+
+export async function countTracks(env: Env): Promise<number> {
+  const stats = await getCatalogStats(env)
+  return stats.count
+}
+
+export async function listTrackIds(env: Env): Promise<string[]> {
+  const db = requireDb(env)
+  const result = await db.prepare('SELECT id FROM tracks').all<{ id: string }>()
+  return (result.results ?? []).map((row) => row.id)
+}
+
+export async function listTrackIdsForSync(env: Env, limit = 5000): Promise<string[]> {
+  const db = requireDb(env)
+  const result = await db
+    .prepare(
+      `SELECT id FROM tracks
+       ORDER BY (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
+       LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ id: string }>()
+  return (result.results ?? []).map((row) => row.id)
+}
+
+export async function findExistingTrackIds(env: Env, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const db = requireDb(env)
+  const found = new Set<string>()
+
+  for (let index = 0; index < ids.length; index += MAX_IN_PARAMS) {
+    const batch = ids.slice(index, index + MAX_IN_PARAMS)
+    const result = await db
+      .prepare(`SELECT id FROM tracks WHERE id IN (${batch.map(() => '?').join(', ')})`)
+      .bind(...batch)
+      .all<{ id: string }>()
+    for (const row of result.results ?? []) {
+      found.add(row.id)
+    }
+  }
+
+  return found
+}
+
+export async function findTrackById(env: Env, id: string): Promise<Track | undefined> {
+  const db = requireDb(env)
+  const row = await db.prepare('SELECT * FROM tracks WHERE id = ?').bind(id).first<TrackRow>()
+  return row ? rowToTrack(row) : undefined
+}
+
+export async function getAvailabilityCounts(
+  env: Env,
+  filters: CatalogFilters,
+): Promise<Record<Difficulty, number>> {
+  const db = requireDb(env)
+  const { sql, params } = buildFilterSql(filters)
+  const result = await db
+    .prepare(`SELECT difficulty, COUNT(*) AS n FROM tracks WHERE 1 = 1${sql} GROUP BY difficulty`)
+    .bind(...params)
+    .all<{ difficulty: Difficulty; n: number }>()
+
+  const counts = Object.fromEntries(DIFFICULTIES.map((item) => [item, 0])) as Record<
+    Difficulty,
+    number
+  >
+  for (const row of result.results ?? []) {
+    if (DIFFICULTIES.includes(row.difficulty)) {
+      counts[row.difficulty] = row.n
+    }
+  }
+  return counts
+}
+
+export async function getDifficultyDistribution(
+  env: Env,
+): Promise<Record<Difficulty, number>> {
+  return getAvailabilityCounts(env, { eras: [], genres: [] })
+}
+
+async function pickOne(
+  db: D1Database,
+  difficulty: Difficulty,
+  filterSql: string,
+  filterParams: SqlValue[],
+  extraSql: string,
+  extraParams: SqlValue[],
+): Promise<Track | null> {
+  const row = await db
+    .prepare(
+      `SELECT * FROM tracks WHERE difficulty = ?${filterSql}${extraSql} ORDER BY RANDOM() LIMIT 1`,
+    )
+    .bind(difficulty, ...filterParams, ...extraParams)
+    .first<TrackRow>()
+  return row ? rowToTrack(row) : null
+}
+
+export async function pickRandomTrack(
+  env: Env,
+  difficulty: Difficulty,
+  filters: CatalogFilters = { eras: [], genres: [] },
+  excludeIds: ReadonlySet<string> = new Set(),
+  excludeSongKeys: ReadonlySet<string> = new Set(),
+): Promise<Track | null> {
+  const db = requireDb(env)
+  const { sql: filterSql, params: filterParams } = buildFilterSql(filters)
+  const ids = [...excludeIds]
+  const keys = [...excludeSongKeys]
+  const idClause = inClause('id', ids)
+  const keyClause = inClause('song_key', keys)
+
+  const attempts: Array<{ sql: string; params: SqlValue[] }> = [
+    { sql: `${idClause.sql}${keyClause.sql}`, params: [...idClause.params, ...keyClause.params] },
+    { sql: keyClause.sql, params: keyClause.params },
+    { sql: idClause.sql, params: idClause.params },
+    { sql: '', params: [] },
+  ]
+
+  for (const attempt of attempts) {
+    const track = await pickOne(db, difficulty, filterSql, filterParams, attempt.sql, attempt.params)
+    if (track) return track
+  }
+  return null
+}
+
+export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return []
+
+  const db = requireDb(env)
+  const pattern = likePattern(normalized)
+  const result = await db
+    .prepare(
+      `SELECT * FROM tracks
+       WHERE lower(title) LIKE ? ESCAPE '\\' OR lower(artist) LIKE ? ESCAPE '\\'
+       ORDER BY title
+       LIMIT ?`,
+    )
+    .bind(pattern, pattern, limit)
+    .all<TrackRow>()
+
+  return (result.results ?? []).map(rowToTrack)
+}
+
+export async function insertTracks(
+  env: Env,
+  tracks: Track[],
+): Promise<AddTracksToCatalogResult> {
+  const db = requireDb(env)
+  const totalBefore = await countTracks(env)
+  if (tracks.length === 0) {
+    return { added: 0, totalTracks: totalBefore, skippedExisting: 0, skippedCap: 0 }
+  }
+
+  const existing = await findExistingTrackIds(
+    env,
+    tracks.map((track) => track.id),
+  )
+  let skippedExisting = 0
+  let skippedCap = 0
+  const incoming: Track[] = []
+  let remainingCap = Math.max(0, MAX_CATALOG_TRACKS - totalBefore)
+
+  for (const track of tracks) {
+    if (existing.has(track.id)) {
+      skippedExisting += 1
+      continue
+    }
+    if (remainingCap <= 0) {
+      skippedCap += 1
+      continue
+    }
+    existing.add(track.id)
+    incoming.push(track)
+    remainingCap -= 1
+  }
+
+  if (incoming.length === 0) {
+    return { added: 0, totalTracks: totalBefore, skippedExisting, skippedCap }
+  }
+
+  const now = new Date().toISOString()
+  const statements = incoming.map((track) => db.prepare(INSERT_SQL).bind(...trackBindValues(track, now)))
+  for (let index = 0; index < statements.length; index += 100) {
+    await db.batch(statements.slice(index, index + 100))
+  }
+
+  return {
+    added: incoming.length,
+    totalTracks: totalBefore + incoming.length,
+    skippedExisting,
+    skippedCap,
+  }
+}
+
+export async function addTrackToCatalog(env: Env, track: Track): Promise<CatalogMutationResult> {
+  const result = await insertTracks(env, [track])
+  if (result.skippedExisting > 0) {
+    return { ok: false, reason: 'Track already in catalog', totalTracks: result.totalTracks }
+  }
+  if (result.skippedCap > 0) {
+    return {
+      ok: false,
+      reason: `Catalog at ${MAX_CATALOG_TRACKS.toLocaleString()} track cap`,
+      totalTracks: result.totalTracks,
+    }
+  }
+  return { ok: true, totalTracks: result.totalTracks }
+}
+
+export async function removeTrackFromCatalog(
+  env: Env,
+  trackId: string,
+): Promise<CatalogMutationResult> {
+  const db = requireDb(env)
+  const existing = await db.prepare('SELECT id FROM tracks WHERE id = ?').bind(trackId).first<{ id: string }>()
+  if (!existing) {
+    return { ok: false, reason: 'Track not found', totalTracks: await countTracks(env) }
+  }
+
+  await db.prepare('DELETE FROM tracks WHERE id = ?').bind(trackId).run()
+  return { ok: true, totalTracks: await countTracks(env) }
+}
+
+export interface TrackMetricsPatch {
+  id: string
+  title?: string
+  artist?: string
+  albumArt?: string
+  popularity?: number
+  artistPopularity?: number
+  releaseYear?: number
+  durationMs?: number
+  difficulty: Difficulty
+}
+
+export async function applyTrackMetricPatches(
+  env: Env,
+  patches: TrackMetricsPatch[],
+): Promise<number> {
+  if (patches.length === 0) return 0
+  const db = requireDb(env)
+  const now = new Date().toISOString()
+  const statements = patches.map((patch) =>
+    db
+      .prepare(
+        `UPDATE tracks SET
+           title = COALESCE(?, title),
+           artist = COALESCE(?, artist),
+           album_art = COALESCE(?, album_art),
+           popularity = ?,
+           artist_popularity = ?,
+           release_year = COALESCE(?, release_year),
+           duration_ms = COALESCE(?, duration_ms),
+           difficulty = ?,
+           updated_at = ?,
+           spotify_synced_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        patch.title ?? null,
+        patch.artist ?? null,
+        patch.albumArt ?? null,
+        patch.popularity ?? null,
+        patch.artistPopularity ?? null,
+        patch.releaseYear ?? null,
+        patch.durationMs ?? null,
+        patch.difficulty,
+        now,
+        now,
+        patch.id,
+      ),
+  )
+
+  let updated = 0
+  for (let index = 0; index < statements.length; index += 100) {
+    const result = await db.batch(statements.slice(index, index + 100))
+    updated += result.reduce((sum, item) => sum + (item.meta?.changes ?? 0), 0)
+  }
+  return updated
+}
+
+function searchWhere(query: string): { sql: string; params: SqlValue[] } {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return { sql: '', params: [] }
+  const pattern = likePattern(normalized)
+  return {
+    sql: ` AND (lower(title) LIKE ? ESCAPE '\\' OR lower(artist) LIKE ? ESCAPE '\\' OR lower(id) LIKE ? ESCAPE '\\')`,
+    params: [pattern, pattern, pattern],
+  }
+}
+
+function listFilterSql(filters: CatalogListFilters): { sql: string; params: SqlValue[] } {
+  const clauses: string[] = []
+  const params: SqlValue[] = []
+
+  if (filters.difficulty) {
+    clauses.push('difficulty = ?')
+    params.push(filters.difficulty)
+  }
+  if (filters.genre) {
+    clauses.push('EXISTS (SELECT 1 FROM json_each(tracks.genre_groups) WHERE json_each.value = ?)')
+    params.push(filters.genre)
+  }
+  if (filters.era) {
+    clauses.push(eraSql(filters.era))
+  }
+  if (filters.missingPreview) {
+    clauses.push("(preview_url IS NULL OR preview_url = '')")
+  }
+
+  return {
+    sql: clauses.length > 0 ? ` AND ${clauses.join(' AND ')}` : '',
+    params,
+  }
+}
+
+function emptyFacetCounts() {
+  return {
+    difficulty: Object.fromEntries(DIFFICULTIES.map((item) => [item, 0])) as Record<
+      Difficulty,
+      number
+    >,
+    genre: Object.fromEntries(GENRE_OPTIONS.map((item) => [item, 0])) as Record<GenreFilter, number>,
+    era: Object.fromEntries(ERA_OPTIONS.map((item) => [item, 0])) as Record<EraFilter, number>,
+    missingPreview: 0,
+  }
+}
+
+export async function listCatalogPage(
+  env: Env,
+  page: number,
+  pageSize: number,
+  query: string,
+  filters: CatalogListFilters,
+): Promise<CatalogListPage> {
+  const db = requireDb(env)
+  const search = searchWhere(query)
+  const filter = listFilterSql(filters)
+  const searchedWhere = `WHERE 1 = 1${search.sql}`
+  const filteredWhere = `${searchedWhere}${filter.sql}`
+
+  const [difficultyRows, genreRows, eraRows, missingRow, totalRow] = await db.batch<
+    { difficulty?: Difficulty; n?: number; genre?: GenreFilter; era?: EraFilter | null; total?: number }
+  >([
+    db
+      .prepare(
+        `SELECT difficulty, COUNT(*) AS n FROM tracks ${searchedWhere} GROUP BY difficulty`,
+      )
+      .bind(...search.params),
+    db
+      .prepare(
+        `SELECT json_each.value AS genre, COUNT(*) AS n
+         FROM tracks, json_each(tracks.genre_groups)
+         ${searchedWhere}
+         GROUP BY json_each.value`,
+      )
+      .bind(...search.params),
+    db
+      .prepare(
+        `SELECT CASE
+           WHEN release_year >= 2020 THEN 'modern'
+           WHEN release_year >= 2010 THEN '2010s'
+           WHEN release_year >= 2000 THEN '2000s'
+           WHEN release_year IS NOT NULL THEN 'classics'
+           ELSE NULL
+         END AS era, COUNT(*) AS n
+         FROM tracks ${searchedWhere}
+         GROUP BY era`,
+      )
+      .bind(...search.params),
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tracks ${searchedWhere} AND (preview_url IS NULL OR preview_url = '')`,
+      )
+      .bind(...search.params),
+    db.prepare(`SELECT COUNT(*) AS total FROM tracks ${filteredWhere}`).bind(...search.params, ...filter.params),
+  ])
+
+  const counts = emptyFacetCounts()
+  for (const row of difficultyRows.results ?? []) {
+    if (row.difficulty && DIFFICULTIES.includes(row.difficulty)) {
+      counts.difficulty[row.difficulty] = row.n ?? 0
+    }
+  }
+  for (const row of genreRows.results ?? []) {
+    if (row.genre && GENRE_OPTIONS.includes(row.genre)) {
+      counts.genre[row.genre] = row.n ?? 0
+    }
+  }
+  for (const row of eraRows.results ?? []) {
+    if (row.era && ERA_OPTIONS.includes(row.era)) {
+      counts.era[row.era] = row.n ?? 0
+    }
+  }
+  counts.missingPreview = missingRow.results?.[0]?.n ?? 0
+
+  const total = totalRow.results?.[0]?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const safePage = Math.min(Math.max(page, 1), totalPages)
+  const offset = (safePage - 1) * pageSize
+
+  const pageResult = await db
+    .prepare(
+      `SELECT * FROM tracks ${filteredWhere} ORDER BY title LIMIT ? OFFSET ?`,
+    )
+    .bind(...search.params, ...filter.params, pageSize, offset)
+    .all<TrackRow>()
+
+  return {
+    tracks: (pageResult.results ?? []).map((row) => {
+      const track = rowToTrack(row)
+      return {
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        difficulty: track.difficulty,
+        releaseYear: track.releaseYear,
+        genreGroups: parseGenreGroups(row.genre_groups),
+        era: eraFromYear(row.release_year),
+        albumArt: track.albumArt,
+        hasPreview: Boolean(track.previewUrl),
+        popularity: track.popularity,
+      }
+    }),
+    page: safePage,
+    pageSize,
+    total,
+    totalPages,
+    counts,
+  }
+}
+
+export async function listTracksMissingAlbumArt(
+  env: Env,
+): Promise<Array<{ id: string; title: string; artist: string }>> {
+  const db = requireDb(env)
+  const result = await db
+    .prepare(`SELECT id, title, artist FROM tracks WHERE album_art IS NULL OR album_art = ''`)
+    .all<{ id: string; title: string; artist: string }>()
+  return result.results ?? []
+}
+
+export async function applyAlbumArtPatches(
+  env: Env,
+  patches: Array<{ id: string; albumArt: string }>,
+): Promise<number> {
+  const usable = patches.filter((patch) => patch.id && patch.albumArt)
+  if (usable.length === 0) return 0
+
+  const db = requireDb(env)
+  const now = new Date().toISOString()
+  const statements = usable.map((patch) =>
+    db
+      .prepare(
+        `UPDATE tracks SET album_art = ?, updated_at = ?
+         WHERE id = ? AND (album_art IS NULL OR album_art = '')`,
+      )
+      .bind(patch.albumArt, now, patch.id),
+  )
+
+  let updated = 0
+  for (let index = 0; index < statements.length; index += 100) {
+    const result = await db.batch(statements.slice(index, index + 100))
+    updated += result.reduce((sum, item) => sum + (item.meta?.changes ?? 0), 0)
+  }
+  return updated
+}

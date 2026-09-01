@@ -54,27 +54,21 @@ export function toggleFilterValue<T extends string>(current: T[], value: T, allV
   )
 }
 
-function matchesEra(track: Track, era: EraFilter): boolean {
-  if (!Number.isInteger(track.releaseYear)) return false
+export function getTrackEra(track: Track): EraFilter | null {
+  if (!Number.isInteger(track.releaseYear)) return null
 
   const year = track.releaseYear!
-  switch (era) {
-    case 'modern':
-      return year >= 2020
-    case '2010s':
-      return year >= 2010 && year <= 2019
-    case '2000s':
-      return year >= 2000 && year <= 2009
-    case 'classics':
-      return year < 2000
-    default: {
-      const never: never = era
-      return never
-    }
-  }
+  if (year >= 2020) return 'modern'
+  if (year >= 2010) return '2010s'
+  if (year >= 2000) return '2000s'
+  return 'classics'
 }
 
-function getGenreGroups(track: Track): Set<GenreFilter> {
+function matchesEra(track: Track, era: EraFilter): boolean {
+  return getTrackEra(track) === era
+}
+
+export function getGenreGroups(track: Track): Set<GenreFilter> {
   if (track.genreGroups?.length) {
     return new Set(track.genreGroups)
   }
