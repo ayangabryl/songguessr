@@ -1,22 +1,33 @@
-import catalogData from '../data/catalog.json'
+import fallbackCatalogData from '../data/catalog.json'
+import { getCachedCatalog } from './catalog-r2'
 import type { CatalogFilters } from './filters'
 import { filterTracks } from './filters'
 import { dedupeTracks, songIdentityKey } from './track-dedupe.ts'
-import type { Catalog, Difficulty, Track } from './types'
+import type { Catalog, Difficulty, Env, Track } from './types'
 
-const catalog = catalogData as Catalog
-const uniqueTracks = dedupeTracks(catalog.tracks)
+const fallbackCatalog = fallbackCatalogData as Catalog
 
-export function getCatalog(): Catalog {
+async function loadTracks(env: Env): Promise<Track[]> {
+  const catalog = await getCachedCatalog(env.AUDIO_BUCKET, fallbackCatalog)
+  return dedupeTracks(catalog.tracks)
+}
+
+export async function getCatalog(env: Env): Promise<Catalog> {
+  const catalog = await getCachedCatalog(env.AUDIO_BUCKET, fallbackCatalog)
   return {
     ...catalog,
-    tracks: uniqueTracks,
+    tracks: dedupeTracks(catalog.tracks),
   }
 }
 
-export function getTracksByDifficulty(difficulty: Difficulty, filters: CatalogFilters = { eras: [], genres: [] }): Track[] {
+export async function getTracksByDifficulty(
+  env: Env,
+  difficulty: Difficulty,
+  filters: CatalogFilters = { eras: [], genres: [] },
+): Promise<Track[]> {
+  const tracks = await loadTracks(env)
   return filterTracks(
-    uniqueTracks.filter((track) => track.difficulty === difficulty),
+    tracks.filter((track) => track.difficulty === difficulty),
     filters,
   )
 }
@@ -39,14 +50,15 @@ export function pickIndexFromSeed(seed: string, length: number): number {
   return combined % length
 }
 
-export function pickRandomTrack(
+export async function pickRandomTrack(
+  env: Env,
   difficulty: Difficulty,
   seed: string,
   filters: CatalogFilters = { eras: [], genres: [] },
   excludeIds: ReadonlySet<string> = new Set(),
   excludeSongKeys: ReadonlySet<string> = new Set(),
-): Track | null {
-  const allTracks = getTracksByDifficulty(difficulty, filters)
+): Promise<Track | null> {
+  const allTracks = await getTracksByDifficulty(env, difficulty, filters)
   if (allTracks.length === 0) return null
 
   const matchesExcludes = (track: Track) =>
@@ -67,22 +79,31 @@ export function pickRandomTrack(
   return tracks[index] ?? null
 }
 
-export function findTrackById(id: string): Track | undefined {
-  return uniqueTracks.find((track) => track.id === id)
+export async function findTrackById(env: Env, id: string): Promise<Track | undefined> {
+  const tracks = await loadTracks(env)
+  return tracks.find((track) => track.id === id)
 }
 
-export function getAvailabilityCounts(filters: CatalogFilters): Record<Difficulty, number> {
+export async function getAvailabilityCounts(
+  env: Env,
+  filters: CatalogFilters,
+): Promise<Record<Difficulty, number>> {
   const difficulties: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
-  return Object.fromEntries(
-    difficulties.map((difficulty) => [difficulty, getTracksByDifficulty(difficulty, filters).length]),
-  ) as Record<Difficulty, number>
+  const counts = await Promise.all(
+    difficulties.map(async (difficulty) => [
+      difficulty,
+      (await getTracksByDifficulty(env, difficulty, filters)).length,
+    ] as const),
+  )
+  return Object.fromEntries(counts) as Record<Difficulty, number>
 }
 
-export function searchCatalog(query: string, limit = 50): Track[] {
+export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return []
 
-  return uniqueTracks
+  const tracks = await loadTracks(env)
+  return tracks
     .filter((track) => {
       const haystack = `${track.title} ${track.artist}`.toLowerCase()
       return haystack.includes(normalized)

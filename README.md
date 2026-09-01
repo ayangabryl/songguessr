@@ -92,9 +92,40 @@ Audio is served from the Worker at `/api/audio/*` (R2 binding `AUDIO_BUCKET` in 
 
 ## How it scales
 
-- Spotify API is used **once** to build `data/catalog.json`
+- Spotify API is used to build the catalogue (locally via `build:catalog`, or automatically in production — see below)
 - Players stream preview MP3s directly from Spotify's CDN (`p.scdn.co`)
 - Your single API key is **not** hit on every play — only during catalogue builds
+
+## Automatic catalog growth (production)
+
+In production the catalogue lives in **R2** (`catalog/catalog.json`) and grows over time via a **Worker Cron** trigger.
+
+| Setting | Value |
+|---------|-------|
+| Cron schedule | Every 6 hours (`0 */6 * * *` UTC) |
+| R2 keys | `catalog/catalog.json`, `catalog/build-checkpoint.json` |
+| Batch size | 1 artist per cron run |
+| Cap | Stops adding tracks at **20,000** |
+
+Each cron invocation:
+
+1. Loads the catalog and checkpoint from R2
+2. Skips if the catalog is at the 20k cap or all artists are done
+3. Fetches the next OPM artist from Spotify (top tracks, albums, search)
+4. Resolves preview URLs (Spotify / iTunes)
+5. Writes the updated catalog and checkpoint back to R2
+
+HTTP requests read the catalog from R2 with a **10-minute in-memory cache** (falls back to bundled `data/catalog.json` if R2 is empty).
+
+### First-time seed
+
+After your first deploy, upload the local catalogue to R2:
+
+```bash
+npm run upload:catalog
+```
+
+Use `--force` to overwrite an existing R2 catalog. Re-run `upload:catalog` after a local `build:catalog` if you want to reset the R2 starting point.
 
 ## Scripts
 
@@ -102,6 +133,7 @@ Audio is served from the Worker at `/api/audio/*` (R2 binding `AUDIO_BUCKET` in 
 |---------|-------------|
 | `npm run dev` | Local dev with Vite + Worker |
 | `npm run build:catalog` | Fetch OPM tracks from Spotify (full artist discographies) |
+| `npm run upload:catalog` | Seed R2 catalog from local `data/catalog.json` |
 | `npm run upload:audio` | One-shot upload from `data/audio/` to R2 |
 | `npm run sync:audio` | Incremental sync (recommended) |
 | `npm run audio:manifest` | Generate upload checklist from catalog |

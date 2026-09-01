@@ -18,6 +18,7 @@ import {
   trackMatchesFilters,
 } from './filters'
 import { checkGuess } from './guess'
+import { handleScheduled } from './scheduled'
 import {
   exchangeSpotifyCode,
   fetchSpotifyProfile,
@@ -153,8 +154,8 @@ app.post('/api/spotify/refresh', async (c) => {
   }
 })
 
-app.get('/api/health', (c) => {
-  const catalog = getCatalog()
+app.get('/api/health', async (c) => {
+  const catalog = await getCatalog(c.env)
   return c.json({
     ok: true,
     tracks: catalog.tracks.length,
@@ -162,9 +163,9 @@ app.get('/api/health', (c) => {
   })
 })
 
-app.get('/api/catalog/availability', (c) => {
+app.get('/api/catalog/availability', async (c) => {
   const filters = parseCatalogFilters(c)
-  const counts = getAvailabilityCounts(filters)
+  const counts = await getAvailabilityCounts(c.env, filters)
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
 
   return c.json({ counts, total })
@@ -180,14 +181,22 @@ function parseExcludeList(value: string | undefined): Set<string> {
   )
 }
 
-app.get('/api/random', (c) => {
+app.get('/api/random', async (c) => {
   const difficulty = parseDifficulty(c.req.query('difficulty'))
   const filters = parseCatalogFilters(c)
   const excludeIds = parseExcludeList(c.req.query('exclude'))
   const excludeSongKeys = parseExcludeList(c.req.query('excludeSongs'))
   const seed = c.req.query('seed') ?? crypto.randomUUID()
-  const poolSize = getAvailabilityCounts(filters)[difficulty]
-  const track = pickRandomTrack(difficulty, seed, filters, excludeIds, excludeSongKeys)
+  const counts = await getAvailabilityCounts(c.env, filters)
+  const poolSize = counts[difficulty]
+  const track = await pickRandomTrack(
+    c.env,
+    difficulty,
+    seed,
+    filters,
+    excludeIds,
+    excludeSongKeys,
+  )
 
   if (!track) {
     return c.json(
@@ -221,9 +230,9 @@ app.get('/api/random', (c) => {
   })
 })
 
-app.get('/api/search', (c) => {
+app.get('/api/search', async (c) => {
   const query = c.req.query('q') ?? ''
-  const results = searchCatalog(query).map((track) => ({
+  const results = (await searchCatalog(c.env, query)).map((track) => ({
     id: track.id,
     title: track.title,
     artist: track.artist,
@@ -233,14 +242,15 @@ app.get('/api/search', (c) => {
   return c.json({ results })
 })
 
-function resolveRoundTrack(
+async function resolveRoundTrack(
+  env: Env,
   trackId: string | undefined,
   seed: string | undefined,
   difficulty: Difficulty,
   filters: CatalogFilters,
-): ReturnType<typeof findTrackById> {
+): Promise<Awaited<ReturnType<typeof findTrackById>>> {
   if (trackId) {
-    const track = findTrackById(trackId)
+    const track = await findTrackById(env, trackId)
     if (
       track &&
       track.difficulty === difficulty &&
@@ -250,7 +260,7 @@ function resolveRoundTrack(
     }
   }
 
-  return pickRandomTrack(difficulty, seed ?? '', filters) ?? undefined
+  return (await pickRandomTrack(env, difficulty, seed ?? '', filters)) ?? undefined
 }
 
 app.post('/api/guess', async (c) => {
@@ -268,7 +278,7 @@ app.post('/api/guess', async (c) => {
   const difficulty = parseDifficulty(body.difficulty)
   const reveal = body.reveal === true
   const filters = parseCatalogFiltersFromBody(body)
-  const track = resolveRoundTrack(body.trackId, body.seed, difficulty, filters)
+  const track = await resolveRoundTrack(c.env, body.trackId, body.seed, difficulty, filters)
 
   if (!track) {
     return c.json({ error: 'Track not found' }, 404)
@@ -298,4 +308,7 @@ app.post('/api/guess', async (c) => {
   })
 })
 
-export default app
+export default {
+  fetch: app.fetch,
+  scheduled: handleScheduled,
+}

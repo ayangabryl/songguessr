@@ -12,6 +12,7 @@
     "expand:catalog:watch": "node scripts/watch-catalog-build.mjs --expand",
     "enrich:catalog": "node scripts/enrich-catalog.mjs",
     "upload:audio": "node scripts/upload-audio-to-r2.mjs",
+    "upload:catalog": "node scripts/upload-catalog-to-r2.mjs",
     "sync:audio": "node scripts/sync-audio-to-r2.mjs",
     "audio:manifest": "node scripts/generate-audio-manifest.mjs",
     "audio:status": "node scripts/audio-status.mjs",

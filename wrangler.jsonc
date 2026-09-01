@@ -14,5 +14,8 @@
       "binding": "AUDIO_BUCKET",
       "bucket_name": "opm-songless-audio"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": ["0 */6 * * *"]
+  }
 }
