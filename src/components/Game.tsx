@@ -79,6 +79,7 @@ import {
   stageSegmentWeight,
 } from '../lib/stage-progress'
 import { loadRecentExcludes, rememberTrack, clearRecentTrackIds } from '../lib/recent-tracks'
+import { incrementStreak, loadStreak, resetStreak } from '../lib/streak'
 import {
   AutoRerollIcon,
   FeedbackIcon,
@@ -99,6 +100,24 @@ import { SpotifyConnect } from './SpotifyConnect'
 const FilterModal = lazy(() =>
   import('./FilterModal').then((mod) => ({ default: mod.FilterModal })),
 )
+
+const StreakBadge = lazy(() =>
+  import('./StreakBadge').then((mod) => ({ default: mod.StreakBadge })),
+)
+
+type PlaybackMode = 'idle' | 'clip' | 'reveal'
+
+const REVEAL_PLAYBACK_MS = 45_000
+
+function StreakFallback({ count }: { count: number }) {
+  const label = count === 1 ? '1 song streak' : `${count} song streak`
+  return (
+    <div className={`streak-badge${count <= 0 ? ' cold' : ''}`} title={label} aria-label={label}>
+      <div className="streak-flame" aria-hidden="true" />
+      <span className="streak-count">{count}</span>
+    </div>
+  )
+}
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
 
@@ -201,6 +220,9 @@ export function Game() {
   })
   const prefetchedRef = useRef<Partial<Record<Difficulty, GameRound>>>({})
   const prefetchInFlightRef = useRef<Partial<Record<Difficulty, Promise<void>>>>({})
+  const playbackModeRef = useRef<PlaybackMode>('idle')
+  const revealEndedHandlerRef = useRef<(() => void) | null>(null)
+  const streakBumpTimeoutRef = useRef<number | null>(null)
 
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -242,6 +264,8 @@ export function Game() {
     null,
   )
   const [draftPreviewCount, setDraftPreviewCount] = useState(0)
+  const [streak, setStreak] = useState(loadStreak)
+  const [streakBump, setStreakBump] = useState(false)
 
   const catalogFilters = useMemo<CatalogFilters>(
     () => ({
@@ -517,6 +541,12 @@ export function Game() {
         return
       }
 
+      if (playbackModeRef.current === 'reveal') {
+        if (!usingSpotifyRef.current) return
+        setIsPlaying(Boolean(state && !state.paused))
+        return
+      }
+
       if (!usingSpotifyRef.current) return
 
       if (!state) {
@@ -609,6 +639,7 @@ export function Game() {
       if (spotifyPauseTimeoutRef.current) window.clearTimeout(spotifyPauseTimeoutRef.current)
       if (clipLoadingDelayRef.current) window.clearTimeout(clipLoadingDelayRef.current)
       if (autoRerollIntervalRef.current) window.clearInterval(autoRerollIntervalRef.current)
+      if (streakBumpTimeoutRef.current) window.clearTimeout(streakBumpTimeoutRef.current)
     }
   }, [])
 
@@ -694,8 +725,13 @@ export function Game() {
   async function stopClip(options?: { preserveProgress?: boolean }) {
     const audio = audioRef.current
     playSessionRef.current += 1
+    playbackModeRef.current = 'idle'
     clipTimerRef.current?.abort()
     clipTimerRef.current = null
+    if (audio && revealEndedHandlerRef.current) {
+      audio.removeEventListener('ended', revealEndedHandlerRef.current)
+      revealEndedHandlerRef.current = null
+    }
     if (audio) {
       audio.pause()
     }
@@ -777,6 +813,7 @@ export function Game() {
       activeState.unlockedSeconds >= stageEndpoint ? 0 : activeState.unlockedSeconds
     const session = playSessionRef.current + 1
     playSessionRef.current = session
+    playbackModeRef.current = 'clip'
     clipTimerRef.current?.abort()
     clipTimerRef.current = null
 
@@ -949,15 +986,136 @@ export function Game() {
     }
   }
 
-  async function revealAnswer(level: Difficulty) {
-    const round = rounds[level].round
+  function noteStreakWin() {
+    const next = incrementStreak()
+    setStreak(next)
+    setStreakBump(true)
+    if (streakBumpTimeoutRef.current) window.clearTimeout(streakBumpTimeoutRef.current)
+    streakBumpTimeoutRef.current = window.setTimeout(() => {
+      setStreakBump(false)
+      streakBumpTimeoutRef.current = null
+    }, 900)
+  }
+
+  function noteStreakFail() {
+    if (loadStreak() === 0 && streak === 0) return
+    setStreak(resetStreak())
+    setStreakBump(false)
+  }
+
+  async function playReveal(round: GameRound) {
+    if (!hasPlayableAudio(round)) return
+
+    await stopClip({ preserveProgress: true })
+
+    const session = playSessionRef.current + 1
+    playSessionRef.current = session
+    playbackModeRef.current = 'reveal'
+    clipTimerRef.current?.abort()
+    clipTimerRef.current = null
+    setAudioError(null)
+
+    const finishReveal = () => {
+      if (session !== playSessionRef.current) return
+      if (playbackModeRef.current !== 'reveal') return
+      void stopClip({ preserveProgress: true })
+    }
+
+    if (spotify.canUseStartModes) {
+      usingSpotifyRef.current = true
+      spotifyForcePauseRef.current = false
+      spotifyClipArmedRef.current = false
+      spotifyClipArmedAtRef.current = 0
+      void activateSpotifyElement()
+      const baseMs = spotifyStartPositionMs(round, startModeRef.current)
+      spotifyBaseMsRef.current = baseMs
+
+      try {
+        await playSpotifyTrack(round.trackId, baseMs, volume)
+        if (session !== playSessionRef.current) return
+        endClipLoading()
+        setIsPlaying(true)
+        spotifyPauseTimeoutRef.current = window.setTimeout(finishReveal, REVEAL_PLAYBACK_MS)
+      } catch {
+        if (session !== playSessionRef.current) return
+        spotifyForcePauseRef.current = true
+        usingSpotifyRef.current = false
+        playbackModeRef.current = 'idle'
+        endClipLoading()
+        setIsPlaying(false)
+        void pauseSpotifyPlayback()
+        setAudioError('The song could not be played. Check your Spotify Premium connection.')
+      }
+      return
+    }
+
+    usingSpotifyRef.current = false
+    const audio = audioRef.current
+    if (!audio) return
+
+    const previewSource = resolvePlaybackSource(round, startModeRef.current, { previewOnly: true })
+    if (!previewSource.url) {
+      setAudioError('The song could not be played.')
+      return
+    }
+
+    audio.volume = volume
+    if (!audioSrcMatches(audio, previewSource.url)) {
+      audio.preload = 'auto'
+      audio.src = previewSource.url
+    }
+
+    try {
+      await waitForAudioMetadata(audio)
+      if (session !== playSessionRef.current) return
+
+      const audioStart = clampPlaybackStart(previewSource.offsetSeconds, audio.duration)
+      await seekAudio(audio, audioStart, true)
+      if (session !== playSessionRef.current) return
+
+      await audio.play()
+      if (session !== playSessionRef.current) return
+
+      setIsPlaying(true)
+
+      const onEnded = () => {
+        if (session !== playSessionRef.current) return
+        playbackModeRef.current = 'idle'
+        setIsPlaying(false)
+      }
+      audio.addEventListener('ended', onEnded)
+      revealEndedHandlerRef.current = onEnded
+      spotifyPauseTimeoutRef.current = window.setTimeout(finishReveal, REVEAL_PLAYBACK_MS)
+    } catch {
+      if (session !== playSessionRef.current) return
+      playbackModeRef.current = 'idle'
+      setIsPlaying(false)
+      audio.pause()
+      setAudioError('Tap the artwork to hear the song.')
+    }
+  }
+
+  function toggleRevealPlayback() {
+    if (activeState.status !== 'won' && activeState.status !== 'lost') return
+    const round = activeState.round
     if (!round) return
+    if (isPlaying || isLoadingClip) {
+      void stopClip({ preserveProgress: true })
+      return
+    }
+    void playReveal(round)
+  }
+
+  async function revealAnswer(level: Difficulty) {
+    const round = roundsRef.current[level].round
+    if (!round) return
+    void activateSpotifyElement()
     const result = await submitGuess(round, { reveal: true })
-    stopClip()
     updateRound(level, {
       status: 'lost',
       answer: result.answer,
     })
+    void playReveal(round)
   }
 
   function clearAutoReroll() {
@@ -989,39 +1147,42 @@ export function Game() {
     const round = activeState.round
     if (!round || shellStatus !== 'playing') return
 
+    void activateSpotifyElement()
     const guessResult = await submitGuess(round, { guessedTrackId: result.id })
     clearSearchSelection()
 
     if (guessResult.correct) {
-      stopClip()
+      noteStreakWin()
       const solvedAt = Date.now()
       updateRound(difficulty, {
         status: 'won',
         answer: guessResult.answer,
         solvedAt,
       })
+      void playReveal(round)
       scheduleAutoReroll(difficulty)
       return
     }
 
+    noteStreakFail()
     const label = `${result.title} - ${result.artist}`
     const nextIndex = activeState.stageIndex + 1
     const wrongGuesses = [...activeState.wrongGuesses, label]
     const stageEndpoint = activeStages[activeState.stageIndex] ?? activeStages[0] ?? 0.1
 
     if (nextIndex >= activeStages.length) {
-      stopClip()
       const reveal = await submitGuess(round, { reveal: true })
       updateRound(difficulty, {
         status: 'lost',
         answer: reveal.answer,
         wrongGuesses,
       })
+      void playReveal(round)
       scheduleAutoReroll(difficulty)
       return
     }
 
-    stopClip()
+    void stopClip()
     updateRound(difficulty, {
       stageIndex: nextIndex,
       wrongGuesses,
@@ -1048,8 +1209,11 @@ export function Game() {
   }
 
   function handleSkip() {
-    stopClip({ preserveProgress: true })
-    advanceStageAfterSkip()
+    void activateSpotifyElement()
+    noteStreakFail()
+    void stopClip({ preserveProgress: true }).then(() => {
+      advanceStageAfterSkip()
+    })
   }
 
   function handleGuessSubmit(event: FormEvent) {
@@ -1215,7 +1379,12 @@ export function Game() {
 
         <div className="game-card">
           <header className="brand-masthead">
-            <h1>SongGuessr</h1>
+            <div className="brand-masthead-row">
+              <h1>SongGuessr</h1>
+              <Suspense fallback={<StreakFallback count={streak} />}>
+                <StreakBadge count={streak} bump={streakBump} />
+              </Suspense>
+            </div>
             <p>
               Free song guessing game. Hear a short clip, then name the track. Play OPM from the
               Philippines, or switch to Global and other collections.
@@ -1424,18 +1593,28 @@ export function Game() {
             {showResult && activeState.answer && (
               <div className={`result-panel ${activeState.status}`}>
                 <div className="result-artwork-wrap">
-                  {activeState.answer.albumArt ? (
-                    <img
-                      className="artwork"
-                      src={activeState.answer.albumArt}
-                      alt=""
-                      width={142}
-                      height={142}
-                      decoding="async"
-                    />
-                  ) : (
-                    <div className="artwork fallback">♫</div>
-                  )}
+                  <button
+                    type="button"
+                    className={`result-play-toggle${isPlaying ? ' playing' : ' paused'}`}
+                    onClick={() => toggleRevealPlayback()}
+                    aria-label={isPlaying ? 'Pause song' : 'Play song'}
+                  >
+                    {activeState.answer.albumArt ? (
+                      <img
+                        className="artwork"
+                        src={activeState.answer.albumArt}
+                        alt=""
+                        width={142}
+                        height={142}
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="artwork fallback">♫</div>
+                    )}
+                    <span className="result-play-glyph" aria-hidden="true">
+                      <PlayControlIcon state={isPlaying ? 'pause' : 'play'} />
+                    </span>
+                  </button>
                   {activeState.status === 'won' && (
                     <>
                       <div className="success-ring success-ring-one" />
