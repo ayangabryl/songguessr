@@ -63,6 +63,7 @@ export async function buildTrackFromSpotify(
     title: spotifyTrack.name ?? '',
     artist,
     spotifyPreviewUrl: spotifyTrack.preview_url ?? null,
+    spotifyId: spotifyTrack.id,
   })
 
   if (!previews.previewUrl) {
@@ -145,6 +146,7 @@ export async function buildTrackFromPublicAdd(
     title: input.title,
     artist: input.artist,
     spotifyPreviewUrl: input.previewUrl ?? null,
+    spotifyId: input.id,
   })
 
   const albumArt =

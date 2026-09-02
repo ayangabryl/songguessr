@@ -27,6 +27,9 @@ export interface CatalogJobSnapshot {
   errors?: string[]
   source?: string
   fetched?: number
+  filled?: number
+  stillMissing?: number
+  hookFilled?: number
 }
 
 interface StoredJob extends CatalogJobSnapshot {
@@ -66,6 +69,9 @@ function toSnapshot(job: StoredJob): CatalogJobSnapshot {
     errors: job.errors,
     source: job.source,
     fetched: job.fetched,
+    filled: job.filled,
+    stillMissing: job.stillMissing,
+    hookFilled: job.hookFilled,
   }
 }
 

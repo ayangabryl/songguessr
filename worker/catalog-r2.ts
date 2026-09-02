@@ -254,6 +254,49 @@ export async function removeTracksFromR2Catalog(
   return removed
 }
 
+export async function applyPreviewPatches(
+  bucket: R2Bucket,
+  patches: Array<{
+    id: string
+    previewUrl: string
+    hookPreviewUrl?: string
+    hookStartSeconds?: number
+  }>,
+): Promise<number> {
+  const byId = new Map(
+    patches
+      .filter((patch) => patch.id && patch.previewUrl)
+      .map((patch) => [patch.id, patch] as const),
+  )
+  if (byId.size === 0) return 0
+
+  const catalog = await loadCatalogFromR2(bucket)
+  if (!catalog) return 0
+
+  let updated = 0
+  const tracks = catalog.tracks.map((track) => {
+    const patch = byId.get(track.id)
+    if (!patch || track.previewUrl) return track
+    updated += 1
+    return {
+      ...track,
+      previewUrl: patch.previewUrl,
+      ...(patch.hookPreviewUrl && !track.hookPreviewUrl
+        ? { hookPreviewUrl: patch.hookPreviewUrl }
+        : {}),
+      hookStartSeconds: track.hookStartSeconds ?? patch.hookStartSeconds,
+    }
+  })
+
+  if (updated === 0) return 0
+
+  await saveCatalogToR2(bucket, {
+    updatedAt: new Date().toISOString(),
+    tracks,
+  })
+  return updated
+}
+
 export async function applyAlbumArtPatches(
   bucket: R2Bucket,
   patches: Array<{ id: string; albumArt: string }>,

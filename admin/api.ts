@@ -56,6 +56,7 @@ export interface StatusResponse {
   playCountStale?: number
   releaseDateFilled?: number
   releaseDateMissing?: number
+  previewMissing?: number
   lastSpotifySync?: SpotifySyncResponse | null
 }
 
@@ -158,6 +159,9 @@ export interface CatalogJob {
   errors?: string[]
   source?: string
   fetched?: number
+  filled?: number
+  stillMissing?: number
+  hookFilled?: number
 }
 
 export async function login(password: string): Promise<void> {
@@ -214,8 +218,8 @@ export async function addTrack(
     artist?: string
     albumArt?: string
   } = {},
-): Promise<void> {
-  await request('/catalog/add', {
+): Promise<{ previewMissing?: boolean }> {
+  return request<{ previewMissing?: boolean }>('/catalog/add', {
     method: 'POST',
     body: JSON.stringify({
       trackId,
@@ -377,6 +381,14 @@ export async function startPlaylistImport(
 
 export async function fetchJob(jobId: string): Promise<CatalogJob> {
   return request<CatalogJob>(`/jobs/${jobId}`)
+}
+
+export async function startPreviewBackfill(): Promise<string> {
+  const data = await request<{ jobId: string }>('/catalog/backfill-previews', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  return data.jobId
 }
 
 export interface AdminArtist {

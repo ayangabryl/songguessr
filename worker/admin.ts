@@ -50,6 +50,7 @@ import {
 } from './playlist-import'
 import { parseSpotifyPlaylistId } from './playlist-source'
 import { backfillMissingAlbumArt } from './album-art-backfill'
+import { backfillMissingPreviews } from './preview-backfill'
 import { fetchSpotifyOembed } from './album-art'
 import { getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
 import {
@@ -408,6 +409,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     let playCountStale = 0
     let releaseDateFilled = 0
     let releaseDateMissing = 0
+    let previewMissing = 0
     let catalogError: string | null = null
     const lastSpotifySync = await loadLastSpotifySync(c.env)
 
@@ -424,6 +426,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       playCountStale = stats.playCountStale
       releaseDateFilled = stats.releaseDateFilled
       releaseDateMissing = stats.releaseDateMissing
+      previewMissing = stats.previewMissing
       if (!catalogOk) catalogError = 'No songs found in D1'
     } catch (error) {
       catalogError = error instanceof Error ? error.message : 'Library unavailable'
@@ -443,6 +446,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       playCountStale,
       releaseDateFilled,
       releaseDateMissing,
+      previewMissing,
       lastSpotifySync,
       source: 'd1',
       r2UpdatedAt: catalogObject?.uploaded?.toISOString() ?? null,
@@ -972,6 +976,23 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     return c.json({ ok: true, ...result })
   })
 
+  admin.post('/admin/api/catalog/backfill-previews', async (c) => {
+    const body = await c.req.json<{ wait?: boolean }>().catch(() => ({}))
+    const jobId = createCatalogJob()
+    const run = runPreviewBackfillJob(c.env, jobId)
+    if (body.wait === true) {
+      await run
+      const job = getCatalogJob(jobId)
+      return c.json({ jobId, ...(job ?? { status: 'error', error: 'Job missing after backfill' }) })
+    }
+    try {
+      c.executionCtx.waitUntil(run)
+    } catch {
+      await run
+    }
+    return c.json({ jobId })
+  })
+
   admin.get('/admin/api/jobs/:id', (c) => {
     const job = getCatalogJob(c.req.param('id'))
     if (!job) {
@@ -1175,6 +1196,45 @@ async function serveAdminAsset(env: Env, assetPath: string): Promise<Response> {
   }
 
   return response
+}
+
+async function runPreviewBackfillJob(env: Env, jobId: string): Promise<void> {
+  updateCatalogJob(jobId, { status: 'running', phase: 'resolving' })
+  try {
+    const result = await backfillMissingPreviews(env, (progress) => {
+      updateCatalogJob(jobId, {
+        status: 'running',
+        phase: 'resolving',
+        processed: progress.processed,
+        total: progress.total,
+        added: progress.filled,
+        skipped: progress.stillMissing,
+        filled: progress.filled,
+        stillMissing: progress.stillMissing,
+        hookFilled: progress.hookFilled,
+      })
+    })
+    updateCatalogJob(jobId, {
+      status: 'done',
+      phase: 'done',
+      processed: result.processed,
+      total: result.total,
+      added: result.filled,
+      skipped: result.stillMissing,
+      updated: result.d1Updated,
+      filled: result.filled,
+      stillMissing: result.stillMissing,
+      hookFilled: result.hookFilled,
+      errors: result.errors,
+      source: 'itunes+embed',
+    })
+  } catch (error) {
+    updateCatalogJob(jobId, {
+      status: 'error',
+      phase: 'error',
+      error: error instanceof Error ? error.message : 'Preview backfill failed',
+    })
+  }
 }
 
 async function runPlaylistImportJob(

@@ -21,6 +21,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { formatDate, formatNumber } from '@/lib/format'
+import { FixMissingPreviewsCard } from '@/components/fix-missing-previews'
 import { PlayIcon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -279,6 +280,11 @@ export function DashboardPage({
           </Button>
         </CardFooter>
       </Card>
+
+      <FixMissingPreviewsCard
+        missingCount={status.previewMissing ?? 0}
+        onDone={onStatusRefresh}
+      />
 
       <Card>
         <CardHeader>

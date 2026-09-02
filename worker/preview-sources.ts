@@ -127,14 +127,93 @@ export function pickPreviewSources({
   }
 }
 
+const EMBED_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+
+function findAudioPreviewUrl(value: unknown, depth = 0): string | null {
+  if (depth > 8 || value == null) return null
+  if (typeof value === 'string') {
+    return value.includes('p.scdn.co/mp3-preview/') && isOfficialPreviewUrl(value) ? value : null
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findAudioPreviewUrl(item, depth + 1)
+      if (found) return found
+    }
+    return null
+  }
+  if (typeof value !== 'object') return null
+
+  const record = value as Record<string, unknown>
+  const audioPreview = record.audioPreview
+  if (audioPreview && typeof audioPreview === 'object') {
+    const url = (audioPreview as { url?: unknown }).url
+    if (typeof url === 'string' && isOfficialPreviewUrl(url)) return url
+  }
+
+  for (const nested of Object.values(record)) {
+    const found = findAudioPreviewUrl(nested, depth + 1)
+    if (found) return found
+  }
+  return null
+}
+
+/** Public embed page — not quota'd `GET /v1/tracks`. */
+export async function fetchSpotifyEmbedPreview(trackId: string): Promise<string | null> {
+  const id = trackId.trim()
+  if (!id) return null
+
+  let response: Response
+  try {
+    response = await fetch(`https://open.spotify.com/embed/track/${encodeURIComponent(id)}`, {
+      headers: {
+        'User-Agent': EMBED_USER_AGENT,
+        Accept: 'text/html',
+      },
+    })
+  } catch (error) {
+    console.warn(
+      `[preview] Spotify embed network error for ${id}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+    return null
+  }
+  if (!response.ok) {
+    console.warn(`[preview] Spotify embed ${response.status} for ${id}`)
+    return null
+  }
+
+  const html = await response.text()
+  const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)
+  if (match?.[1]) {
+    try {
+      const data = JSON.parse(match[1]) as {
+        props?: { pageProps?: { state?: { data?: { entity?: { audioPreview?: { url?: string } } } } } }
+      }
+      const entityUrl = data.props?.pageProps?.state?.data?.entity?.audioPreview?.url
+      if (entityUrl && isOfficialPreviewUrl(entityUrl)) return entityUrl
+      const found = findAudioPreviewUrl(data)
+      if (found) return found
+    } catch {
+      // Fall through to the CDN regex.
+    }
+  }
+
+  const cdn = html.match(/https:\/\/p\.scdn\.co\/mp3-preview\/[a-zA-Z0-9]+/)
+  return cdn?.[0] && isOfficialPreviewUrl(cdn[0]) ? cdn[0] : null
+}
+
 export async function resolvePreviewSourcesForTrack({
   title,
   artist,
   spotifyPreviewUrl = null,
+  spotifyId = null,
 }: {
   title: string
   artist: string
   spotifyPreviewUrl?: string | null
+  spotifyId?: string | null
 }): Promise<{
   previewUrl: string | null
   hookPreviewUrl?: string
@@ -146,5 +225,10 @@ export async function resolvePreviewSourcesForTrack({
   }
 
   const itunes = await fetchItunesPreview(title, artist)
-  return pickPreviewSources({ spotify: officialSpotify, itunes })
+  if (itunes) {
+    return pickPreviewSources({ itunes })
+  }
+
+  const embed = spotifyId ? await fetchSpotifyEmbedPreview(spotifyId) : null
+  return pickPreviewSources({ spotify: embed, itunes: null })
 }

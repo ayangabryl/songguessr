@@ -164,14 +164,20 @@ export function AddSongsPage() {
     if (!track?.id) return
     setAddingId(track.id)
     try {
-      await addTrack(track.id, {
+      const added = await addTrack(track.id, {
         country,
         collections: pickerCollections,
         title: track.title,
         artist: track.artist,
         albumArt: track.albumArt,
       })
-      toast.success(`Added “${track.title}”`)
+      if (added.previewMissing) {
+        toast.warning(
+          `Added “${track.title}” without a preview URL. Use Fix missing previews on Dashboard or Catalog.`,
+        )
+      } else {
+        toast.success(`Added “${track.title}”`)
+      }
       setResults((current) =>
         current.map((item) => (item.id === track.id ? { ...item, inCatalog: true } : item)),
       )

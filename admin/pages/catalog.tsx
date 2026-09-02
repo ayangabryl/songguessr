@@ -60,6 +60,7 @@ import {
 } from '@/components/ui/table'
 import { CountryCombobox } from '@/components/country-combobox'
 import { CollectionPickerDialog } from '@/components/collection-picker'
+import { FixMissingPreviewsButton } from '@/components/fix-missing-previews'
 import { CountryFlag } from '../../shared/country-flag'
 import {
   DIFFICULTY_LABELS,
@@ -381,7 +382,11 @@ export function CatalogPage() {
               ? `${formatNumber(selected.size)} selected`
               : `${formatNumber(total)} tracks`}
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-start justify-end gap-2">
+            <FixMissingPreviewsButton
+              missingCount={counts.missingPreview}
+              onDone={() => void load()}
+            />
             <Button
               variant="outline"
               size="sm"
