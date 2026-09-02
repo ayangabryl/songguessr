@@ -1,3 +1,5 @@
+import { canonicalSongTitle, primaryArtistName } from './track-dedupe.ts'
+
 const STOP_WORDS = new Set([
   'the',
   'a',
@@ -63,6 +65,35 @@ function fuzzyIncludes(guess: string, target: string): boolean {
   return levenshtein(guess, target) <= Math.max(1, Math.floor(target.length * 0.2))
 }
 
+/**
+ * Drop a trailing " - Artist" so a suggestion label canonicalizes as a title.
+ *
+ * The autocomplete fills the box with `${title} - ${artist}`, which would
+ * otherwise look like a version qualifier chunk to the canonicalizer.
+ */
+function withoutTrailingArtist(guess: string, artist: string): string | null {
+  const match = /^(.*\S)\s+[-\u2013\u2014]\s+(\S.*)$/.exec(guess.trim())
+  if (!match) return null
+  const tail = normalizeGuess(match[2] ?? '')
+  if (!tail) return null
+  if (tail !== normalizeGuess(artist) && tail !== normalizeGuess(primaryArtistName(artist))) {
+    return null
+  }
+  return (match[1] ?? '').trim()
+}
+
+/** Every canonical title a player could reasonably have typed for this song. */
+function canonicalGuessForms(guess: string, artist: string): string[] {
+  const forms = new Set<string>()
+  const withoutArtist = withoutTrailingArtist(guess, artist)
+  for (const candidate of [guess, withoutArtist]) {
+    if (!candidate) continue
+    const canonical = normalizeGuess(canonicalSongTitle(candidate))
+    if (canonical) forms.add(canonical)
+  }
+  return [...forms]
+}
+
 export function checkGuess(
   guess: string,
   title: string,
@@ -86,17 +117,38 @@ export function checkGuess(
     }
   }
 
+  // Any recording of the right song counts. "MAPA" and "MAPA - From THE FIRST
+  // TAKE" collapse to the same canonical title, so naming either one scores.
+  const canonicalTitle = normalizeGuess(canonicalSongTitle(title))
+  const canonicalForms = canonicalGuessForms(guess, artist)
+  if (canonicalTitle && canonicalForms.includes(canonicalTitle)) {
+    return { correct: true, matched: 'title' }
+  }
+  const canonicalCombined = `${canonicalTitle} ${artistNorm}`.trim()
+  if (canonicalCombined && canonicalForms.includes(canonicalCombined)) {
+    return { correct: true, matched: 'both' }
+  }
+
   const guessTokens = tokenize(normalizedGuess)
   const titleTokens = tokenize(titleNorm)
+  const canonicalTitleTokens = tokenize(canonicalTitle)
   const artistTokens = tokenize(artistNorm)
+
+  const matchesTitleTokens = (tokens: string[], targets: string[]) =>
+    tokens.length > 0 && tokens.every((token) => targets.some((target) => fuzzyIncludes(token, target)))
 
   const titleMatch =
     fuzzyIncludes(normalizedGuess, titleNorm) ||
-    guessTokens.every((token) => titleTokens.some((target) => fuzzyIncludes(token, target)))
+    matchesTitleTokens(guessTokens, titleTokens) ||
+    canonicalForms.some(
+      (form) =>
+        fuzzyIncludes(form, canonicalTitle) ||
+        matchesTitleTokens(tokenize(form), canonicalTitleTokens),
+    )
 
   const artistMatch =
     fuzzyIncludes(normalizedGuess, artistNorm) ||
-    guessTokens.every((token) => artistTokens.some((target) => fuzzyIncludes(token, target)))
+    matchesTitleTokens(guessTokens, artistTokens)
 
   if (titleMatch && artistMatch) return { correct: true, matched: 'both' }
   if (titleMatch) return { correct: true, matched: 'title' }

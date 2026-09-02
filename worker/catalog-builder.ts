@@ -1,6 +1,7 @@
 import { albumArtFromSpotifyTrack } from './album-art'
 import { insertTracks, listTrackIds, MAX_CATALOG_TRACKS } from './catalog-d1'
 import { assignDifficultyFromMetrics, parseReleaseYear } from './difficulty'
+import { syncPopularityByIds } from './spotify-sync'
 import {
   loadCheckpointFromR2,
   saveCheckpointToR2,
@@ -355,6 +356,8 @@ async function collectArtistTracks(
 interface CatalogBuildState {
   existingIds: Set<string>
   pending: Track[]
+  /** Written this run, so they can be enriched with public stats at the end. */
+  insertedIds: Set<string>
 }
 
 type CatalogCheckpoint = {
@@ -377,7 +380,9 @@ function queueTrack(
 
   const artist = (track.artists ?? []).map((item) => item.name).join(', ')
   const releaseYear = parseReleaseYear(track.album?.release_date)
-  const popularity = track.popularity ?? 0
+  // Left undefined when Spotify did not return one; the public-stats sweep
+  // right after this build fills it in properly rather than storing a fake 0.
+  const popularity = track.popularity
 
   state.existingIds.add(track.id)
   state.pending.push({
@@ -405,6 +410,7 @@ async function persistProgress(
   checkpoint: CatalogCheckpoint,
 ): Promise<void> {
   if (state.pending.length > 0) {
+    for (const track of state.pending) state.insertedIds.add(track.id)
     await insertTracks(env, state.pending)
     state.pending.length = 0
   }
@@ -477,6 +483,7 @@ async function processGenrePlaylists(
           title: track.name ?? '',
           artist,
           spotifyPreviewUrl: track.preview_url ?? null,
+          spotifyId: track.id,
         })
 
         if (queueTrack(state, track, previews)) {
@@ -550,6 +557,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
   const state: CatalogBuildState = {
     existingIds: new Set(await listTrackIds(env)),
     pending: [],
+    insertedIds: new Set(),
   }
 
   if (state.existingIds.size >= MAX_CATALOG_TRACKS) {
@@ -642,6 +650,7 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
             title: track.name ?? '',
             artist,
             spotifyPreviewUrl: track.preview_url ?? null,
+            spotifyId: track.id,
           })
 
           if (queueTrack(state, track, previews)) {
@@ -687,6 +696,18 @@ export async function runCatalogBuild(env: Env): Promise<CatalogBuildResult> {
   }
 
   await persistProgress(env, state, checkpoint)
+
+  // Newly built tracks have no play count yet. Enrich them now so they are not
+  // stuck at the default difficulty until the next cron sweep finds them.
+  if (state.insertedIds.size > 0) {
+    try {
+      await syncPopularityByIds(env, [...state.insertedIds])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log(`Public stats enrichment failed for new tracks: ${message}`)
+      errors.push(message)
+    }
+  }
 
   return {
     skipped: tracksAdded === 0,
