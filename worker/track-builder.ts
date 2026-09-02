@@ -71,8 +71,8 @@ export async function buildTrackFromSpotify(
 
   const releaseDate = spotifyTrack.album?.release_date
   const releaseYear = parseReleaseYear(releaseDate)
-  const popularity = spotifyTrack.popularity ?? 0
-  const artistPopularity = options.artistPopularity ?? 0
+  const popularity = spotifyTrack.popularity
+  const artistPopularity = options.artistPopularity
   const albumArt =
     albumArtFromSpotifyTrack(spotifyTrack) ||
     (await fetchSpotifyOembedArtwork(spotifyTrack.id)) ||
@@ -81,8 +81,16 @@ export async function buildTrackFromSpotify(
 
   const chartBoost = options.chartBoost === true
   const difficulty = chartBoost
-    ? assignChartDifficulty({ popularity, artistPopularity, artistName: artist })
-    : assignDifficultyFromMetrics({ popularity, artistPopularity, releaseYear })
+    ? assignChartDifficulty({
+        popularity: popularity ?? 0,
+        artistPopularity,
+        artistName: artist,
+      })
+    : assignDifficultyFromMetrics({
+        popularity: popularity ?? 0,
+        artistPopularity,
+        releaseYear,
+      })
 
   const track: Track = {
     id: spotifyTrack.id,

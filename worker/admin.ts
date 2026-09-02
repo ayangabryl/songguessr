@@ -25,7 +25,7 @@ import {
   updateArtist,
 } from './artists-d1'
 import { isCountryCode, type CountryCode } from '../shared/catalog-meta'
-import { syncSpotifyMetrics } from './spotify-sync'
+import { loadLastSpotifySync, syncPopularityByIds, syncSpotifyMetrics } from './spotify-sync'
 import {
   ERA_OPTIONS,
   GENRE_OPTIONS,
@@ -265,9 +265,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       const result = await syncSpotifyMetrics(c.env)
       return c.json({
         ok: true,
-        message: result.skipped
-          ? `Spotify sync skipped${result.reason ? `: ${result.reason}` : ''}`
-          : `Synced ${result.updated} tracks from Spotify IDs`,
+        message: result.message,
         ...result,
       })
     } catch (error) {
@@ -372,7 +370,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     let trackCount = 0
     let updatedAt: string | null = null
     let spotifySyncedAt: string | null = null
+    let popularityFilled = 0
+    let popularityMissing = 0
     let catalogError: string | null = null
+    const lastSpotifySync = await loadLastSpotifySync(c.env)
 
     try {
       const stats = await getCatalogStats(c.env)
@@ -380,6 +381,8 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       trackCount = stats.count
       updatedAt = stats.updatedAt
       spotifySyncedAt = stats.spotifySyncedAt
+      popularityFilled = stats.popularityFilled
+      popularityMissing = stats.popularityMissing
       if (!catalogOk) catalogError = 'Catalog not found in D1'
     } catch (error) {
       catalogError = error instanceof Error ? error.message : 'Catalog unavailable'
@@ -392,6 +395,9 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       catalogCap: MAX_CATALOG_TRACKS,
       updatedAt,
       spotifySyncedAt,
+      popularityFilled,
+      popularityMissing,
+      lastSpotifySync,
       source: 'd1',
       r2UpdatedAt: catalogObject?.uploaded?.toISOString() ?? null,
       artistsDone: checkpoint.completedArtists.size,
@@ -621,6 +627,14 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     const result = await addTrackToCatalog(c.env, built.track)
     if (!result.ok) {
       return c.json({ error: result.reason ?? 'Could not add track' }, 409)
+    }
+
+    try {
+      await syncPopularityByIds(c.env, [trackId])
+    } catch (error) {
+      console.warn(
+        `[admin] popularity hydrate after add failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
 
     return c.json({

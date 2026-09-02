@@ -62,6 +62,8 @@ export interface CatalogStats {
   count: number
   updatedAt: string | null
   spotifySyncedAt: string | null
+  popularityFilled: number
+  popularityMissing: number
 }
 
 export interface CatalogMutationResult {
@@ -322,15 +324,28 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
   const db = requireDb(env)
   const row = await db
     .prepare(
-      `SELECT COUNT(*) AS count, MAX(updated_at) AS updated_at, MAX(spotify_synced_at) AS spotify_synced_at
+      `SELECT
+         COUNT(*) AS count,
+         MAX(updated_at) AS updated_at,
+         MAX(spotify_synced_at) AS spotify_synced_at,
+         SUM(CASE WHEN popularity IS NOT NULL AND popularity > 0 THEN 1 ELSE 0 END) AS popularity_filled,
+         SUM(CASE WHEN popularity IS NULL OR popularity = 0 THEN 1 ELSE 0 END) AS popularity_missing
        FROM tracks`,
     )
-    .first<{ count: number; updated_at: string | null; spotify_synced_at: string | null }>()
+    .first<{
+      count: number
+      updated_at: string | null
+      spotify_synced_at: string | null
+      popularity_filled: number | null
+      popularity_missing: number | null
+    }>()
 
   return {
     count: row?.count ?? 0,
     updatedAt: row?.updated_at ?? null,
     spotifySyncedAt: row?.spotify_synced_at ?? null,
+    popularityFilled: row?.popularity_filled ?? 0,
+    popularityMissing: row?.popularity_missing ?? 0,
   }
 }
 
@@ -350,7 +365,9 @@ export async function listTrackIdsForSync(env: Env, limit = 5000): Promise<strin
   const result = await db
     .prepare(
       `SELECT id FROM tracks
-       ORDER BY (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
+       ORDER BY CASE WHEN popularity IS NULL OR popularity = 0 THEN 0 ELSE 1 END,
+         (spotify_synced_at IS NOT NULL),
+         spotify_synced_at ASC
        LIMIT ?`,
     )
     .bind(limit)
@@ -871,7 +888,7 @@ export interface TrackMetricsPatch {
   releaseDate?: string
   durationMs?: number
   spotifyGenres?: string[]
-  difficulty: Difficulty
+  difficulty?: Difficulty
 }
 
 export interface ChartImportPatch {
@@ -948,13 +965,14 @@ export async function applyTrackMetricPatches(
            title = COALESCE(?, title),
            artist = COALESCE(?, artist),
            album_art = COALESCE(?, album_art),
-           popularity = ?,
-           artist_popularity = ?,
+           popularity = COALESCE(?, popularity),
+           artist_popularity = COALESCE(?, artist_popularity),
            release_year = COALESCE(?, release_year),
            release_date = COALESCE(?, release_date),
            duration_ms = COALESCE(?, duration_ms),
            spotify_genres = COALESCE(?, spotify_genres),
            difficulty = CASE
+             WHEN ? IS NULL THEN difficulty
              WHEN chart_boost = 1 THEN CASE
                WHEN ? IN ('easy', 'medium') THEN ?
                ELSE COALESCE(force_tier, 'medium')
@@ -962,7 +980,7 @@ export async function applyTrackMetricPatches(
              ELSE ?
            END,
            updated_at = ?,
-           spotify_synced_at = ?
+           spotify_synced_at = CASE WHEN ? IS NOT NULL THEN ? ELSE spotify_synced_at END
          WHERE id = ?`,
       )
       .bind(
@@ -975,10 +993,12 @@ export async function applyTrackMetricPatches(
         patch.releaseDate ?? null,
         patch.durationMs ?? null,
         patch.spotifyGenres ? JSON.stringify(patch.spotifyGenres) : null,
-        patch.difficulty,
-        patch.difficulty,
-        patch.difficulty,
+        patch.difficulty ?? null,
+        patch.difficulty ?? null,
+        patch.difficulty ?? null,
+        patch.difficulty ?? null,
         now,
+        patch.popularity ?? null,
         now,
         patch.id,
       ),

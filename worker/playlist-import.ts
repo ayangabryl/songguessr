@@ -35,6 +35,7 @@ import {
   spotifyApiGet,
   type SpotifyArtistDetails,
 } from './spotify-api'
+import { syncPopularityByIds } from './spotify-sync'
 import { songIdentityKey } from './track-dedupe'
 import { buildTrackFromSpotify } from './track-builder'
 import type { Env, Track } from './types'
@@ -288,6 +289,7 @@ export async function importPlaylistToCatalog(
   let skippedNoPreview = 0
   const skippedNonOpmNames = new Set<string>()
   const errors: string[] = []
+  const idsToHydrate = new Set<string>()
   const runStartedAt = Date.now()
 
   const skipped = () => skippedExisting + skippedNonOpm + skippedNoPreview
@@ -322,6 +324,7 @@ export async function importPlaylistToCatalog(
   const persistPending = async (): Promise<boolean> => {
     if (pending.length === 0) return false
     report('saving', currentProcessed)
+    for (const track of pending) idsToHydrate.add(track.id)
     const saved = chartBoost
       ? await upsertTracks(env, pending)
       : await insertTracks(env, pending)
@@ -499,7 +502,18 @@ export async function importPlaylistToCatalog(
   await persistPending()
   if (chartPatches.length > 0) {
     report('saving', total)
+    for (const patch of chartPatches) idsToHydrate.add(patch.id)
     updated = await applyChartImportPatches(env, chartPatches)
+  }
+  if (idsToHydrate.size > 0) {
+    try {
+      const hydrate = await syncPopularityByIds(env, [...idsToHydrate])
+      if (hydrate.errors.length > 0) {
+        for (const message of hydrate.errors.slice(0, 3)) pushError(errors, message)
+      }
+    } catch (error) {
+      pushError(errors, error instanceof Error ? error.message : 'Could not sync popularity for new tracks')
+    }
   }
   report('done', total)
 

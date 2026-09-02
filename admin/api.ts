@@ -49,6 +49,9 @@ export interface StatusResponse {
   catalogError: string | null
   source?: string
   spotifySyncedAt?: string | null
+  popularityFilled?: number
+  popularityMissing?: number
+  lastSpotifySync?: SpotifySyncResponse | null
 }
 
 export interface CatalogTrack {
@@ -212,15 +215,19 @@ export async function triggerCron(): Promise<CronTriggerResponse> {
 }
 
 export interface SpotifySyncResponse {
-  ok: boolean
+  ok?: boolean
   message: string
   skipped?: boolean
   reason?: string
   updated: number
   tracks: number
+  popularityFilled?: number
+  popularityMissing?: number
+  source?: 'web-api' | 'embed' | 'mixed' | 'none'
   distribution?: Record<string, number>
   rateLimited: boolean
   errors: string[]
+  at?: string
   error?: string
 }
 

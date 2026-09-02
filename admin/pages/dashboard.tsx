@@ -109,6 +109,10 @@ export function DashboardPage({
             <p className="text-sm text-muted-foreground">
               D1 source of truth · Spotify {formatDate(status.spotifySyncedAt ?? null)}
             </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {formatNumber(status.popularityFilled ?? 0)} with popularity ·{' '}
+              {formatNumber(status.popularityMissing ?? 0)} missing
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -175,33 +179,56 @@ export function DashboardPage({
         <CardHeader>
           <CardTitle>Spotify metrics</CardTitle>
           <CardDescription>
-            Refresh popularity and artist popularity by Spotify ID, then recompute difficulty.
-            Official play counts / listens are not available on the public Web API.
+            Refresh official Spotify popularity (0–100) via GET /v1/tracks?ids= (50 per request),
+            then recompute difficulty. oEmbed has no popularity.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          {lastSync ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">Updated {formatNumber(lastSync.updated)}</Badge>
-                <Badge variant={(lastSync.errors?.length ?? 0) > 0 ? 'destructive' : 'outline'}>
-                  Errors {formatNumber(lastSync.errors?.length ?? 0)}
-                </Badge>
-                <Badge variant={lastSync.rateLimited ? 'destructive' : 'outline'}>
-                  {lastSync.rateLimited ? 'Rate limited' : 'Not rate limited'}
-                </Badge>
-              </div>
-              {lastSync.distribution ? (
+          {(() => {
+            const displayedSync = lastSync ?? status.lastSpotifySync ?? null
+            if (!displayedSync) {
+              return (
                 <p className="text-sm text-muted-foreground">
-                  {Object.entries(lastSync.distribution)
-                    .map(([level, count]) => `${level} ${count}`)
-                    .join(' · ')}
+                  No Spotify sync yet. {formatNumber(status.popularityMissing ?? 0)} tracks are still
+                  missing popularity.
                 </p>
-              ) : null}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No Spotify sync yet this session.</p>
-          )}
+              )
+            }
+            return (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm">{displayedSync.message}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">
+                    Popularity {formatNumber(displayedSync.popularityFilled ?? 0)} /{' '}
+                    {formatNumber(displayedSync.tracks)}
+                  </Badge>
+                  <Badge variant="outline">Updated {formatNumber(displayedSync.updated)}</Badge>
+                  {displayedSync.source ? (
+                    <Badge variant="outline">{displayedSync.source}</Badge>
+                  ) : null}
+                  <Badge variant={(displayedSync.errors?.length ?? 0) > 0 ? 'destructive' : 'outline'}>
+                    Errors {formatNumber(displayedSync.errors?.length ?? 0)}
+                  </Badge>
+                  <Badge variant={displayedSync.rateLimited ? 'destructive' : 'outline'}>
+                    {displayedSync.rateLimited ? 'Rate limited' : 'Not rate limited'}
+                  </Badge>
+                </div>
+                {displayedSync.at ? (
+                  <p className="text-sm text-muted-foreground">{formatDate(displayedSync.at)}</p>
+                ) : null}
+                {displayedSync.distribution ? (
+                  <p className="text-sm text-muted-foreground">
+                    {Object.entries(displayedSync.distribution)
+                      .map(([level, count]) => `${level} ${count}`)
+                      .join(' · ')}
+                  </p>
+                ) : null}
+                {(displayedSync.errors?.length ?? 0) > 0 ? (
+                  <p className="text-sm text-destructive">{displayedSync.errors[0]}</p>
+                ) : null}
+              </div>
+            )
+          })()}
         </CardContent>
         <CardFooter>
           <Button
