@@ -1,10 +1,4 @@
-import { hasFlag } from 'country-flag-icons'
-import * as Flags from 'country-flag-icons/react/3x2'
-import type { JSX, SVGProps } from 'react'
-
-type FlagComponent = (props: SVGProps<SVGSVGElement>) => JSX.Element
-
-const FLAG_COMPONENTS = Flags as unknown as Record<string, FlagComponent>
+import { isoCountryToFlagEmoji, NotoEmoji } from './noto-emoji'
 
 export interface CountryFlagProps {
   code: string
@@ -13,19 +7,19 @@ export interface CountryFlagProps {
 }
 
 /**
- * Flag library: `country-flag-icons` (SVG 3x2 React components).
- * Chosen over Apple/iOS (or Windows) native flag emoji so every browser
- * and OS renders the same vector flag. Do not use emoji or a second flag pack.
+ * Flag glyphs use Noto Color Emoji (Google), not `country-flag-icons` SVGs
+ * and not Apple Color Emoji (licensing). Windows Segoe UI Emoji would show
+ * regional-indicator letters instead of flags, so we render Noto/Twemoji
+ * images. ISO country codes stay in data; this is display only.
  */
 export function CountryFlag({ code, className = 'country-flag', title }: CountryFlagProps) {
   const normalized = code.trim().toUpperCase()
-  if (normalized === 'GLOBAL' || !hasFlag(normalized)) return null
-  const FlagSvg = FLAG_COMPONENTS[normalized]
-  if (!FlagSvg) return null
-  const label = title ?? normalized
+  if (normalized === 'GLOBAL') return null
+  const emoji = isoCountryToFlagEmoji(normalized)
+  if (!emoji) return null
   return (
-    <span className="country-flag-wrap" title={label}>
-      <FlagSvg className={className} aria-label={label} />
+    <span className="country-flag-wrap">
+      <NotoEmoji emoji={emoji} className={className} title={title ?? normalized} />
     </span>
   )
 }

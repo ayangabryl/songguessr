@@ -231,9 +231,36 @@ export async function syncSpotifyMetrics(): Promise<SpotifySyncResponse> {
   })
 }
 
+export interface PlaylistPreviewTrack {
+  id: string
+  title: string
+  artist: string
+  albumArt: string
+  alreadyInCatalog: boolean
+  isDuplicate: boolean
+}
+
+export interface PlaylistPreview {
+  playlistId: string
+  playlistName: string
+  tracks: PlaylistPreviewTrack[]
+}
+
+export async function previewPlaylist(playlistUrl: string): Promise<PlaylistPreview> {
+  return request<PlaylistPreview>('/catalog/playlist/preview', {
+    method: 'POST',
+    body: JSON.stringify({ playlistUrl }),
+  })
+}
+
 export async function startPlaylistImport(
   playlistUrl: string,
-  options: { country?: string; catalog?: string; assumeAllLocal?: boolean } = {},
+  options: {
+    country?: string
+    catalog?: string
+    assumeAllLocal?: boolean
+    trackIds?: string[]
+  } = {},
 ): Promise<string> {
   const data = await request<{ jobId: string }>('/catalog/playlist', {
     method: 'POST',
@@ -242,6 +269,7 @@ export async function startPlaylistImport(
       country: options.country,
       catalog: options.catalog,
       assumeAllLocal: options.assumeAllLocal === true,
+      trackIds: options.trackIds,
     }),
   })
   return data.jobId
@@ -249,4 +277,97 @@ export async function startPlaylistImport(
 
 export async function fetchJob(jobId: string): Promise<CatalogJob> {
   return request<CatalogJob>(`/jobs/${jobId}`)
+}
+
+export interface AdminArtist {
+  id: string
+  name: string
+  country: string
+  whitelisted: boolean
+  songCount: number
+  popularity?: number
+}
+
+export interface ArtistsResponse {
+  artists: AdminArtist[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+export async function fetchArtists(
+  page: number,
+  query: string,
+): Promise<ArtistsResponse> {
+  const params = new URLSearchParams({ page: String(page), pageSize: '50' })
+  if (query.trim()) params.set('q', query.trim())
+  return request<ArtistsResponse>(`/artists?${params}`)
+}
+
+export async function updateArtist(
+  id: string,
+  patch: { country?: string; whitelisted?: boolean },
+): Promise<AdminArtist> {
+  const data = await request<{ artist: AdminArtist }>(`/artists/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+  return data.artist
+}
+
+export async function removeArtist(
+  id: string,
+  options: { removeSongs?: boolean } = {},
+): Promise<{ songsRemoved: number }> {
+  const params = options.removeSongs ? '?removeSongs=1' : ''
+  return request<{ songsRemoved: number }>(`/artists/${encodeURIComponent(id)}${params}`, {
+    method: 'DELETE',
+  })
+}
+
+export interface AdminCatalog {
+  id: string
+  name: string
+  emoji: string
+  country: string | null
+  createdAt: string
+  trackCount?: number
+}
+
+export async function fetchCatalogs(): Promise<AdminCatalog[]> {
+  const data = await request<{ catalogs: AdminCatalog[] }>('/catalogs')
+  return data.catalogs
+}
+
+export async function createCatalog(input: {
+  name: string
+  emoji: string
+  country?: string | null
+  id?: string
+}): Promise<AdminCatalog> {
+  const data = await request<{ catalog: AdminCatalog }>('/catalogs', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  return data.catalog
+}
+
+export async function updateCatalog(
+  id: string,
+  patch: { name?: string; emoji?: string; country?: string | null },
+): Promise<AdminCatalog> {
+  const data = await request<{ catalog: AdminCatalog }>(`/catalogs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+  return data.catalog
+}
+
+export async function deleteCatalog(id: string): Promise<void> {
+  await request(`/catalogs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function dedupeCatalog(): Promise<{ removed: number; kept: number; groups: number }> {
+  return request('/catalog/dedupe', { method: 'POST', body: JSON.stringify({}) })
 }

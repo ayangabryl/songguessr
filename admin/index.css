@@ -128,3 +128,18 @@
     @apply font-sans;
     }
 }
+
+.noto-emoji {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+.country-flag-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  line-height: 0;
+}

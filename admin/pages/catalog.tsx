@@ -49,6 +49,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { CountryCombobox } from '@/components/country-combobox'
+import { CountryFlag } from '../../shared/country-flag'
 import {
   DIFFICULTY_LABELS,
   DIFFICULTY_OPTIONS,
@@ -138,7 +139,7 @@ export function CatalogPage() {
       <Card>
         <CardHeader>
           <CardTitle>{formatNumber(total)} tracks</CardTitle>
-          <CardDescription>Search and filter the live R2 catalog.</CardDescription>
+          <CardDescription>Search and filter the live D1 catalog.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form onSubmit={handleSearch}>
@@ -333,7 +334,10 @@ export function CatalogPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {track.country ? countryDisplayName(track.country) : 'Philippines'}
+                      <span className="inline-flex items-center gap-2">
+                        <CountryFlag code={track.country ?? 'PH'} className="size-4" />
+                        {track.country ? countryDisplayName(track.country) : 'Philippines'}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <Badge variant={track.hasPreview ? 'secondary' : 'destructive'}>

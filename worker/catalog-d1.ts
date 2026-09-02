@@ -1,7 +1,7 @@
 import {
-  CATALOG_KINDS,
   DEFAULT_CATALOG,
   DEFAULT_COUNTRY,
+  isCatalogKind,
   isCountryCode,
   type CatalogKind,
   type CountryCode,
@@ -14,7 +14,7 @@ import {
   type EraFilter,
   type GenreFilter,
 } from './filters'
-import { songIdentityKey } from './track-dedupe'
+import { dedupeTracks, songIdentityKey } from './track-dedupe'
 import type { Difficulty, Env, Track } from './types'
 
 export const MAX_CATALOG_TRACKS = 20_000
@@ -153,9 +153,8 @@ function parseCountry(value: string | null | undefined): CountryCode {
 }
 
 function parseCatalog(value: string | null | undefined): CatalogKind {
-  if (value && (CATALOG_KINDS as readonly string[]).includes(value)) {
-    return value as CatalogKind
-  }
+  const normalized = value?.trim().toLowerCase()
+  if (normalized && isCatalogKind(normalized)) return normalized
   return DEFAULT_CATALOG
 }
 
@@ -378,6 +377,158 @@ export async function findExistingTrackIds(env: Env, ids: string[]): Promise<Set
   return found
 }
 
+export async function findExistingSongKeys(env: Env, keys: string[]): Promise<Set<string>> {
+  const usable = keys.filter((key) => key.length > 0)
+  if (usable.length === 0) return new Set()
+  const db = requireDb(env)
+  const found = new Set<string>()
+
+  for (let index = 0; index < usable.length; index += MAX_IN_PARAMS) {
+    const batch = usable.slice(index, index + MAX_IN_PARAMS)
+    const result = await db
+      .prepare(`SELECT song_key FROM tracks WHERE song_key IN (${batch.map(() => '?').join(', ')})`)
+      .bind(...batch)
+      .all<{ song_key: string | null }>()
+    for (const row of result.results ?? []) {
+      if (row.song_key) found.add(row.song_key)
+    }
+  }
+
+  return found
+}
+
+export interface CatalogIdentitySets {
+  ids: Set<string>
+  songKeys: Set<string>
+}
+
+/** Match by Spotify id, song_key, or normalized title + primary artist. */
+export async function findExistingIdentities(
+  env: Env,
+  tracks: Array<{ id?: string; title: string; artist: string }>,
+): Promise<CatalogIdentitySets> {
+  const ids = await findExistingTrackIds(
+    env,
+    tracks.map((track) => track.id).filter((id): id is string => Boolean(id)),
+  )
+  const incomingKeys = new Set(
+    tracks.map((track) => songIdentityKey(track)).filter((key) => key.length > 1),
+  )
+  const songKeys = await findExistingSongKeys(env, [...incomingKeys])
+
+  const titles = [
+    ...new Set(tracks.map((track) => track.title.trim().toLowerCase()).filter(Boolean)),
+  ]
+  if (titles.length === 0) return { ids, songKeys }
+
+  const db = requireDb(env)
+  for (let index = 0; index < titles.length; index += MAX_IN_PARAMS) {
+    const batch = titles.slice(index, index + MAX_IN_PARAMS)
+    const result = await db
+      .prepare(
+        `SELECT id, title, artist, song_key FROM tracks
+         WHERE lower(title) IN (${batch.map(() => '?').join(', ')})`,
+      )
+      .bind(...batch)
+      .all<{ id: string; title: string; artist: string; song_key: string | null }>()
+    for (const row of result.results ?? []) {
+      const key = row.song_key || songIdentityKey(row)
+      if (incomingKeys.has(key)) {
+        songKeys.add(key)
+        ids.add(row.id)
+      }
+    }
+  }
+
+  return { ids, songKeys }
+}
+
+function keeperScore(row: {
+  album_art: string | null
+  preview_url: string | null
+  song_key: string | null
+  updated_at: string | null
+}): number {
+  let score = 0
+  if (row.album_art) score += 10
+  if (row.preview_url) score += 10
+  if (row.song_key) score += 1
+  if (row.updated_at) score += 0.001
+  return score
+}
+
+/** Keep one row per song_key / identity. Prefer album art + preview. */
+export async function removeDuplicateTracks(env: Env): Promise<{
+  removed: number
+  kept: number
+  groups: number
+}> {
+  const db = requireDb(env)
+  const result = await db
+    .prepare(
+      `SELECT id, title, artist, song_key, album_art, preview_url, updated_at FROM tracks`,
+    )
+    .all<{
+      id: string
+      title: string
+      artist: string
+      song_key: string | null
+      album_art: string | null
+      preview_url: string | null
+      updated_at: string | null
+    }>()
+
+  const groups = new Map<string, typeof result.results>()
+  for (const row of result.results ?? []) {
+    const key = row.song_key || songIdentityKey(row)
+    if (!key) continue
+    const list = groups.get(key) ?? []
+    list.push(row)
+    groups.set(key, list)
+  }
+
+  const deleteIds: string[] = []
+  const keyUpdates: Array<{ id: string; songKey: string }> = []
+
+  for (const [key, rows] of groups) {
+    if (!rows || rows.length === 0) continue
+    const ranked = [...rows].sort((left, right) => keeperScore(right) - keeperScore(left))
+    const keep = ranked[0]
+    if (!keep) continue
+    keyUpdates.push({ id: keep.id, songKey: key })
+    for (const extra of ranked.slice(1)) {
+      deleteIds.push(extra.id)
+    }
+  }
+
+  for (let index = 0; index < deleteIds.length; index += MAX_IN_PARAMS) {
+    const batch = deleteIds.slice(index, index + MAX_IN_PARAMS)
+    await db
+      .prepare(`DELETE FROM tracks WHERE id IN (${batch.map(() => '?').join(', ')})`)
+      .bind(...batch)
+      .run()
+  }
+
+  const now = new Date().toISOString()
+  const updates = keyUpdates.map((item) =>
+    db
+      .prepare(
+        `UPDATE tracks SET song_key = ?, updated_at = ?
+         WHERE id = ? AND (song_key IS NULL OR song_key = '' OR song_key != ?)`,
+      )
+      .bind(item.songKey, now, item.id, item.songKey),
+  )
+  for (let index = 0; index < updates.length; index += 100) {
+    await db.batch(updates.slice(index, index + 100))
+  }
+
+  return {
+    removed: deleteIds.length,
+    kept: keyUpdates.length,
+    groups: groups.size,
+  }
+}
+
 export async function findTrackById(env: Env, id: string): Promise<Track | undefined> {
   const db = requireDb(env)
   const row = await db.prepare('SELECT * FROM tracks WHERE id = ?').bind(id).first<TrackRow>()
@@ -560,7 +711,7 @@ export async function searchCatalog(env: Env, query: string, limit = 50): Promis
     .bind(pattern, pattern, limit)
     .all<TrackRow>()
 
-  return (result.results ?? []).map(rowToTrack)
+  return dedupeTracks((result.results ?? []).map(rowToTrack))
 }
 
 export async function insertTracks(
@@ -573,17 +724,17 @@ export async function insertTracks(
     return { added: 0, totalTracks: totalBefore, skippedExisting: 0, skippedCap: 0 }
   }
 
-  const existing = await findExistingTrackIds(
-    env,
-    tracks.map((track) => track.id),
-  )
+  const identities = await findExistingIdentities(env, tracks)
+  const existing = identities.ids
+  const existingKeys = identities.songKeys
   let skippedExisting = 0
   let skippedCap = 0
   const incoming: Track[] = []
   let remainingCap = Math.max(0, MAX_CATALOG_TRACKS - totalBefore)
 
   for (const track of tracks) {
-    if (existing.has(track.id)) {
+    const key = songIdentityKey(track)
+    if (existing.has(track.id) || existingKeys.has(key)) {
       skippedExisting += 1
       continue
     }
@@ -592,6 +743,7 @@ export async function insertTracks(
       continue
     }
     existing.add(track.id)
+    existingKeys.add(key)
     incoming.push(track)
     remainingCap -= 1
   }
@@ -628,23 +780,27 @@ export async function upsertTracks(
     return { added: 0, updated: 0, totalTracks: totalBefore, skippedExisting: 0, skippedCap: 0 }
   }
 
-  const existing = await findExistingTrackIds(
-    env,
-    tracks.map((track) => track.id),
-  )
+  const identities = await findExistingIdentities(env, tracks)
+  const existing = identities.ids
+  const existingKeys = identities.songKeys
   let skippedCap = 0
   let remainingCap = Math.max(0, MAX_CATALOG_TRACKS - totalBefore)
   const incoming: Track[] = []
 
   for (const track of tracks) {
+    const key = songIdentityKey(track)
     if (existing.has(track.id)) {
       incoming.push(track)
+      continue
+    }
+    if (existingKeys.has(key)) {
       continue
     }
     if (remainingCap <= 0) {
       skippedCap += 1
       continue
     }
+    existingKeys.add(key)
     incoming.push(track)
     remainingCap -= 1
   }
@@ -690,12 +846,17 @@ export async function removeTrackFromCatalog(
   trackId: string,
 ): Promise<CatalogMutationResult> {
   const db = requireDb(env)
-  const existing = await db.prepare('SELECT id FROM tracks WHERE id = ?').bind(trackId).first<{ id: string }>()
+  const id = decodeURIComponent(trackId).trim()
+  if (!id) {
+    return { ok: false, reason: 'Track id is required', totalTracks: await countTracks(env) }
+  }
+
+  const existing = await db.prepare('SELECT id FROM tracks WHERE id = ?').bind(id).first<{ id: string }>()
   if (!existing) {
     return { ok: false, reason: 'Track not found', totalTracks: await countTracks(env) }
   }
 
-  await db.prepare('DELETE FROM tracks WHERE id = ?').bind(trackId).run()
+  await db.prepare('DELETE FROM tracks WHERE id = ?').bind(id).run()
   return { ok: true, totalTracks: await countTracks(env) }
 }
 

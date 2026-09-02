@@ -10,8 +10,20 @@ import {
   getCatalogStats,
   listCatalogPage,
   MAX_CATALOG_TRACKS,
+  removeDuplicateTracks,
   removeTrackFromCatalog,
 } from './catalog-d1'
+import {
+  createCatalog,
+  deleteCatalog,
+  listCatalogs,
+  updateCatalog,
+} from './catalogs-d1'
+import {
+  deleteArtist,
+  listArtistsPage,
+  updateArtist,
+} from './artists-d1'
 import { isCountryCode, type CountryCode } from '../shared/catalog-meta'
 import { syncSpotifyMetrics } from './spotify-sync'
 import {
@@ -22,7 +34,11 @@ import {
 } from './filters'
 import { createCatalogJob, getCatalogJob, updateCatalogJob } from './jobs'
 import { isOpmSpotifyTrack, UNIQUE_OPM_ARTISTS } from './opm-artists'
-import { importPlaylistToCatalog, type PlaylistImportOptions } from './playlist-import'
+import {
+  importPlaylistToCatalog,
+  previewPlaylistForCatalog,
+  type PlaylistImportOptions,
+} from './playlist-import'
 import { parseSpotifyPlaylistId } from './playlist-source'
 import { backfillMissingAlbumArt } from './album-art-backfill'
 import { fetchSpotifyTrack, getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
@@ -333,7 +349,8 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     if (
       c.req.path === '/admin/api/login' ||
       c.req.path === '/admin/api/cron/trigger' ||
-      c.req.path === '/admin/api/spotify/sync'
+      c.req.path === '/admin/api/spotify/sync' ||
+      c.req.path === '/admin/api/catalog/dedupe'
     ) {
       await next()
       return
@@ -410,6 +427,116 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         return c.json({ error: error.message }, 503)
       }
       throw error
+    }
+  })
+
+  admin.get('/admin/api/artists', async (c) => {
+    try {
+      const page = Number(c.req.query('page') ?? '1')
+      const pageSize = Number(c.req.query('pageSize') ?? '50')
+      const query = c.req.query('q') ?? ''
+      return c.json(await listArtistsPage(c.env, page, pageSize, query))
+    } catch (error) {
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      throw error
+    }
+  })
+
+  admin.patch('/admin/api/artists/:id', async (c) => {
+    try {
+      const body = await c.req
+        .json<{ country?: string; whitelisted?: boolean }>()
+        .catch(() => ({}))
+      const country = parseListCountry(body.country)
+      const artist = await updateArtist(c.env, c.req.param('id'), {
+        ...(country ? { country } : {}),
+        ...(typeof body.whitelisted === 'boolean' ? { whitelisted: body.whitelisted } : {}),
+      })
+      return c.json({ ok: true, artist })
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not update artist' },
+        status === 404 ? 404 : 400,
+      )
+    }
+  })
+
+  admin.delete('/admin/api/artists/:id', async (c) => {
+    try {
+      const removeSongs =
+        c.req.query('removeSongs') === '1' || c.req.query('removeSongs') === 'true'
+      const result = await deleteArtist(c.env, c.req.param('id'), { removeSongs })
+      return c.json(result)
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not remove artist' },
+        status === 404 ? 404 : 400,
+      )
+    }
+  })
+
+  admin.get('/admin/api/catalogs', async (c) => {
+    try {
+      return c.json({ catalogs: await listCatalogs(c.env) })
+    } catch (error) {
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      throw error
+    }
+  })
+
+  admin.post('/admin/api/catalogs', async (c) => {
+    try {
+      const body = await c.req
+        .json<{ id?: string; name?: string; emoji?: string; country?: string | null }>()
+        .catch(() => ({}))
+      const catalog = await createCatalog(c.env, {
+        id: body.id,
+        name: body.name ?? '',
+        emoji: body.emoji ?? '🎵',
+        country: body.country,
+      })
+      return c.json({ ok: true, catalog })
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not create catalog' },
+        status === 409 ? 409 : 400,
+      )
+    }
+  })
+
+  admin.patch('/admin/api/catalogs/:id', async (c) => {
+    try {
+      const body = await c.req
+        .json<{ name?: string; emoji?: string; country?: string | null }>()
+        .catch(() => ({}))
+      const catalog = await updateCatalog(c.env, c.req.param('id'), body)
+      return c.json({ ok: true, catalog })
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not update catalog' },
+        status === 404 ? 404 : 400,
+      )
+    }
+  })
+
+  admin.delete('/admin/api/catalogs/:id', async (c) => {
+    try {
+      await deleteCatalog(c.env, c.req.param('id'))
+      return c.json({ ok: true })
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not delete catalog' },
+        status === 409 ? 409 : status === 404 ? 404 : 400,
+      )
     }
   })
 
@@ -507,6 +634,49 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     })
   })
 
+  admin.post('/admin/api/catalog/playlist/preview', async (c) => {
+    const body = await c.req.json<{ playlistUrl?: string }>().catch(() => ({ playlistUrl: undefined }))
+    const playlistUrl = body.playlistUrl?.trim() ?? ''
+    if (!playlistUrl) {
+      return c.json({ error: 'playlistUrl is required' }, 400)
+    }
+    if (!parseSpotifyPlaylistId(playlistUrl)) {
+      return c.json({ error: 'Invalid Spotify playlist URL or ID' }, 400)
+    }
+
+    try {
+      return c.json(await previewPlaylistForCatalog(c.env, playlistUrl))
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not preview playlist' },
+        status === 400 || status === 404 || status === 503 ? status : 502,
+      )
+    }
+  })
+
+  admin.post('/admin/api/catalog/dedupe', async (c) => {
+    const cookieOk = await hasValidAdminSession(c.req.raw, c.env)
+    const body = await c.req.json<{ password?: string }>().catch(() => ({ password: undefined }))
+    const passwordOk = body.password?.trim() === getAdminPassword(c.env)
+    if (!cookieOk && !passwordOk) {
+      return c.json({ error: 'Unauthorized' }, 401)
+    }
+
+    try {
+      const result = await removeDuplicateTracks(c.env)
+      return c.json({ ok: true, ...result })
+    } catch (error) {
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not remove duplicates' },
+        500,
+      )
+    }
+  })
+
   admin.post('/admin/api/catalog/playlist', async (c) => {
     const body = await c.req
       .json<{
@@ -514,6 +684,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         country?: string
         catalog?: string
         assumeAllLocal?: boolean
+        trackIds?: string[]
         wait?: boolean
       }>()
       .catch(() => ({ playlistUrl: undefined }))
@@ -529,6 +700,9 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       country: body.country,
       catalog: body.catalog,
       assumeAllLocal: body.assumeAllLocal === true,
+      trackIds: Array.isArray(body.trackIds)
+        ? body.trackIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : undefined,
     }
 
     const jobId = createCatalogJob()

@@ -67,7 +67,7 @@ export function CountryCombobox({
         onClick={() => setOpen((current) => !current)}
       >
         <span className="flex min-w-0 items-center gap-2">
-          {value !== 'all' ? <CountryFlag code={value} className="h-3 w-[1.125rem] shrink-0 rounded-[2px]" /> : null}
+          {value !== 'all' ? <CountryFlag code={value} className="size-4 shrink-0" /> : null}
           <span className="truncate">{selectedLabel}</span>
         </span>
         <ChevronsUpDownIcon className="size-3.5 opacity-60" />
@@ -123,7 +123,7 @@ export function CountryCombobox({
                   >
                     <CountryFlag
                       code={country.code}
-                      className="h-3 w-[1.125rem] shrink-0 rounded-[2px]"
+                      className="size-4 shrink-0"
                       title={country.name}
                     />
                     <span className="min-w-0 flex-1 truncate">{country.name}</span>

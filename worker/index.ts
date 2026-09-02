@@ -9,6 +9,7 @@ import {
   searchCatalog,
 } from './catalog'
 import { getCatalogStats, listCatalogCountries } from './catalog-d1'
+import { listCatalogs } from './catalogs-d1'
 import { GAME_REGIONS, isCountryCode } from '../shared/catalog-meta'
 import { countryDisplayName } from '../shared/iso-countries'
 import { songIdentityKey } from './track-dedupe.ts'
@@ -197,6 +198,26 @@ app.get('/api/health', async (c) => {
       updatedAt: stats.updatedAt,
       source: 'd1',
       spotifySyncedAt: stats.spotifySyncedAt,
+    })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
+  }
+})
+
+app.get('/api/catalog/catalogs', async (c) => {
+  try {
+    const catalogs = await listCatalogs(c.env)
+    return c.json({
+      catalogs: catalogs.map((catalog) => ({
+        id: catalog.id,
+        name: catalog.name,
+        emoji: catalog.emoji,
+        country: catalog.country,
+        trackCount: catalog.trackCount ?? 0,
+      })),
     })
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {

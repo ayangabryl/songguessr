@@ -2,8 +2,9 @@
 .filter-region-search{width:100%;margin:0 0 .7rem;padding:.65rem .8rem;border:1px solid var(--line);border-radius:.7rem;background:var(--surface-soft);color:inherit}
 .filter-region-list{display:flex;flex-direction:column;gap:.35rem;max-height:14rem;overflow:auto}
 .filter-region-list button{display:flex;align-items:center;gap:.55rem;width:100%;text-align:left}
-.filter-flag{width:1.2rem;height:.8rem;flex:0 0 auto;border-radius:.12rem;box-shadow:0 0 0 1px #00000033}
+.filter-flag{width:1.25rem;height:1.25rem;flex:0 0 auto;object-fit:contain}
 .filter-region-count{margin-left:auto;color:var(--muted);font-size:.8rem}
-.country-flag{display:inline-block;width:1.2rem;height:.8rem;vertical-align:middle}
+.country-flag{display:inline-block;width:1.25rem;height:1.25rem;object-fit:contain;vertical-align:middle}
 .country-flag-wrap{display:inline-flex;align-items:center;flex:0 0 auto;line-height:0}
+.noto-emoji{display:inline-block;width:1.25em;height:1.25em;object-fit:contain;vertical-align:middle}
 

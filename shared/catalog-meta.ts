@@ -13,8 +13,11 @@ export const COUNTRY_CODES: readonly CountryCode[] = [
   'GLOBAL',
 ]
 
-export const CATALOG_KINDS = ['opm', 'kpop', 'anime', 'other'] as const
-export type CatalogKind = (typeof CATALOG_KINDS)[number]
+/** Seed / fallback slugs. Live catalogs live in D1 `catalogs` (any slug). */
+export const CATALOG_KINDS = ['opm', 'kpop', 'anime', 'kdrama', 'other'] as const
+export type SeedCatalogKind = (typeof CATALOG_KINDS)[number]
+/** D1 catalog slug (`opm`, `kdrama`, or any admin-created id). */
+export type CatalogKind = string
 
 /** Game region filters are every official ISO country. GLOBAL is not a region. */
 export const REGION_OPTIONS: readonly IsoCountryCode[] = ISO_COUNTRIES.map(
@@ -27,10 +30,11 @@ export const COUNTRY_LABELS: Record<string, string> = Object.fromEntries([
   ['GLOBAL', 'Global'] as const,
 ])
 
-export const CATALOG_LABELS: Record<CatalogKind, string> = {
+export const CATALOG_LABELS: Record<string, string> = {
   opm: 'OPM',
   kpop: 'K-pop',
   anime: 'Anime',
+  kdrama: 'K-drama',
   other: 'Other',
 }
 
@@ -59,7 +63,17 @@ export function isCountryCode(value: string): value is CountryCode {
 }
 
 export function isCatalogKind(value: string): value is CatalogKind {
-  return (CATALOG_KINDS as readonly string[]).includes(value)
+  return /^[a-z][a-z0-9-]{0,31}$/.test(value)
+}
+
+export function catalogSlugFromName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
 }
 
 export function isRegionFilter(value: string): value is RegionFilter {

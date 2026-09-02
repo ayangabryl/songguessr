@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   addTrack,
+  fetchCatalogs,
   fetchJob,
+  previewPlaylist,
   searchSpotify,
   startPlaylistImport,
+  type AdminCatalog,
   type CatalogJob,
   type JobPhase,
+  type PlaylistPreview,
   type SpotifySearchResult,
 } from '@/api'
+import { NotoEmoji } from '../../shared/noto-emoji'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,12 +38,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { CountryCombobox } from '@/components/country-combobox'
 import { Switch } from '@/components/ui/switch'
-import {
-  CATALOG_KINDS,
-  CATALOG_LABELS,
-  countryDisplayName,
-  formatNumber,
-} from '@/lib/format'
+import { countryDisplayName, formatNumber } from '@/lib/format'
 import { ListMusicIcon, SearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -67,10 +67,25 @@ export function AddSongsPage() {
   const [playlistUrl, setPlaylistUrl] = useState('')
   const [country, setCountry] = useState('PH')
   const [catalog, setCatalog] = useState('opm')
+  const [catalogs, setCatalogs] = useState<AdminCatalog[]>([])
   const [assumeAllLocal, setAssumeAllLocal] = useState(false)
+  const [preview, setPreview] = useState<PlaylistPreview | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [previewing, setPreviewing] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [job, setJob] = useState<CatalogJob | null>(null)
   const [starting, setStarting] = useState(false)
+
+  useEffect(() => {
+    void fetchCatalogs()
+      .then((rows) => {
+        setCatalogs(rows)
+        setCatalog((current) =>
+          rows.some((row) => row.id === current) ? current : (rows[0]?.id ?? 'opm'),
+        )
+      })
+      .catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     if (!jobId) return
@@ -108,6 +123,13 @@ export function AddSongsPage() {
     }
   }, [jobId])
 
+  const eligibleIds = useMemo(() => {
+    if (!preview) return []
+    return preview.tracks
+      .filter((track) => !track.alreadyInCatalog && !track.isDuplicate)
+      .map((track) => track.id)
+  }, [preview])
+
   const handleSearch = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!query.trim()) return
@@ -137,9 +159,46 @@ export function AddSongsPage() {
     }
   }
 
-  const handlePlaylistImport = async (event: React.FormEvent) => {
+  const handlePreview = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!playlistUrl.trim() || starting) return
+    if (!playlistUrl.trim() || previewing) return
+    setPreviewing(true)
+    setPreview(null)
+    setSelected(new Set())
+    setJob(null)
+    setJobId(null)
+    try {
+      const next = await previewPlaylist(playlistUrl.trim())
+      setPreview(next)
+      setSelected(
+        new Set(
+          next.tracks
+            .filter((track) => !track.alreadyInCatalog && !track.isDuplicate)
+            .map((track) => track.id),
+        ),
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Playlist preview failed')
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  const toggleTrack = (id: string, enabled: boolean) => {
+    if (!enabled) return
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => setSelected(new Set(eligibleIds))
+  const selectNone = () => setSelected(new Set())
+
+  const handleAddSelected = async () => {
+    if (!playlistUrl.trim() || starting || selected.size === 0) return
     setStarting(true)
     setJob(null)
     try {
@@ -147,12 +206,13 @@ export function AddSongsPage() {
         country,
         catalog,
         assumeAllLocal,
+        trackIds: [...selected],
       })
       setJobId(id)
       setJob({
         status: 'queued',
         processed: 0,
-        total: 0,
+        total: selected.size,
         added: 0,
         skipped: 0,
         phase: 'queued',
@@ -167,6 +227,8 @@ export function AddSongsPage() {
   const jobRunning = job?.status === 'queued' || job?.status === 'running'
   const progressValue =
     job && job.total > 0 ? Math.round((job.processed / job.total) * 100) : jobRunning ? 8 : 0
+  const selectedCatalog = catalogs.find((item) => item.id === catalog)
+  const catalogOptions = catalogs.length > 0 ? catalogs : [{ id: 'opm', name: 'OPM', emoji: '🇵🇭' }]
 
   return (
     <div className="flex flex-col gap-6">
@@ -174,21 +236,25 @@ export function AddSongsPage() {
         <CardHeader>
           <CardTitle>Spotify playlist</CardTitle>
           <CardDescription>
-            Paste a public playlist URL or ID. Set country and catalog so D1 knows where those
-            songs belong. Import runs in the background with live progress.
+            Paste a public playlist URL, fetch the track list, then pick which songs to add.
+            Country and whitelist still apply to the selected IDs only.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <form onSubmit={(event) => void handlePlaylistImport(event)}>
+          <form onSubmit={(event) => void handlePreview(event)}>
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="playlist-url">Playlist URL</FieldLabel>
                 <Input
                   id="playlist-url"
                   value={playlistUrl}
-                  onChange={(event) => setPlaylistUrl(event.target.value)}
+                  onChange={(event) => {
+                    setPlaylistUrl(event.target.value)
+                    setPreview(null)
+                    setSelected(new Set())
+                  }}
                   placeholder="https://open.spotify.com/playlist/…"
-                  disabled={jobRunning || starting}
+                  disabled={jobRunning || starting || previewing}
                 />
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -208,13 +274,16 @@ export function AddSongsPage() {
                     disabled={jobRunning || starting}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <SelectValue placeholder={selectedCatalog?.name ?? 'Catalog'} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {CATALOG_KINDS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {CATALOG_LABELS[option]}
+                        {catalogOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            <span className="inline-flex items-center gap-2">
+                              <NotoEmoji emoji={option.emoji} className="size-4" />
+                              {option.name}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -231,20 +300,84 @@ export function AddSongsPage() {
                 />
                 <div className="flex flex-col gap-1">
                   <FieldLabel htmlFor="assume-all-local">
-                    All songs in this playlist are from this country
+                    Whitelist all selected artists as this country
                   </FieldLabel>
                   <FieldDescription>
-                    Whitelist every artist on the playlist as {countryDisplayName(country)}.
+                    Every artist on the selected songs is stored as {countryDisplayName(country)}.
                     Leave off for mixed charts like Top 50 — Philippines.
                   </FieldDescription>
                 </div>
               </Field>
-              <Button type="submit" disabled={jobRunning || starting || !playlistUrl.trim()}>
-                {jobRunning || starting ? <Spinner data-icon="inline-start" /> : null}
-                {jobRunning || starting ? 'Importing…' : 'Add playlist'}
+              <Button type="submit" disabled={jobRunning || starting || previewing || !playlistUrl.trim()}>
+                {previewing ? <Spinner data-icon="inline-start" /> : null}
+                {previewing ? 'Fetching…' : 'Fetch songs'}
               </Button>
             </FieldGroup>
           </form>
+
+          {preview ? (
+            <div className="flex flex-col gap-3 rounded-xl border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">{preview.playlistName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {formatNumber(selected.size)} selected · {formatNumber(preview.tracks.length)} in
+                    playlist
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={selectAll}>
+                    Select all
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={selectNone}>
+                    Select none
+                  </Button>
+                </div>
+              </div>
+              <div className="flex max-h-96 flex-col gap-2 overflow-auto">
+                {preview.tracks.map((track) => {
+                  const disabled = track.alreadyInCatalog || track.isDuplicate
+                  return (
+                    <label
+                      key={`${track.id}-${track.title}`}
+                      className={`flex items-center gap-3 rounded-lg border p-3 ${
+                        disabled ? 'opacity-60' : ''
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={selected.has(track.id) && !disabled}
+                        disabled={disabled || jobRunning || starting}
+                        onChange={() => toggleTrack(track.id, !disabled)}
+                      />
+                      {track.albumArt ? (
+                        <img src={track.albumArt} alt="" className="size-10 rounded-md object-cover" />
+                      ) : (
+                        <div className="size-10 rounded-md bg-muted" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{track.title}</p>
+                        <p className="truncate text-sm text-muted-foreground">{track.artist}</p>
+                      </div>
+                      {track.alreadyInCatalog ? (
+                        <Badge variant="outline">In catalog</Badge>
+                      ) : null}
+                      {track.isDuplicate ? <Badge variant="outline">Duplicate</Badge> : null}
+                    </label>
+                  )
+                })}
+              </div>
+              <Button
+                type="button"
+                disabled={jobRunning || starting || selected.size === 0}
+                onClick={() => void handleAddSelected()}
+              >
+                {jobRunning || starting ? <Spinner data-icon="inline-start" /> : null}
+                {jobRunning || starting ? 'Importing…' : `Add selected (${formatNumber(selected.size)})`}
+              </Button>
+            </div>
+          ) : null}
 
           {job ? (
             <div className="flex flex-col gap-3 rounded-xl border p-4">

@@ -11,15 +11,21 @@ function normalizeText(value: string): string {
 }
 
 const VARIANT_PATTERN =
-  /\b(remix|reimagined|re-recorded|live|acoustic|karaoke|instrumental|sped up|slowed|edit|mix|version|radio|demo|cover|extended|stripped)\b/i
+  /\b(remix|reimagined|re-recorded|remaster(?:ed)?|live|acoustic|karaoke|instrumental|sped up|slowed|edit|mix|version|radio|demo|cover|extended|stripped|feat|ft|featuring)\b/i
 
-/** Collapse "Lifetime (Reimagined)" → "lifetime" for duplicate detection. */
+/** Collapse "Lifetime (Reimagined)" / "Song (feat. X)" → "lifetime" / "song". */
 export function canonicalSongTitle(title: string): string {
   let value = title.trim()
 
+  value = value.replace(/\s*[(\[]\s*(feat\.?|ft\.?|featuring)\b[^)\]]*[)\]]/gi, ' ')
+  value = value.replace(/\s*-\s*(feat\.?|ft\.?|featuring)\b.*$/i, ' ')
+  value = value.replace(/\s+(feat\.?|ft\.?|featuring)\b.*$/i, ' ')
   value = value.replace(/\s*\([^)]*\)/g, ' ')
   value = value.replace(/\s*\[[^\]]*\]/g, ' ')
-  value = value.replace(/\s*-\s*(remix|reimagined|live|acoustic|karaoke|instrumental|edit|mix|version).*$/i, ' ')
+  value = value.replace(
+    /\s*-\s*(remaster(?:ed)?(?:\s+\d{2,4})?|remix|reimagined|live|acoustic|karaoke|instrumental|edit|mix|version).*$/i,
+    ' ',
+  )
 
   return normalizeText(value)
 }

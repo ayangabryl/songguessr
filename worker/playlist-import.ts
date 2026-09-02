@@ -12,9 +12,10 @@ import {
   seedOpmArtists,
   upsertArtists,
 } from './artists-d1'
+import { resolveCatalogId } from './catalogs-d1'
 import {
   applyChartImportPatches,
-  findExistingTrackIds,
+  findExistingIdentities,
   insertTracks,
   MAX_CATALOG_TRACKS,
   upsertTracks,
@@ -34,6 +35,7 @@ import {
   spotifyApiGet,
   type SpotifyArtistDetails,
 } from './spotify-api'
+import { songIdentityKey } from './track-dedupe'
 import { buildTrackFromSpotify } from './track-builder'
 import type { Env, Track } from './types'
 
@@ -48,6 +50,7 @@ export interface PlaylistImportOptions {
   catalog?: string
   assumeAllLocal?: boolean
   chartBoost?: boolean
+  trackIds?: string[]
 }
 
 export interface PlaylistImportProgress {
@@ -97,6 +100,106 @@ export function parseImportCatalog(value: string | undefined): CatalogKind {
   return normalized && isCatalogKind(normalized) ? normalized : DEFAULT_CATALOG
 }
 
+function spotifyTrackIdentity(track: { name?: string; artists?: Array<{ name?: string }> }): string {
+  return songIdentityKey({
+    title: track.name ?? '',
+    artist: (track.artists ?? []).map((artist) => artist.name ?? '').join(', '),
+  })
+}
+
+function collapsePlaylistTracks<T extends { id?: string; name?: string; artists?: Array<{ name?: string }> }>(
+  tracks: T[],
+): { tracks: T[]; collapsed: number } {
+  const seenIds = new Set<string>()
+  const seenKeys = new Set<string>()
+  const unique: T[] = []
+  let collapsed = 0
+
+  for (const track of tracks) {
+    if (!track.id) continue
+    const key = spotifyTrackIdentity(track)
+    if (seenIds.has(track.id) || seenKeys.has(key)) {
+      collapsed += 1
+      continue
+    }
+    seenIds.add(track.id)
+    seenKeys.add(key)
+    unique.push(track)
+  }
+
+  return { tracks: unique, collapsed }
+}
+
+export interface PlaylistPreviewTrack {
+  id: string
+  title: string
+  artist: string
+  albumArt: string
+  alreadyInCatalog: boolean
+  isDuplicate: boolean
+}
+
+export interface PlaylistPreviewResult {
+  playlistId: string
+  playlistName: string
+  tracks: PlaylistPreviewTrack[]
+}
+
+export async function previewPlaylistForCatalog(
+  env: Env,
+  playlistUrl: string,
+): Promise<PlaylistPreviewResult> {
+  const playlistId = parseSpotifyPlaylistId(playlistUrl)
+  if (!playlistId) {
+    throw Object.assign(new Error('Invalid Spotify playlist URL or ID'), { status: 400 })
+  }
+
+  const clientId = env.SPOTIFY_CLIENT_ID
+  const clientSecret = env.SPOTIFY_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    throw Object.assign(new Error('Spotify is not configured'), { status: 503 })
+  }
+
+  const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
+  const spotifyGet = (path: string, params?: Record<string, string | number | undefined>) =>
+    spotifyApiGet(token, path, params)
+  const playlist = await fetchPlaylistTracks(spotifyGet, playlistId)
+  const tracks = playlist.tracks.filter((track): track is typeof track & { id: string } => Boolean(track.id))
+
+  const identities = await findExistingIdentities(
+    env,
+    tracks.map((track) => ({
+      id: track.id,
+      title: track.name ?? '',
+      artist: (track.artists ?? []).map((artist) => artist.name).join(', '),
+    })),
+  )
+
+  const seenIds = new Set<string>()
+  const seenKeys = new Set<string>()
+
+  return {
+    playlistId: playlist.playlistId,
+    playlistName: playlist.playlistName,
+    tracks: tracks.map((track) => {
+      const title = track.name ?? 'Unknown'
+      const artist = (track.artists ?? []).map((item) => item.name).join(', ')
+      const key = songIdentityKey({ title, artist })
+      const isDuplicate = seenIds.has(track.id) || seenKeys.has(key)
+      seenIds.add(track.id)
+      seenKeys.add(key)
+      return {
+        id: track.id,
+        title,
+        artist,
+        albumArt: track.album?.images?.[0]?.url ?? '',
+        alreadyInCatalog: identities.ids.has(track.id) || identities.songKeys.has(key),
+        isDuplicate,
+      }
+    }),
+  }
+}
+
 function uniqueArtistNames(track: { artists?: Array<{ name?: string }> }): string[] {
   return [
     ...new Set(
@@ -125,9 +228,11 @@ export async function importPlaylistToCatalog(
   }
 
   const country = parseImportCountry(options.country)
-  const catalog = parseImportCatalog(options.catalog)
+  const catalog = await resolveCatalogId(env, options.catalog)
   const assumeAllLocal = options.assumeAllLocal === true
   const chartBoost = options.chartBoost === true || playlistId === OPM_PLAYLIST_ID
+  const selectedIds = options.trackIds?.filter(Boolean) ?? []
+  const selectedSet = selectedIds.length > 0 ? new Set(selectedIds) : null
 
   onProgress?.({
     phase: 'fetching',
@@ -144,12 +249,25 @@ export async function importPlaylistToCatalog(
     spotifyApiGet(token, path, params)
 
   const playlist = await fetchPlaylistTracks(spotifyGet, playlistId)
-  const existingIds = await findExistingTrackIds(
+  let fetchedTracks = playlist.tracks
+    .filter((track): track is typeof track & { id: string } => Boolean(track.id))
+    .slice(0, MAX_PLAYLIST_TRACKS)
+  if (selectedSet) {
+    fetchedTracks = fetchedTracks.filter((track) => selectedSet.has(track.id))
+  }
+  const { tracks, collapsed } = collapsePlaylistTracks(fetchedTracks)
+  const identities = await findExistingIdentities(
     env,
-    playlist.tracks.map((track) => track.id).filter((id): id is string => Boolean(id)),
+    tracks.map((track) => ({
+      id: track.id,
+      title: track.name ?? '',
+      artist: (track.artists ?? []).map((artist) => artist.name).join(', '),
+    })),
   )
-  const tracks = playlist.tracks.slice(0, MAX_PLAYLIST_TRACKS)
+  const existingIds = identities.ids
+  const existingKeys = identities.songKeys
   const total = tracks.length
+  let skippedExisting = collapsed
 
   const pending: Track[] = []
   const chartPatches: Array<{
@@ -166,7 +284,6 @@ export async function importPlaylistToCatalog(
   }> = []
   let added = 0
   let updated = 0
-  let skippedExisting = 0
   let skippedNonOpm = 0
   let skippedNoPreview = 0
   const skippedNonOpmNames = new Set<string>()
@@ -293,6 +410,8 @@ export async function importPlaylistToCatalog(
       ),
     ]
 
+    const identityKey = spotifyTrackIdentity(track)
+
     if (existingIds.has(track.id)) {
       if (chartBoost) {
         const popularity = track.popularity ?? 0
@@ -318,6 +437,12 @@ export async function importPlaylistToCatalog(
       } else {
         skippedExisting += 1
       }
+      report('filtering', index + 1)
+      continue
+    }
+
+    if (existingKeys.has(identityKey)) {
+      skippedExisting += 1
       report('filtering', index + 1)
       continue
     }
@@ -349,6 +474,8 @@ export async function importPlaylistToCatalog(
 
       pending.push(built.track)
       existingIds.add(built.track.id)
+      existingKeys.add(identityKey)
+      existingKeys.add(songIdentityKey(built.track))
 
       if (pending.length >= PERSIST_EVERY_ADDED) {
         const hitCap = await persistPending()

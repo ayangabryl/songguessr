@@ -21,20 +21,26 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { pageFromPath, pathForPage, titleForPage, type AdminPage } from '@/lib/routes'
 import { AddSongsPage } from '@/pages/add-songs'
+import { ArtistsPage } from '@/pages/artists'
 import { CatalogPage } from '@/pages/catalog'
+import { CatalogsPage } from '@/pages/catalogs'
 import { DashboardPage } from '@/pages/dashboard'
 import { LoginPage } from '@/pages/login'
 import { SettingsPage } from '@/pages/settings'
 import {
+  LayersIcon,
   LayoutDashboardIcon,
   LibraryIcon,
   ListPlusIcon,
   SettingsIcon,
+  UsersIcon,
 } from 'lucide-react'
 
 const NAV_ITEMS: { page: AdminPage; title: string; icon: typeof LayoutDashboardIcon }[] = [
   { page: 'dashboard', title: 'Dashboard', icon: LayoutDashboardIcon },
   { page: 'catalog', title: 'Catalog', icon: LibraryIcon },
+  { page: 'artists', title: 'Artists', icon: UsersIcon },
+  { page: 'catalogs', title: 'Catalogs', icon: LayersIcon },
   { page: 'add', title: 'Add songs', icon: ListPlusIcon },
   { page: 'settings', title: 'Settings', icon: SettingsIcon },
 ]
@@ -153,6 +159,8 @@ export function AdminApp() {
               <DashboardPage status={status} onStatusRefresh={() => void checkAuth()} />
             ) : null}
             {page === 'catalog' ? <CatalogPage /> : null}
+            {page === 'artists' ? <ArtistsPage /> : null}
+            {page === 'catalogs' ? <CatalogsPage /> : null}
             {page === 'add' ? <AddSongsPage /> : null}
             {page === 'settings' ? <SettingsPage onLogout={handleLogout} /> : null}
           </main>
