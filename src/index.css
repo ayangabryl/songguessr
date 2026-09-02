@@ -19,20 +19,20 @@ body {
 }
 
 .spotify-connect {
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
 }
 
 .spotify-connect-button {
-  background: #1ed760 !important;
-  color: #041308 !important;
+  background: #1ed760;
+  color: #041308;
+  box-shadow: 0 5px 0 #129b44;
 }
 
 .spotify-status {
   margin: 0 0 0.5rem;
   font-size: 0.875rem;
-  color: #b8c4b8;
 }
 
 .spotify-error {
-  color: #ff8f8f;
+  color: #ff6b6b;
 }

@@ -59,7 +59,16 @@ export function StreakBadge({ count, bump }: StreakBadgeProps) {
     const animation = animRef.current
     if (!animation) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    animation.loop = false
     animation.goToAndPlay(0, true)
+    const onComplete = () => {
+      animation.loop = true
+      animation.play()
+    }
+    animation.addEventListener('complete', onComplete)
+    return () => {
+      animation.removeEventListener('complete', onComplete)
+    }
   }, [bump])
 
   const label = count === 1 ? '1 song streak' : `${count} song streak`
@@ -70,8 +79,20 @@ export function StreakBadge({ count, bump }: StreakBadgeProps) {
       title={label}
       aria-label={label}
     >
-      <div ref={hostRef} className="streak-flame" aria-hidden="true" />
-      <span className="streak-count">{count}</span>
+      <div className="streak-flame" aria-hidden="true">
+        <svg className="streak-flame-mark" viewBox="0 0 64 64">
+          <path
+            fill="currentColor"
+            d="M32 4c4 10-6 14-2 24 8-8 18-2 18 12 0 14-12 22-22 22S8 50 8 36c0-10 6-16 10-20-2 8 6 10 8 4 2-8-2-16 6-16Z"
+          />
+          <path fill="#ffe08a" d="M32 28c2 6-4 8-1 14 4-4 10 0 10 8 0 8-6 12-11 12s-11-5-11-12c0-6 3-9 5-11 0 5 4 6 5 2 1-4 0-8 3-13Z" />
+        </svg>
+        <div ref={hostRef} className="streak-flame-lottie" />
+      </div>
+      <div className="streak-copy">
+        <span className="streak-count">{count}</span>
+        <span className="streak-label">streak</span>
+      </div>
     </div>
   )
 }

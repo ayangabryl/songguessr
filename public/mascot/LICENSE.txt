@@ -1,0 +1,9 @@
+Noot mascot Lottie (public/mascot/noot.json)
+Original character and animation authored for SongGuessr.
+Not affiliated with Duolingo. Do not copy Duo the owl.
+License: CC0 1.0 Universal for this mascot JSON in this repository.
+
+Streak flame: public/streak-flame.json
+Flame - Streak by Noah Wise, LottieFiles animation 1027695.
+Lottie Simple License (free commercial use; attribution encouraged):
+https://lottiefiles.com/free-animation/flame-streak-Y3x3T9TqFh

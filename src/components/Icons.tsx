@@ -3,10 +3,13 @@ import { ArrowCounterClockwise } from '@phosphor-icons/react/ArrowCounterClockwi
 import { ChatCircle } from '@phosphor-icons/react/ChatCircle'
 import { DiceFive } from '@phosphor-icons/react/DiceFive'
 import { Faders } from '@phosphor-icons/react/Faders'
+import { GearSix } from '@phosphor-icons/react/GearSix'
 import { Heart } from '@phosphor-icons/react/Heart'
+import { Moon } from '@phosphor-icons/react/Moon'
 import { Repeat } from '@phosphor-icons/react/Repeat'
 import { SkipForward } from '@phosphor-icons/react/SkipForward'
 import { SpeakerHigh } from '@phosphor-icons/react/SpeakerHigh'
+import { Sun } from '@phosphor-icons/react/Sun'
 import { Timer } from '@phosphor-icons/react/Timer'
 import { Waveform } from '@phosphor-icons/react/Waveform'
 import type { Icon, IconProps } from '@phosphor-icons/react/lib'
@@ -113,4 +116,16 @@ export function RetryIcon() {
 
 export function NextSongIcon() {
   return renderIcon(DiceFive, { className: 'action-icon dice-icon' })
+}
+
+export function GearIcon() {
+  return renderIcon(GearSix, { className: 'action-icon', size: 22, weight: 'bold' })
+}
+
+export function SunIcon() {
+  return renderIcon(Sun, { className: 'action-icon', size: 22, weight: 'bold' })
+}
+
+export function MoonIcon() {
+  return renderIcon(Moon, { className: 'action-icon', size: 22, weight: 'bold' })
 }

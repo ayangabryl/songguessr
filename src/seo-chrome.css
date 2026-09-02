@@ -1,160 +1,5 @@
-.brand-masthead {
-  text-align: center;
-  padding: 16px 4px 8px;
-}
-
-.brand-masthead-row {
-  justify-content: center;
-  align-items: center;
-  gap: 10px;
-  display: flex;
-}
-
-.brand-masthead h1 {
-  margin: 0;
-  color: #eef2ec;
-  letter-spacing: -0.045em;
-  font-size: 1.35rem;
-  font-weight: 800;
-  line-height: 1.1;
-}
-
-.streak-badge {
-  color: #ff9a2f;
-  flex: none;
-  align-items: center;
-  gap: 1px;
-  min-height: 28px;
-  display: inline-flex;
-  transform-origin: 40% 90%;
-}
-
-.streak-badge.cold {
-  color: #7b8279;
-  filter: grayscale(1) brightness(0.82);
-}
-
-.streak-badge.bump {
-  animation: streakBump 0.58s var(--ease-spring, cubic-bezier(0.22, 1.35, 0.36, 1));
-}
-
-.streak-flame {
-  width: 28px;
-  height: 28px;
-  flex: none;
-}
-
-.streak-flame svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.streak-count {
-  font-feature-settings: 'tnum';
-  font-variant-numeric: tabular-nums;
-  min-width: 0.7em;
-  font-size: 1.05rem;
-  font-weight: 850;
-  line-height: 1;
-}
-
-@keyframes streakBump {
-  0% {
-    transform: scale(1);
-  }
-  38% {
-    transform: scale(1.22);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-.brand-masthead p {
-  max-width: 36ch;
-  margin: 0.45rem auto 0;
-  color: #8b9288;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.45;
-}
-
 .site-footer {
-  text-align: center;
-  padding: 10px 8px 0;
-  color: #6d746c;
-  font-size: 0.68rem;
-  line-height: 1.4;
-}
-
-.site-footer p {
-  margin: 0;
-}
-
-.app-shell[data-status='won'] .brand-masthead p,
-.app-shell[data-status='lost'] .brand-masthead p,
-.app-shell[data-status='won'] .site-footer,
-.app-shell[data-status='lost'] .site-footer {
-  opacity: 0;
-  pointer-events: none;
-}
-
-@media (width > 760px) {
-  .brand-masthead {
-    z-index: 4;
-    padding: 0;
-    position: absolute;
-    top: 28px;
-    left: 32px;
-    right: 32px;
-  }
-
-  .brand-masthead h1 {
-    font-size: 1.55rem;
-  }
-
-  .site-footer {
-    z-index: 2;
-    padding: 0;
-    position: absolute;
-    bottom: 18px;
-    left: 32px;
-    right: 32px;
-  }
-}
-
-@media (width >= 1600px) and (height >= 850px) {
-  .brand-masthead {
-    top: 40px;
-    left: 48px;
-    right: 48px;
-  }
-
-  .brand-masthead h1 {
-    font-size: 1.85rem;
-  }
-
-  .brand-masthead p {
-    max-width: 42ch;
-    font-size: 0.85rem;
-  }
-
-  .site-footer {
-    bottom: 24px;
-    left: 48px;
-    right: 48px;
-    font-size: 0.78rem;
-  }
-
-  .streak-flame {
-    width: 34px;
-    height: 34px;
-  }
-
-  .streak-count {
-    font-size: 1.25rem;
-  }
+  display: none;
 }
 
 .result-play-toggle {
@@ -176,11 +21,11 @@
   z-index: 3;
   pointer-events: none;
   opacity: 0;
-  background: #10140de8;
-  color: #f4f7f1;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  color: var(--text);
   border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   display: grid;
   position: absolute;
@@ -190,7 +35,7 @@
 .result-play-glyph .play-glyph {
   width: 18px;
   height: 18px;
-  color: #f4f7f1;
+  color: var(--text);
   filter: none;
 }
 

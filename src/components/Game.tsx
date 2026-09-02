@@ -81,9 +81,20 @@ import {
 import { loadRecentExcludes, rememberTrack, clearRecentTrackIds } from '../lib/recent-tracks'
 import { incrementStreak, loadStreak, resetStreak } from '../lib/streak'
 import {
+  applyResolvedTheme,
+  loadThemePreference,
+  resolveTheme,
+  saveThemePreference,
+  type ResolvedTheme,
+  type ThemePreference,
+} from '../lib/theme'
+import type { MascotMood } from '../lib/mascot'
+import {
   AutoRerollIcon,
   FeedbackIcon,
   FilterIcon,
+  GearIcon,
+  MoonIcon,
   NextSongIcon,
   PlayControlIcon,
   ReplayIcon,
@@ -91,11 +102,14 @@ import {
   RetryIcon,
   SkipIcon,
   StopwatchIcon,
+  SunIcon,
   SupportIcon,
   VolumeIcon,
   WaveformIcon,
 } from './Icons'
 import { SpotifyConnect } from './SpotifyConnect'
+import { Mascot } from './Mascot'
+import { SettingsSheet } from './SettingsSheet'
 
 const FilterModal = lazy(() =>
   import('./FilterModal').then((mod) => ({ default: mod.FilterModal })),
@@ -109,14 +123,46 @@ type PlaybackMode = 'idle' | 'clip' | 'reveal'
 
 const REVEAL_PLAYBACK_MS = 45_000
 
+function FlameMark() {
+  return (
+    <svg className="streak-flame-mark" viewBox="0 0 64 64" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M32 4c4 10-6 14-2 24 8-8 18-2 18 12 0 14-12 22-22 22S8 50 8 36c0-10 6-16 10-20-2 8 6 10 8 4 2-8-2-16 6-16Z"
+      />
+      <path fill="#ffe08a" d="M32 28c2 6-4 8-1 14 4-4 10 0 10 8 0 8-6 12-11 12s-11-5-11-12c0-6 3-9 5-11 0 5 4 6 5 2 1-4 0-8 3-13Z" />
+    </svg>
+  )
+}
 function StreakFallback({ count }: { count: number }) {
   const label = count === 1 ? '1 song streak' : `${count} song streak`
   return (
     <div className={`streak-badge${count <= 0 ? ' cold' : ''}`} title={label} aria-label={label}>
-      <div className="streak-flame" aria-hidden="true" />
-      <span className="streak-count">{count}</span>
+      <div className="streak-flame" aria-hidden="true">
+        <FlameMark />
+      </div>
+      <div className="streak-copy">
+        <span className="streak-count">{count}</span>
+        <span className="streak-label">streak</span>
+      </div>
     </div>
   )
+}
+
+function resolveMascotMood(input: {
+  switching: boolean
+  streakBump: boolean
+  skipPulse: boolean
+  status: ShellStatus
+  isPlaying: boolean
+}): MascotMood {
+  if (input.switching) return 'switch'
+  if (input.streakBump) return 'streak'
+  if (input.status === 'won') return 'win'
+  if (input.status === 'lost') return 'lose'
+  if (input.skipPulse) return 'skip'
+  if (input.isPlaying) return 'play'
+  return 'idle'
 }
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
@@ -223,6 +269,8 @@ export function Game() {
   const playbackModeRef = useRef<PlaybackMode>('idle')
   const revealEndedHandlerRef = useRef<(() => void) | null>(null)
   const streakBumpTimeoutRef = useRef<number | null>(null)
+  const mascotSwitchTimeoutRef = useRef<number | null>(null)
+  const mascotSkipTimeoutRef = useRef<number | null>(null)
 
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -266,6 +314,11 @@ export function Game() {
   const [draftPreviewCount, setDraftPreviewCount] = useState(0)
   const [streak, setStreak] = useState(loadStreak)
   const [streakBump, setStreakBump] = useState(false)
+  const [themePreference, setThemePreference] = useState<ThemePreference>(loadThemePreference)
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(loadThemePreference()))
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [mascotSwitch, setMascotSwitch] = useState(false)
+  const [mascotSkip, setMascotSkip] = useState(false)
 
   const catalogFilters = useMemo<CatalogFilters>(
     () => ({
@@ -640,6 +693,8 @@ export function Game() {
       if (clipLoadingDelayRef.current) window.clearTimeout(clipLoadingDelayRef.current)
       if (autoRerollIntervalRef.current) window.clearInterval(autoRerollIntervalRef.current)
       if (streakBumpTimeoutRef.current) window.clearTimeout(streakBumpTimeoutRef.current)
+      if (mascotSwitchTimeoutRef.current) window.clearTimeout(mascotSwitchTimeoutRef.current)
+      if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
     }
   }, [])
 
@@ -1211,6 +1266,12 @@ export function Game() {
   function handleSkip() {
     void activateSpotifyElement()
     noteStreakFail()
+    setMascotSkip(true)
+    if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
+    mascotSkipTimeoutRef.current = window.setTimeout(() => {
+      setMascotSkip(false)
+      mascotSkipTimeoutRef.current = null
+    }, 700)
     void stopClip({ preserveProgress: true }).then(() => {
       advanceStageAfterSkip()
     })
@@ -1321,79 +1382,81 @@ export function Game() {
       : 1
 
   const showResult = activeState.status === 'won' || activeState.status === 'lost'
+  const mascotMood = resolveMascotMood({
+    switching: mascotSwitch,
+    streakBump,
+    skipPulse: mascotSkip,
+    status: shellStatus,
+    isPlaying,
+  })
+
+  function handleDifficulty(level: Difficulty) {
+    if (level === difficulty) return
+    setDifficulty(level)
+    setMascotSwitch(true)
+    if (mascotSwitchTimeoutRef.current) window.clearTimeout(mascotSwitchTimeoutRef.current)
+    mascotSwitchTimeoutRef.current = window.setTimeout(() => {
+      setMascotSwitch(false)
+      mascotSwitchTimeoutRef.current = null
+    }, 700)
+  }
+
+  function handleThemePreference(next: ThemePreference) {
+    setThemePreference(next)
+    saveThemePreference(next)
+  }
+
+  function toggleTheme() {
+    handleThemePreference(resolvedTheme === 'dark' ? 'light' : 'dark')
+  }
+
+  useEffect(() => {
+    const apply = () => {
+      const next = resolveTheme(themePreference)
+      setResolvedTheme(next)
+      applyResolvedTheme(next)
+    }
+    apply()
+    if (themePreference !== 'system') return
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => apply()
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [themePreference])
 
   return (
-    <div className="app-shell" data-difficulty={difficulty} data-status={shellStatus}>
+    <div className="app-shell" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
       <div className="game-layout">
-        <aside className="mode-panel">
-          <div className="difficulty-list">
-            {DIFFICULTIES.map((level) => (
-              <button
-                key={level}
-                type="button"
-                className={level === difficulty ? 'difficulty active' : 'difficulty'}
-                onClick={() => setDifficulty(level)}
-                disabled={catalogLoading || (availabilityCounts !== null && availabilityCounts[level] === 0)}
-              >
-                {DIFFICULTY_LABELS[level]}
-              </button>
-            ))}
-          </div>
-          <div className="mode-actions">
-            <button
-              type="button"
-              className="mode-action"
-              onClick={() => {
-                clearRecentTrackIds()
-                void loadAllRounds(catalogFilters)
-              }}
-            >
-              <ReplayIcon /> Reroll all
-            </button>
-            {activeState.status === 'lost' && (
-              <button type="button" className="mode-action" onClick={() => retryRound()}>
-                <RetryIcon /> Play again
-              </button>
-            )}
-            <button
-              type="button"
-              className={`mode-action filter-button${activeFilterTotal > 0 ? ' active-filter' : ''}`}
-              onClick={openFilterModal}
-            >
-              <FilterIcon /> Filters{activeFilterTotal > 0 ? ` (${activeFilterTotal})` : ''}
-            </button>
-            <button type="button" className="mode-action" disabled>
-              <FeedbackIcon /> Feedback
-            </button>
-            <a
-              className="mode-action support-button"
-              href="https://buymeacoffee.com/songlessrecreation"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Support this project on Buy Me A Coffee"
-            >
-              <SupportIcon /> Support
-            </a>
-          </div>
-        </aside>
-
         <div className="game-card">
-          <header className="brand-masthead">
-            <div className="brand-masthead-row">
-              <h1>SongGuessr</h1>
+          <header className="game-topbar">
+            <h1 className="wordmark">SongGuessr</h1>
+            <div className="topbar-actions">
               <Suspense fallback={<StreakFallback count={streak} />}>
                 <StreakBadge count={streak} bump={streakBump} />
               </Suspense>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={toggleTheme}
+                aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {resolvedTheme === 'dark' ? <SunIcon /> : <MoonIcon />}
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setSettingsOpen(true)}
+                aria-label="Open settings"
+              >
+                <GearIcon />
+              </button>
             </div>
-            <p>
-              Free song guessing game. Hear a short clip, then name the track. Play OPM from the
-              Philippines, or switch to Global and other collections.
-            </p>
           </header>
           <div className={`game-content ${showResult ? 'result-state' : ''}`}>
+            <Mascot difficulty={difficulty} mood={mascotMood} />
+            {!showResult ? <p className="play-kicker">Hear a clip. Name the track.</p> : null}
             {catalogLoading && !activeState.round && (
               <div className="empty-state">
-                <div className="empty-icon">♫</div>
                 <h2>Loading songs...</h2>
                 <p>The song library is loading.</p>
               </div>
@@ -1425,13 +1488,13 @@ export function Game() {
 
             {activeState.round && !showResult && (
               <div className="round-panel">
-                <div className="difficulty-tabs">
+                <div className="difficulty-tabs" role="group" aria-label="Difficulty">
                   {DIFFICULTIES.map((level) => (
                     <button
                       key={level}
                       type="button"
                       className={`${level} ${level === difficulty ? 'active' : ''}`}
-                      onClick={() => setDifficulty(level)}
+                      onClick={() => handleDifficulty(level)}
                       disabled={availabilityCounts !== null && availabilityCounts[level] === 0}
                     >
                       {DIFFICULTY_LABELS[level]}
@@ -1495,13 +1558,10 @@ export function Game() {
                     <PlayControlIcon
                       state={isLoadingClip ? 'loading' : isPlaying ? 'pause' : 'play'}
                     />
+                    <span className="stage-chip" key={currentStageEndpoint}>
+                      {formatStageValue(currentStageEndpoint)}s
+                    </span>
                   </button>
-                  <div className="stage-time">
-                    <strong className="stage-value" key={currentStageEndpoint}>
-                      {formatStageValue(currentStageEndpoint)}
-                    </strong>
-                    <span>s</span>
-                  </div>
                 </div>
 
                 <form className="guess-form" onSubmit={handleGuessSubmit}>
@@ -1515,8 +1575,8 @@ export function Game() {
                         setHighlightedIndex(-1)
                       }}
                       onKeyDown={handleSearchKeyDown}
-                      placeholder="Search songs..."
-                      aria-label="Search songs"
+                      placeholder="Name the track"
+                      aria-label="Name the track"
                       autoComplete="off"
                       spellCheck={false}
                     />
@@ -1677,15 +1737,38 @@ export function Game() {
               </div>
             )}
           </div>
-          <footer className="site-footer">
-            <p>
-              Play by country: Philippines, Global, and more. Collections include OPM, K-pop,
-              Anime, and K-drama.
-            </p>
-          </footer>
         </div>
+      </div>
 
-        <aside className="settings-panel">
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+        <div className="settings-panel">
+          <div>
+            <p className="eyebrow">Theme</p>
+            <div className="theme-pills">
+              <button
+                type="button"
+                className={`setting-value ${themePreference === 'system' ? 'active-setting' : ''}`}
+                onClick={() => handleThemePreference('system')}
+              >
+                System
+              </button>
+              <button
+                type="button"
+                className={`setting-value ${themePreference === 'light' ? 'active-setting' : ''}`}
+                onClick={() => handleThemePreference('light')}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                className={`setting-value ${themePreference === 'dark' ? 'active-setting' : ''}`}
+                onClick={() => handleThemePreference('dark')}
+              >
+                Dark
+              </button>
+            </div>
+          </div>
+
           <SpotifyConnect
             isConnected={spotify.isConnected}
             isPremium={spotify.isPremium}
@@ -1802,8 +1885,48 @@ export function Game() {
               />
             </div>
           </div>
-        </aside>
-      </div>
+
+          <div className="sheet-actions">
+            <button
+              type="button"
+              className="mode-action"
+              onClick={() => {
+                clearRecentTrackIds()
+                void loadAllRounds(catalogFilters)
+              }}
+            >
+              <ReplayIcon /> Reroll all
+            </button>
+            {activeState.status === 'lost' && (
+              <button type="button" className="mode-action" onClick={() => retryRound()}>
+                <RetryIcon /> Play again
+              </button>
+            )}
+            <button
+              type="button"
+              className={`mode-action filter-button${activeFilterTotal > 0 ? ' active-filter' : ''}`}
+              onClick={() => {
+                setSettingsOpen(false)
+                openFilterModal()
+              }}
+            >
+              <FilterIcon /> Filters{activeFilterTotal > 0 ? ` (${activeFilterTotal})` : ''}
+            </button>
+            <button type="button" className="mode-action" disabled>
+              <FeedbackIcon /> Feedback
+            </button>
+            <a
+              className="mode-action support-button"
+              href="https://buymeacoffee.com/songlessrecreation"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Support this project on Buy Me A Coffee"
+            >
+              <SupportIcon /> Support
+            </a>
+          </div>
+        </div>
+      </SettingsSheet>
 
       {filterModalOpen ? (
       <Suspense fallback={null}>
