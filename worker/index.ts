@@ -102,6 +102,55 @@ function catalogUnavailable(c: { json: (body: unknown, status?: number) => Respo
 }
 
 app.use('/api/*', cors())
+app.use('/api/*', async (c, next) => {
+  await next()
+  c.header('X-Robots-Tag', 'noindex, nofollow')
+})
+
+const ROBOTS_TXT = `User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api/
+Disallow: /api
+
+Sitemap: https://songguessr.lol/sitemap.xml
+`
+
+const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://songguessr.lol/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+`
+
+app.get('/robots.txt', (c) => {
+  c.header('Cache-Control', 'public, max-age=86400')
+  return c.text(ROBOTS_TXT)
+})
+
+app.get('/sitemap.xml', (c) => {
+  c.header('Content-Type', 'application/xml; charset=utf-8')
+  c.header('Cache-Control', 'public, max-age=86400')
+  return c.body(SITEMAP_XML)
+})
+
+app.get('/llms.txt', (c) => {
+  c.header('Cache-Control', 'public, max-age=86400')
+  return c.text(`# SongGuessr
+
+> Free browser song guessing game. Hear a short clip, then name the track.
+
+SongGuessr is a Heardle-style and Songless-style guessing game with country and collection filters. Play OPM from the Philippines, switch to Global, or mix other catalogs such as K-pop, Anime, and K-drama.
+
+- Play: https://songguessr.lol/
+- Sitemap: https://songguessr.lol/sitemap.xml
+- Admin and API routes are private and should not be indexed.
+`)
+})
 
 app.get('/api/audio/*', async (c) => {
   const key = c.req.path.replace(/^\/api\/audio\//, '')
@@ -451,19 +500,33 @@ app.post('/api/guess', async (c) => {
   }
 })
 
+function applySeoHeaders(request: Request, response: Response): Response {
+  const url = new URL(request.url)
+  const host = url.hostname
+  const path = url.pathname
+  const isAdminHost = host === 'admin.songguessr.lol' || host.startsWith('admin.')
+  const isWorkersDev = host.endsWith('.workers.dev')
+  const isPrivatePath =
+    path.startsWith('/api/') || path === '/api' || path === '/admin' || path.startsWith('/admin/')
+  if (isAdminHost || isWorkersDev || isPrivatePath) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow')
+  }
+  return response
+}
+
 export default {
   fetch: async (request: Request, env: Env, ctx: ExecutionContext) => {
     const wwwRedirect = redirectWwwToApex(request)
     if (wwwRedirect) return wwwRedirect
     const adminResponse = await handleAdminRequest(request, env, adminApp, ctx)
-    if (adminResponse) return adminResponse
+    if (adminResponse) return applySeoHeaders(request, adminResponse)
 
     const response = await app.fetch(request, env, ctx)
     const pathname = new URL(request.url).pathname
     if (response.status !== 404 || pathname.startsWith('/api/') || !env.ASSETS) {
-      return response
+      return applySeoHeaders(request, response)
     }
-    return env.ASSETS.fetch(request)
+    return applySeoHeaders(request, await env.ASSETS.fetch(request))
   },
   scheduled: handleScheduled,
 }

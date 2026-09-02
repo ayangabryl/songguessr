@@ -129,7 +129,7 @@ export function AdminApp() {
         <Sidebar>
           <SidebarHeader>
             <div className="flex flex-col gap-0.5 px-2 py-1">
-              <span className="text-sm font-semibold">Songguessr</span>
+              <span className="text-sm font-semibold">SongGuessr</span>
               <span className="text-xs text-muted-foreground">Admin</span>
             </div>
           </SidebarHeader>

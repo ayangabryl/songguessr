@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react'
 import {
   type Difficulty,
   type GameRound,
@@ -47,16 +47,24 @@ import {
   saveVolume,
 } from '../lib/game-state'
 import {
+  audioSrcMatches,
   clampPlaybackStart,
   seekAudio,
+  startTimedHtmlClip,
   waitForAudioMetadata,
+  warmHtmlPreview,
 } from '../lib/audio-playback'
+import {
+  assumedElapsedMs,
+  getSpotifyPauseLeadMs,
+  startClipTimer,
+  type ClipTimerHandle,
+} from '../lib/clip-timer'
 import { hasPlayableAudio, resolvePlaybackSource } from '../lib/playback-source'
 import { spotifyStartPositionMs } from '../lib/spotify-playback'
 import {
   activateSpotifyElement,
   getSpotifyExtrapolatedPositionMs,
-  isSameSpotifyTrackLoaded,
   onSpotifyStateChange,
   pauseSpotifyPlayback,
   playSpotifyTrack,
@@ -86,8 +94,11 @@ import {
   VolumeIcon,
   WaveformIcon,
 } from './Icons'
-import { FilterModal } from './FilterModal'
 import { SpotifyConnect } from './SpotifyConnect'
+
+const FilterModal = lazy(() =>
+  import('./FilterModal').then((mod) => ({ default: mod.FilterModal })),
+)
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
 
@@ -177,6 +188,19 @@ export function Game() {
   const autoRerollIntervalRef = useRef<number | null>(null)
   const suggestionsRef = useRef<HTMLDivElement | null>(null)
   const startModeRef = useRef<StartMode>(loadStartMode())
+  const clipTimerRef = useRef<ClipTimerHandle | null>(null)
+  const playbackBarRef = useRef<HTMLDivElement | null>(null)
+  const playbackSecondsRef = useRef(0)
+  const enabledStagesRef = useRef<number[]>(loadEnabledStages())
+  const difficultyRef = useRef<Difficulty>('easy')
+  const catalogFiltersRef = useRef<CatalogFilters>({
+    eras: loadEraFilters(),
+    genres: loadGenreFilters(),
+    countries: loadRegionFilters(),
+    collections: loadCollectionFilters(),
+  })
+  const prefetchedRef = useRef<Partial<Record<Difficulty, GameRound>>>({})
+  const prefetchInFlightRef = useRef<Partial<Record<Difficulty, Promise<void>>>>({})
 
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -259,56 +283,119 @@ export function Game() {
     activeState.playbackSeconds,
   )
 
+  function writePlaybackBar(seconds: number) {
+    playbackSecondsRef.current = seconds
+    const stages = ALL_STAGES.filter((stage) => enabledStagesRef.current.includes(stage))
+    const stageIndex = roundsRef.current[difficultyRef.current]?.stageIndex ?? 0
+    const percent = progressAtElapsedSeconds(stages, stageIndex, seconds)
+    if (playbackBarRef.current) {
+      playbackBarRef.current.style.width = `${percent}%`
+    }
+  }
+
+  function collectPrefetchExcludes(level: Difficulty) {
+    const recent = loadRecentExcludes()
+    const excludeTrackIds = [...recent.trackIds]
+    const excludeSongKeys = [...recent.songKeys]
+    for (const item of DIFFICULTIES) {
+      const round = roundsRef.current[item].round
+      if (round?.trackId) excludeTrackIds.push(round.trackId)
+      if (round?.songKey) excludeSongKeys.push(round.songKey)
+      const prefetched = prefetchedRef.current[item]
+      if (prefetched?.trackId) excludeTrackIds.push(prefetched.trackId)
+      if (prefetched?.songKey) excludeSongKeys.push(prefetched.songKey)
+    }
+    const current = roundsRef.current[level].round
+    if (current?.trackId) excludeTrackIds.push(current.trackId)
+    if (current?.songKey) excludeSongKeys.push(current.songKey)
+    return { excludeTrackIds, excludeSongKeys }
+  }
+
+  function warmRoundAudio(round: GameRound) {
+    const preview = resolvePlaybackSource(round, 'intro', { previewOnly: true }).url
+    warmHtmlPreview(preview)
+  }
+
+  function prefetchNextRound(level: Difficulty) {
+    if (prefetchedRef.current[level] || prefetchInFlightRef.current[level]) return
+    const currentId = roundsRef.current[level].round?.trackId
+    prefetchInFlightRef.current[level] = (async () => {
+      try {
+        const round = await fetchRandomRound(level, catalogFiltersRef.current, collectPrefetchExcludes(level))
+        if (round.trackId === currentId) return
+        rememberTrack(round.trackId, round.songKey)
+        prefetchedRef.current[level] = round
+        warmRoundAudio(round)
+      } catch {
+        // Next-song click will fetch live if prefetch misses.
+      } finally {
+        delete prefetchInFlightRef.current[level]
+      }
+    })()
+  }
+
+  function applyRound(level: Difficulty, round: GameRound) {
+    rememberTrack(round.trackId, round.songKey)
+    warmRoundAudio(round)
+    setRounds((current) => ({
+      ...current,
+      [level]: {
+        ...createRoundState(),
+        round,
+        status: 'playing',
+        startedAt: Date.now(),
+      },
+    }))
+    setCatalogError(null)
+    prefetchNextRound(level)
+  }
+
   const loadAllRounds = useCallback(async (filters: CatalogFilters = catalogFilters) => {
     setCatalogLoading(true)
     setCatalogError(null)
+    prefetchedRef.current = {}
+    prefetchInFlightRef.current = {}
 
     try {
       const recent = loadRecentExcludes()
-      const excludeTrackIds = [...recent.trackIds]
-      const excludeSongKeys = [...recent.songKeys]
-      const results: Array<{ level: Difficulty; state: RoundState }> = []
-
-      for (const level of DIFFICULTIES) {
-        const currentRound = roundsRef.current[level].round
-        const batchExcludeTrackIds = [
-          ...excludeTrackIds,
-          ...(currentRound?.trackId ? [currentRound.trackId] : []),
-        ]
-        const batchExcludeSongKeys = [
-          ...excludeSongKeys,
-          ...(currentRound?.songKey ? [currentRound.songKey] : []),
-        ]
-
-        try {
-          const round = await fetchRandomRound(level, filters, {
-            excludeTrackIds: batchExcludeTrackIds,
-            excludeSongKeys: batchExcludeSongKeys,
-          })
-          excludeTrackIds.push(round.trackId)
-          if (round.songKey) excludeSongKeys.push(round.songKey)
-          rememberTrack(round.trackId, round.songKey)
-          results.push({
-            level,
-            state: {
-              ...createRoundState(),
-              round,
-              status: 'playing' as const,
-              startedAt: Date.now(),
-            },
-          })
-        } catch {
-          results.push({ level, state: createRoundState() })
-        }
-      }
+      const settled = await Promise.all(
+        DIFFICULTIES.map(async (level) => {
+          const currentRound = roundsRef.current[level].round
+          try {
+            const round = await fetchRandomRound(level, filters, {
+              excludeTrackIds: [
+                ...recent.trackIds,
+                ...(currentRound?.trackId ? [currentRound.trackId] : []),
+              ],
+              excludeSongKeys: [
+                ...recent.songKeys,
+                ...(currentRound?.songKey ? [currentRound.songKey] : []),
+              ],
+            })
+            rememberTrack(round.trackId, round.songKey)
+            warmRoundAudio(round)
+            return {
+              level,
+              state: {
+                ...createRoundState(),
+                round,
+                status: 'playing' as const,
+                startedAt: Date.now(),
+              },
+            }
+          } catch {
+            return { level, state: createRoundState() }
+          }
+        }),
+      )
 
       setRounds(
-        Object.fromEntries(results.map((result) => [result.level, result.state])) as Record<
+        Object.fromEntries(settled.map((result) => [result.level, result.state])) as Record<
           Difficulty,
           RoundState
         >,
       )
-      if (!results.some((result) => result.state.round)) {
+      if (!settled.some((result) => result.state.round)) {
         setCatalogError('No songs match these filters.')
       }
     } catch (error) {
@@ -334,17 +421,7 @@ export function Game() {
         excludeTrackIds,
         excludeSongKeys,
       })
-      rememberTrack(round.trackId, round.songKey)
-      setRounds((current) => ({
-        ...current,
-        [level]: {
-          ...createRoundState(),
-          round,
-          status: 'playing',
-          startedAt: Date.now(),
-        },
-      }))
-      setCatalogError(null)
+      applyRound(level, round)
     } catch (error) {
       setCatalogError(error instanceof Error ? error.message : 'Could not load songs.')
     }
@@ -364,7 +441,25 @@ export function Game() {
 
   useEffect(() => {
     spotifyLevelRef.current = difficulty
+    difficultyRef.current = difficulty
   }, [difficulty])
+
+  useEffect(() => {
+    enabledStagesRef.current = enabledStages
+  }, [enabledStages])
+
+  useEffect(() => {
+    catalogFiltersRef.current = catalogFilters
+  }, [catalogFilters])
+
+  useLayoutEffect(() => {
+    writePlaybackBar(activeState.playbackSeconds)
+  }, [activeState.playbackSeconds, activeState.stageIndex, difficulty, enabledStages])
+
+  useEffect(() => {
+    if (!activeState.round || catalogLoading) return
+    prefetchNextRound(difficulty)
+  }, [difficulty, activeState.round?.trackId, catalogLoading])
 
   useEffect(() => {
     if (!spotify.canUseStartModes) {
@@ -580,6 +675,12 @@ export function Game() {
     clearAutoReroll()
     clearSearchSelection()
     setAudioError(null)
+    const prefetched = prefetchedRef.current[level]
+    if (prefetched) {
+      delete prefetchedRef.current[level]
+      applyRound(level, prefetched)
+      return
+    }
     void loadDifficultyRound(level)
   }
 
@@ -593,6 +694,8 @@ export function Game() {
   async function stopClip(options?: { preserveProgress?: boolean }) {
     const audio = audioRef.current
     playSessionRef.current += 1
+    clipTimerRef.current?.abort()
+    clipTimerRef.current = null
     if (audio) {
       audio.pause()
     }
@@ -615,6 +718,7 @@ export function Game() {
     if (!options?.preserveProgress) {
       updateRound(difficulty, { playbackSeconds: 0 })
       spotifyTimelineRef.current = 0
+      writePlaybackBar(0)
     }
   }
 
@@ -664,6 +768,7 @@ export function Game() {
         unlockedSeconds: preservedSeconds,
         playbackSeconds: preservedSeconds,
       })
+      writePlaybackBar(preservedSeconds)
       return
     }
 
@@ -672,8 +777,11 @@ export function Game() {
       activeState.unlockedSeconds >= stageEndpoint ? 0 : activeState.unlockedSeconds
     const session = playSessionRef.current + 1
     playSessionRef.current = session
+    clipTimerRef.current?.abort()
+    clipTimerRef.current = null
 
     setAudioError(null)
+    prefetchNextRound(difficulty)
 
     if (spotify.canUseStartModes) {
       usingSpotifyRef.current = true
@@ -685,31 +793,30 @@ export function Game() {
       const seekMs = baseMs + startTimeline * 1000
       spotifyBaseMsRef.current = baseMs
       spotifyStageEndpointRef.current = stageEndpoint
-      const canFastReplay = isSameSpotifyTrackLoaded(round.trackId)
-
-      if (canFastReplay) {
-        setIsPlaying(true)
-      } else {
-        clipLoadingPendingRef.current = true
-        if (clipLoadingDelayRef.current) {
-          window.clearTimeout(clipLoadingDelayRef.current)
-          clipLoadingDelayRef.current = null
-        }
-        setIsLoadingClip(true)
-      }
+      beginClipLoading()
 
       try {
-        await playSpotifyTrack(round.trackId, seekMs, volume)
+        const playResult = await playSpotifyTrack(round.trackId, seekMs, volume)
         if (session !== playSessionRef.current) return
+
+        const sdkElapsedMs = Math.max(
+          0,
+          getSpotifyExtrapolatedPositionMs() - baseMs - startTimeline * 1000,
+        )
+        const alreadyElapsedMs = assumedElapsedMs({
+          mediaElapsedMs: sdkElapsedMs,
+          detectionLagMs: playResult.confirmedAt - playResult.playIssuedAt,
+        })
 
         endClipLoading()
         setIsPlaying(true)
-        const playbackStart = startTimeline
+        const playbackStart = startTimeline + alreadyElapsedMs / 1000
         updateRound(difficulty, {
           unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
-          playbackSeconds: playbackStart,
+          playbackSeconds: Math.min(stageEndpoint, playbackStart),
         })
-        spotifyTimelineRef.current = playbackStart
+        spotifyTimelineRef.current = Math.min(stageEndpoint, playbackStart)
+        writePlaybackBar(Math.min(stageEndpoint, playbackStart))
 
         let stageEnded = false
         const endSpotifyStage = () => {
@@ -718,6 +825,8 @@ export function Game() {
           spotifyForcePauseRef.current = true
           spotifyClipArmedRef.current = false
           spotifyEndStageRef.current = null
+          clipTimerRef.current?.abort()
+          clipTimerRef.current = null
           if (spotifyPauseTimeoutRef.current) {
             window.clearTimeout(spotifyPauseTimeoutRef.current)
             spotifyPauseTimeoutRef.current = null
@@ -735,63 +844,36 @@ export function Game() {
               unlockedSeconds: stageEndpoint,
               playbackSeconds: stageEndpoint,
             })
+            writePlaybackBar(stageEndpoint)
           })()
         }
 
         spotifyEndStageRef.current = endSpotifyStage
-        spotifyClipArmedAtRef.current = Date.now()
+        spotifyClipArmedAtRef.current = performance.now()
         spotifyClipArmedRef.current = true
 
-        const remainingMs = Math.max(0, (stageEndpoint - playbackStart) * 1000)
-        const timelineNow = getSpotifyTimelineSeconds()
-        const clearlyPastConfirmedStart = timelineNow > stageEndpoint + 1
-
-        if (remainingMs <= 0 && clearlyPastConfirmedStart) {
-          endSpotifyStage()
-          return
-        }
-
-        spotifyPauseTimeoutRef.current = window.setTimeout(
-          endSpotifyStage,
-          remainingMs > 0 ? remainingMs : stageEndpoint * 1000,
-        )
-
-        const tick = () => {
-          if (session !== playSessionRef.current) return
-
-          const elapsedSeconds = (Date.now() - spotifyClipArmedAtRef.current) / 1000
-          const timelineSeconds = getSpotifyTimelineSeconds()
-          const displaySeconds = Math.min(
-            stageEndpoint,
-            Math.max(startTimeline, startTimeline + elapsedSeconds),
-          )
-          spotifyTimelineRef.current = displaySeconds
-          updateRound(difficulty, { playbackSeconds: displaySeconds })
-
-          if (elapsedSeconds >= stageEndpoint - startTimeline) {
-            endSpotifyStage()
-            return
-          }
-
-          if (
-            elapsedSeconds >= 0.03 &&
-            timelineSeconds >= stageEndpoint &&
-            timelineSeconds <= stageEndpoint + 1
-          ) {
-            endSpotifyStage()
-            return
-          }
-
-          rafRef.current = window.requestAnimationFrame(tick)
-        }
-
-        rafRef.current = window.requestAnimationFrame(tick)
+        clipTimerRef.current = startClipTimer({
+          durationMs: (stageEndpoint - startTimeline) * 1000,
+          alreadyElapsedMs,
+          pauseLeadMs: getSpotifyPauseLeadMs(),
+          getMediaElapsedMs: () =>
+            Math.max(0, getSpotifyExtrapolatedPositionMs() - baseMs - startTimeline * 1000),
+          onTick: (elapsedMs) => {
+            if (session !== playSessionRef.current) return
+            const displaySeconds = Math.min(stageEndpoint, startTimeline + elapsedMs / 1000)
+            spotifyTimelineRef.current = displaySeconds
+            writePlaybackBar(displaySeconds)
+          },
+          onEnd: endSpotifyStage,
+        })
       } catch {
         if (session !== playSessionRef.current) return
         spotifyForcePauseRef.current = true
         spotifyClipArmedRef.current = false
         usingSpotifyRef.current = false
         spotifyEndStageRef.current = null
+        clipTimerRef.current?.abort()
+        clipTimerRef.current = null
         endClipLoading()
         setIsPlaying(false)
         void pauseSpotifyPlayback()
@@ -812,8 +894,11 @@ export function Game() {
       return
     }
 
-    audio.src = previewSource.url
     audio.volume = volume
+    if (!audioSrcMatches(audio, previewSource.url)) {
+      audio.preload = 'auto'
+      audio.src = previewSource.url
+    }
 
     try {
       await waitForAudioMetadata(audio)
@@ -835,31 +920,31 @@ export function Game() {
         unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
         playbackSeconds: startTimeline,
       })
+      writePlaybackBar(startTimeline)
 
-      const tick = () => {
-        if (session !== playSessionRef.current) return
-
-        const timelineSeconds = getTimelineSeconds()
-        updateRound(difficulty, { playbackSeconds: timelineSeconds })
-
-        if (timelineSeconds >= stageEndpoint) {
+      clipTimerRef.current = startTimedHtmlClip(audio, {
+        startSeconds: audioStart,
+        durationSeconds: stageEndpoint - startTimeline,
+        onTick: (elapsedSeconds) => {
+          if (session !== playSessionRef.current) return
+          writePlaybackBar(Math.min(stageEndpoint, startTimeline + elapsedSeconds))
+        },
+        onEnd: () => {
+          if (session !== playSessionRef.current) return
           audio.pause()
           setIsPlaying(false)
           updateRound(difficulty, {
             unlockedSeconds: stageEndpoint,
             playbackSeconds: stageEndpoint,
           })
-          return
-        }
-
-        rafRef.current = window.requestAnimationFrame(tick)
-      }
-
-      rafRef.current = window.requestAnimationFrame(tick)
+          writePlaybackBar(stageEndpoint)
+        },
+      })
     } catch {
       if (session !== playSessionRef.current) return
       endClipLoading()
       setIsPlaying(false)
+      audio.pause()
       setAudioError('The clip could not be played.')
     }
   }
@@ -1129,11 +1214,18 @@ export function Game() {
         </aside>
 
         <div className="game-card">
+          <header className="brand-masthead">
+            <h1>SongGuessr</h1>
+            <p>
+              Free song guessing game. Hear a short clip, then name the track. Play OPM from the
+              Philippines, or switch to Global and other collections.
+            </p>
+          </header>
           <div className={`game-content ${showResult ? 'result-state' : ''}`}>
             {catalogLoading && !activeState.round && (
               <div className="empty-state">
                 <div className="empty-icon">♫</div>
-                <h1>Loading songs...</h1>
+                <h2>Loading songs...</h2>
                 <p>The song library is loading.</p>
               </div>
             )}
@@ -1141,7 +1233,7 @@ export function Game() {
             {catalogError && !activeState.round && (
               <div className="empty-state">
                 <div className="empty-icon">{catalogLoading ? '♫' : '!'}</div>
-                <h1>{catalogLoading ? 'Loading songs...' : 'No songs match'}</h1>
+                <h2>{catalogLoading ? 'Loading songs...' : 'No songs match'}</h2>
                 <p>
                   {catalogLoading
                     ? 'The song library is loading.'
@@ -1207,6 +1299,7 @@ export function Game() {
                     style={{ width: `${unlockedProgress}%` }}
                   />
                   <div
+                    ref={playbackBarRef}
                     className="stage-playback-progress"
                     style={{ width: `${playbackProgress}%` }}
                   />
@@ -1276,7 +1369,14 @@ export function Game() {
                             onClick={() => selectTrackForGuess(result)}
                           >
                             {result.albumArt ? (
-                              <img className="artwork small" src={result.albumArt} alt="" />
+                              <img
+                                className="artwork small"
+                                src={result.albumArt}
+                                alt=""
+                                width={30}
+                                height={30}
+                                decoding="async"
+                              />
                             ) : (
                               <span className="artwork small fallback">♫</span>
                             )}
@@ -1325,7 +1425,14 @@ export function Game() {
               <div className={`result-panel ${activeState.status}`}>
                 <div className="result-artwork-wrap">
                   {activeState.answer.albumArt ? (
-                    <img className="artwork" src={activeState.answer.albumArt} alt="" />
+                    <img
+                      className="artwork"
+                      src={activeState.answer.albumArt}
+                      alt=""
+                      width={142}
+                      height={142}
+                      decoding="async"
+                    />
                   ) : (
                     <div className="artwork fallback">♫</div>
                   )}
@@ -1340,7 +1447,7 @@ export function Game() {
                 <div className="result-kicker">
                   {activeState.status === 'won' ? 'Correct' : 'Nice try'}
                 </div>
-                <h1>{activeState.answer.title}</h1>
+                <h2>{activeState.answer.title}</h2>
                 <p className="result-artist">{activeState.answer.artist}</p>
                 <a
                   className="result-source-link"
@@ -1391,6 +1498,12 @@ export function Game() {
               </div>
             )}
           </div>
+          <footer className="site-footer">
+            <p>
+              Play by country: Philippines, Global, and more. Collections include OPM, K-pop,
+              Anime, and K-drama.
+            </p>
+          </footer>
         </div>
 
         <aside className="settings-panel">
@@ -1513,15 +1626,17 @@ export function Game() {
         </aside>
       </div>
 
-      <FilterModal
-        open={filterModalOpen}
-        difficulty={difficulty}
-        draftEras={draftEras}
-        draftGenres={draftGenres}
-        draftCountries={draftCountries}
-        draftCollections={draftCollections}
-        regions={regions}
-        collections={collections}
+      {filterModalOpen ? (
+      <Suspense fallback={null}>
+        <FilterModal
+          open={filterModalOpen}
+          difficulty={difficulty}
+          draftEras={draftEras}
+          draftGenres={draftGenres}
+          draftCountries={draftCountries}
+          draftCollections={draftCollections}
+          regions={regions}
+          collections={collections}
         previewCount={draftPreviewCount}
         onClose={() => setFilterModalOpen(false)}
         onToggleEra={(era) => setDraftEras((current) => toggleFilterValue(current, era, ERA_OPTIONS))}
@@ -1552,6 +1667,8 @@ export function Game() {
         }}
         onApply={applyFilters}
       />
+      </Suspense>
+      ) : null}
 
       <audio ref={audioRef} preload="none" />
     </div>

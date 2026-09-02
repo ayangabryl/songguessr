@@ -1,0 +1,90 @@
+.brand-masthead {
+  text-align: center;
+  padding: 16px 4px 8px;
+}
+
+.brand-masthead h1 {
+  margin: 0;
+  color: #eef2ec;
+  letter-spacing: -0.045em;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.brand-masthead p {
+  max-width: 36ch;
+  margin: 0.45rem auto 0;
+  color: #8b9288;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.site-footer {
+  text-align: center;
+  padding: 10px 8px 0;
+  color: #6d746c;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.site-footer p {
+  margin: 0;
+}
+
+.app-shell[data-status='won'] .brand-masthead p,
+.app-shell[data-status='lost'] .brand-masthead p,
+.app-shell[data-status='won'] .site-footer,
+.app-shell[data-status='lost'] .site-footer {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (width > 760px) {
+  .brand-masthead {
+    z-index: 4;
+    padding: 0;
+    position: absolute;
+    top: 28px;
+    left: 32px;
+    right: 32px;
+  }
+
+  .brand-masthead h1 {
+    font-size: 1.55rem;
+  }
+
+  .site-footer {
+    z-index: 2;
+    padding: 0;
+    position: absolute;
+    bottom: 18px;
+    left: 32px;
+    right: 32px;
+  }
+}
+
+@media (width >= 1600px) and (height >= 850px) {
+  .brand-masthead {
+    top: 40px;
+    left: 48px;
+    right: 48px;
+  }
+
+  .brand-masthead h1 {
+    font-size: 1.85rem;
+  }
+
+  .brand-masthead p {
+    max-width: 42ch;
+    font-size: 0.85rem;
+  }
+
+  .site-footer {
+    bottom: 24px;
+    left: 48px;
+    right: 48px;
+    font-size: 0.78rem;
+  }
+}

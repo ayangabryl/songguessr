@@ -10,6 +10,11 @@ export default defineConfig({
       '@': resolve(import.meta.dirname, 'admin'),
     },
   },
+  build: {
+    target: 'es2022',
+    cssCodeSplit: true,
+    modulePreload: { polyfill: false },
+  },
   optimizeDeps: {
     exclude: ['@phosphor-icons/react'],
   },

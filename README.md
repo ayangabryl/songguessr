@@ -1,6 +1,6 @@
-# Songguessr
+# SongGuessr
 
-Guess the Filipino (OPM) song from short Spotify preview clips — built for Cloudflare Workers.
+Guess the song from a short clip. SongGuessr is a free browser game for OPM, the Philippines, and other countries, built on Cloudflare Workers.
 
 **Live:** [https://songguessr.lol](https://songguessr.lol)
 

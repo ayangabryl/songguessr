@@ -1,6 +1,79 @@
+import { getHtmlPauseLeadMs, observePauseLatency, startClipTimer, type ClipTimerHandle } from './clip-timer'
+
 const SEEK_TOLERANCE_SECONDS = 0.05
 const METADATA_TIMEOUT_MS = 15_000
 const SEEK_TIMEOUT_MS = 1_500
+const warmedPreviewUrls = new Set<string>()
+const warmAudioElements = new Map<string, HTMLAudioElement>()
+
+export function audioSrcMatches(audio: HTMLAudioElement, url: string): boolean {
+  if (!url) return false
+  if (!audio.src) return false
+  try {
+    return audio.src === new URL(url, window.location.href).href
+  } catch {
+    return audio.src === url
+  }
+}
+
+/** Decode/warm a preview so the next clip can start without a network wait. */
+export function warmHtmlPreview(url: string | undefined): void {
+  if (!url || warmedPreviewUrls.has(url)) return
+  warmedPreviewUrls.add(url)
+
+  const audio = new Audio()
+  audio.preload = 'auto'
+  audio.src = url
+  audio.load()
+  warmAudioElements.set(url, audio)
+
+  if (warmAudioElements.size > 6) {
+    const oldest = warmAudioElements.keys().next().value
+    if (oldest) warmAudioElements.delete(oldest)
+  }
+}
+
+export function startTimedHtmlClip(
+  audio: HTMLAudioElement,
+  options: {
+    startSeconds: number
+    durationSeconds: number
+    onTick?: (elapsedSeconds: number) => void
+    onEnd: () => void
+  },
+): ClipTimerHandle {
+  const startSeconds = options.startSeconds
+  const durationMs = Math.max(0, options.durationSeconds * 1000)
+  const alreadyElapsedMs = Math.max(0, (audio.currentTime - startSeconds) * 1000)
+  let finished = false
+
+  const halt = () => {
+    if (finished) return
+    finished = true
+    const pauseStartedAt = performance.now()
+    audio.pause()
+    observePauseLatency('html', performance.now() - pauseStartedAt)
+    options.onEnd()
+  }
+
+  const timer = startClipTimer({
+    durationMs,
+    alreadyElapsedMs,
+    pauseLeadMs: getHtmlPauseLeadMs(),
+    getMediaElapsedMs: () => Math.max(0, (audio.currentTime - startSeconds) * 1000),
+    onTick: (elapsedMs) => options.onTick?.(elapsedMs / 1000),
+    onEnd: halt,
+  })
+
+  return {
+    abort: () => {
+      timer.abort()
+      if (finished) return
+      finished = true
+      audio.pause()
+    },
+  }
+}
 
 export async function waitForAudioMetadata(audio: HTMLAudioElement): Promise<void> {
   if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) return

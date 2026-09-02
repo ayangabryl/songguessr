@@ -1,3 +1,4 @@
+import { observePauseLatency } from './clip-timer'
 import { getValidAccessToken } from './spotify-auth'
 
 export interface SpotifyPlaybackState {
@@ -45,6 +46,8 @@ export interface PlaySpotifyOptions {
 export interface PlaySpotifyResult {
   started: boolean
   replayed: boolean
+  playIssuedAt: number
+  confirmedAt: number
 }
 
 let sdkPromise: Promise<void> | null = null
@@ -56,6 +59,9 @@ let lastState: SpotifyPlaybackState | null = null
 let lastPlayedTrackId: string | null = null
 let deviceTransferred = false
 let playerWarmedUp = false
+let haltMuted = false
+let cachedAccessToken: string | null = null
+let cachedAccessTokenAt = 0
 const stateListeners = new Set<StateChangeCallback>()
 
 function notifyStateListeners(state: SpotifyPlaybackState | null) {
@@ -163,7 +169,7 @@ async function ensurePlayer(volume: number): Promise<SpotifyPlayer> {
       }
 
       const instance = new window.Spotify!.Player({
-        name: 'Songguessr',
+        name: 'SongGuessr',
         getOAuthToken: (cb) => {
           void tokenGetter(cb).catch(reject)
         },
@@ -215,7 +221,7 @@ async function ensurePlayer(volume: number): Promise<SpotifyPlayer> {
 async function transferPlaybackToDevice(): Promise<void> {
   if (deviceTransferred || !deviceId) return
 
-  const token = await getValidAccessToken()
+  const token = await playerAccessToken()
   if (!token) return
 
   const response = await fetch('https://api.spotify.com/v1/me/player', {
@@ -235,8 +241,18 @@ async function transferPlaybackToDevice(): Promise<void> {
   }
 }
 
-async function apiPlay(trackId: string, positionMs: number) {
+async function playerAccessToken(): Promise<string | null> {
+  if (cachedAccessToken && Date.now() - cachedAccessTokenAt < 30_000) {
+    return cachedAccessToken
+  }
   const token = await getValidAccessToken()
+  cachedAccessToken = token
+  cachedAccessTokenAt = Date.now()
+  return token
+}
+
+async function apiPlay(trackId: string, positionMs: number) {
+  const token = await playerAccessToken()
   if (!token || !deviceId) throw new Error('Spotify player not ready')
 
   if (!deviceTransferred) {
@@ -269,6 +285,10 @@ async function apiPlay(trackId: string, positionMs: number) {
     return
   }
 
+  if (response.status === 429) {
+    throw new Error('Spotify is busy. Try again in a moment.')
+  }
+
   if (response.status === 403) {
     throw new Error('Spotify Premium is required for full-song playback.')
   }
@@ -285,8 +305,9 @@ async function activatePlayer(instance: SpotifyPlayer): Promise<void> {
   }
 }
 
-const FIRST_PLAY_WAIT_MS = 3000
-const REPLAY_WAIT_MS = 1500
+const FIRST_PLAY_WAIT_MS = 2500
+const REPLAY_WAIT_MS = 1200
+const PLAYING_POLL_MS = 16
 
 function stateMatchesTrack(state: SpotifyPlaybackState, trackId: string): boolean {
   const uri = state.track_window.current_track?.uri
@@ -300,7 +321,7 @@ function isActivelyPlaying(state: SpotifyPlaybackState | null, trackId: string):
 
 async function restorePlaybackVolume(volume: number): Promise<void> {
   lastVolume = volume
-  if (!player) return
+  if (!player || haltMuted) return
   try {
     await player.setVolume(volume)
   } catch {
@@ -308,7 +329,7 @@ async function restorePlaybackVolume(volume: number): Promise<void> {
   }
 }
 
-/** Resolve on first `paused === false` for this track. Timeout still counts as started. */
+/** Resolve on first `paused === false` for this track. Timeout means start was not confirmed. */
 async function waitUntilPlaying(trackId: string, timeoutMs: number): Promise<boolean> {
   if (isActivelyPlaying(lastState, trackId)) return true
 
@@ -352,10 +373,10 @@ async function waitUntilPlaying(trackId: string, timeoutMs: number): Promise<boo
         .catch(() => {
           // Poll is best-effort.
         })
-    }, 80)
+    }, PLAYING_POLL_MS)
 
     const timeoutId = window.setTimeout(() => {
-      finish(true)
+      finish(false)
     }, timeoutMs)
   })
 }
@@ -417,38 +438,52 @@ export async function playSpotifyTrack(
   options: PlaySpotifyOptions = {},
 ): Promise<PlaySpotifyResult> {
   const waitForStart = options.waitForStart ?? true
+  const playIssuedAt = performance.now()
 
   // Activate on the user gesture before any other player work.
   if (player) {
     await activatePlayer(player)
+  } else {
+    const instance = await ensurePlayer(volume)
+    await activatePlayer(instance)
   }
 
-  const instance = await ensurePlayer(volume)
-  await activatePlayer(instance)
-  await restorePlaybackVolume(volume)
+  if (volume !== lastVolume || haltMuted) {
+    haltMuted = false
+    void restorePlaybackVolume(volume)
+  }
 
   const canResume = isSameSpotifyTrackLoaded(trackId)
 
   if (canResume) {
     try {
       await resumeLoadedTrack(positionMs)
-      if (!waitForStart) return { started: true, replayed: true }
-      await waitUntilPlaying(trackId, REPLAY_WAIT_MS)
-      return { started: true, replayed: true }
+      if (!waitForStart) {
+        return { started: true, replayed: true, playIssuedAt, confirmedAt: performance.now() }
+      }
+      const started = await waitUntilPlaying(trackId, REPLAY_WAIT_MS)
+      return { started, replayed: true, playIssuedAt, confirmedAt: performance.now() }
     } catch {
       lastPlayedTrackId = null
     }
   }
 
-  await warmupSpotifyPlayer(volume)
-  await restorePlaybackVolume(volume)
+  if (!playerWarmedUp) {
+    await warmupSpotifyPlayer(volume)
+  }
   await apiPlay(trackId, positionMs)
-  if (!waitForStart) return { started: true, replayed: false }
-  await waitUntilPlaying(trackId, FIRST_PLAY_WAIT_MS)
-  return { started: true, replayed: false }
+  if (!waitForStart) {
+    return { started: true, replayed: false, playIssuedAt, confirmedAt: performance.now() }
+  }
+  const started = await waitUntilPlaying(trackId, FIRST_PLAY_WAIT_MS)
+  return { started, replayed: false, playIssuedAt, confirmedAt: performance.now() }
 }
 
 export async function pauseSpotifyPlayback() {
+  const pauseStartedAt = performance.now()
+  const freezeAtMs = lastState ? extrapolatePositionMs(lastState) : undefined
+  const volumeToRestore = lastVolume
+
   if (!player) {
     if (lastState && !lastState.paused) {
       notifyStateListeners({
@@ -460,7 +495,12 @@ export async function pauseSpotifyPlayback() {
     return
   }
 
-  const freezeAtMs = lastState ? extrapolatePositionMs(lastState) : undefined
+  haltMuted = true
+  try {
+    void player.setVolume(0)
+  } catch {
+    // Mute is the audible stop while SDK pause catches up.
+  }
 
   try {
     await player.pause()
@@ -468,13 +508,7 @@ export async function pauseSpotifyPlayback() {
     // SDK pause is the only pause path.
   }
 
-  if (freezeAtMs !== undefined) {
-    try {
-      await player.seek(Math.floor(Math.max(0, freezeAtMs)))
-    } catch {
-      // Freeze seek is best-effort after pause.
-    }
-  }
+  observePauseLatency('spotify', performance.now() - pauseStartedAt)
 
   if (lastState) {
     notifyStateListeners({
@@ -484,6 +518,17 @@ export async function pauseSpotifyPlayback() {
       timestamp: Date.now(),
     })
   }
+
+  if (freezeAtMs !== undefined) {
+    void player.seek(Math.floor(Math.max(0, freezeAtMs))).catch(() => {
+      // Freeze seek is best-effort after pause.
+    })
+  }
+
+  haltMuted = false
+  void player.setVolume(volumeToRestore).catch(() => {
+    // Volume restore is best-effort after halt.
+  })
 }
 
 export async function getSpotifyPositionSeconds(): Promise<number> {
@@ -497,7 +542,7 @@ export async function getSpotifyPositionSeconds(): Promise<number> {
 
 export async function setSpotifyVolume(volume: number) {
   lastVolume = volume
-  if (!player) return
+  if (!player || haltMuted) return
   await player.setVolume(volume)
 }
 
@@ -507,5 +552,8 @@ export function disconnectSpotifyPlayer() {
   deviceId = null
   readyPromise = null
   lastState = null
+  cachedAccessToken = null
+  cachedAccessTokenAt = 0
+  haltMuted = false
   resetPlayerSessionState()
 }

@@ -1,5 +1,7 @@
 import { readMigratedItem, removeMigratedItem } from './storage'
 
+let sessionCache: SpotifySession | null | undefined
+
 const STORAGE_KEY = 'songguessr-spotify-session'
 const VERIFIER_KEY = 'songguessr-spotify-pkce'
 const STATE_KEY = 'songguessr-spotify-state'
@@ -55,22 +57,34 @@ export function clearCodeVerifier() {
 }
 
 export function loadSpotifySession(): SpotifySession | null {
+  if (sessionCache !== undefined) return sessionCache
+
   try {
     const raw = readMigratedItem(localStorage, STORAGE_KEY, [LEGACY_STORAGE_KEY])
-    if (!raw) return null
+    if (!raw) {
+      sessionCache = null
+      return null
+    }
     const parsed = JSON.parse(raw) as SpotifySession
-    if (!parsed.accessToken || !parsed.refreshToken) return null
+    if (!parsed.accessToken || !parsed.refreshToken) {
+      sessionCache = null
+      return null
+    }
+    sessionCache = parsed
     return parsed
   } catch {
+    sessionCache = null
     return null
   }
 }
 
 export function saveSpotifySession(session: SpotifySession) {
+  sessionCache = session
   localStorage.setItem(STORAGE_KEY, JSON.stringify(session))
 }
 
 export function clearSpotifySession() {
+  sessionCache = null
   removeMigratedItem(localStorage, STORAGE_KEY, [LEGACY_STORAGE_KEY])
 }
 

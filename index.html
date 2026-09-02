@@ -2,22 +2,109 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SongGuessr | Free song guessing game for OPM</title>
     <meta
       name="description"
-      content="Songguessr — guess the Filipino (OPM) song from short preview clips."
+      content="Play SongGuessr free in your browser. Guess the song from a short clip. Filter for Philippines, OPM, Global, and more. Like Heardle or Songless, with collections."
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap"
-      rel="stylesheet"
+    <link rel="canonical" href="https://songguessr.lol/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#050806" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="application-name" content="SongGuessr" />
+    <meta name="apple-mobile-web-app-title" content="SongGuessr" />
+    <meta property="og:site_name" content="SongGuessr" />
+    <meta property="og:title" content="SongGuessr | Free song guessing game for OPM" />
+    <meta
+      property="og:description"
+      content="Free song guessing game. Play OPM from the Philippines, or switch countries and collections. Hear a short clip, then name the track."
     />
-    <title>Songguessr</title>
+    <meta property="og:url" content="https://songguessr.lol/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_PH" />
+    <meta property="og:locale:alternate" content="fil_PH" />
+    <meta property="og:image" content="https://songguessr.lol/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="SongGuessr, a free song guessing game" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SongGuessr | Free song guessing game for OPM" />
+    <meta
+      name="twitter:description"
+      content="Play SongGuessr free. Guess the song from a short clip. OPM, Philippines, Global, and more collections."
+    />
+    <meta name="twitter:image" content="https://songguessr.lol/og.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": ["VideoGame", "WebApplication"],
+            "@id": "https://songguessr.lol/#game",
+            "name": "SongGuessr",
+            "url": "https://songguessr.lol/",
+            "image": "https://songguessr.lol/og.png",
+            "description": "Free browser song guessing game. Hear a short clip, then name the track. Play OPM from the Philippines, or filter Global and other collections.",
+            "applicationCategory": "GameApplication",
+            "applicationSubCategory": "Music trivia",
+            "genre": ["Music", "Trivia", "Guessing game"],
+            "operatingSystem": "Any",
+            "browserRequirements": "Requires JavaScript and a modern browser",
+            "gamePlatform": "Web browser",
+            "playMode": "SinglePlayer",
+            "isAccessibleForFree": true,
+            "isFamilyFriendly": true,
+            "inLanguage": "en",
+            "availableLanguage": ["en", "fil"],
+            "spatialCoverage": [
+              { "@type": "Country", "name": "Philippines" },
+              { "@type": "Place", "name": "Worldwide" }
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://songguessr.lol/#website",
+            "name": "SongGuessr",
+            "url": "https://songguessr.lol/",
+            "inLanguage": "en",
+            "publisher": { "@id": "https://songguessr.lol/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://songguessr.lol/#organization",
+            "name": "SongGuessr",
+            "url": "https://songguessr.lol/",
+            "logo": "https://songguessr.lol/favicon.svg"
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <header>
+        <h1>SongGuessr</h1>
+        <p>
+          Free song guessing game. Hear a short clip, then name the track. Play OPM from the
+          Philippines, or switch to Global and other collections. Same idea as Heardle or Songless,
+          with country and collection filters.
+        </p>
+      </header>
+      <footer>
+        <p>
+          Play by country: Philippines, Global, and more. Collections include OPM, K-pop, Anime, and
+          K-drama.
+        </p>
+      </footer>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

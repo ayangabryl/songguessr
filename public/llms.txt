@@ -1,0 +1,9 @@
+# SongGuessr
+
+> Free browser song guessing game. Hear a short clip, then name the track.
+
+SongGuessr is a Heardle-style and Songless-style guessing game with country and collection filters. Play OPM from the Philippines, switch to Global, or mix other catalogs such as K-pop, Anime, and K-drama.
+
+- Play: https://songguessr.lol/
+- Sitemap: https://songguessr.lol/sitemap.xml
+- Admin and API routes are private and should not be indexed.

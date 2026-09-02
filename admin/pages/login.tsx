@@ -35,7 +35,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
     <div className="flex min-h-svh items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Songguessr Admin</CardTitle>
+          <CardTitle>SongGuessr Admin</CardTitle>
           <CardDescription>Sign in to manage songs and collections.</CardDescription>
         </CardHeader>
         <CardContent>

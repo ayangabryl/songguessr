@@ -4,6 +4,20 @@ body {
   min-height: 100vh;
 }
 
+/* Crawler copy inside #root is replaced by React; hide it so it cannot shift LCP. */
+#root > header,
+#root > footer {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .spotify-connect {
   margin-bottom: 1.25rem;
 }

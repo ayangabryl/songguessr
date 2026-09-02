@@ -10,8 +10,6 @@ import { SpeakerHigh } from '@phosphor-icons/react/SpeakerHigh'
 import { Timer } from '@phosphor-icons/react/Timer'
 import { Waveform } from '@phosphor-icons/react/Waveform'
 import type { Icon, IconProps } from '@phosphor-icons/react/lib'
-import { Loader2, Pause, Play } from 'lucide'
-import { MorphIcon } from 'morphicons/react'
 
 type AppIconProps = Pick<IconProps, 'className' | 'size' | 'weight'>
 
@@ -54,12 +52,6 @@ export function VolumeIcon() {
   return renderIcon(SpeakerHigh, { className: 'label-icon volume-icon', size: 13 })
 }
 
-const PLAY_CONTROL_ICONS = {
-  play: Play,
-  pause: Pause,
-  loading: Loader2,
-} as const
-
 export function PlayControlIcon({ state }: { state: 'play' | 'pause' | 'loading' }) {
   const className = [
     'play-glyph',
@@ -70,16 +62,36 @@ export function PlayControlIcon({ state }: { state: 'play' | 'pause' | 'loading'
     .filter(Boolean)
     .join(' ')
 
+  if (state === 'loading') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" width="28" height="28" aria-hidden>
+        <circle
+          cx="12"
+          cy="12"
+          r="8"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray="32 18"
+        />
+      </svg>
+    )
+  }
+
+  if (state === 'pause') {
+    return (
+      <svg className={className} viewBox="0 0 24 24" width="28" height="28" aria-hidden>
+        <rect x="6" y="5" width="4.5" height="14" rx="1.2" fill="currentColor" />
+        <rect x="13.5" y="5" width="4.5" height="14" rx="1.2" fill="currentColor" />
+      </svg>
+    )
+  }
+
   return (
-    <MorphIcon
-      icon={PLAY_CONTROL_ICONS[state]}
-      className={className}
-      size={28}
-      strokeWidth={2.5}
-      color="currentColor"
-      spring="snappy"
-      aria-hidden
-    />
+    <svg className={className} viewBox="0 0 24 24" width="28" height="28" aria-hidden>
+      <path d="M8 5.2v13.6c0 .7.76 1.12 1.35.74l10.2-6.8a.88.88 0 0 0 0-1.48l-10.2-6.8A.88.88 0 0 0 8 5.2Z" fill="currentColor" />
+    </svg>
   )
 }
 
