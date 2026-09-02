@@ -168,8 +168,7 @@ body,
 }
 
 .game-content.result-state .mascot,
-.game-content.result-state .mascot-lottie,
-.game-content.result-state .mascot-fallback {
+.game-content.result-state .mascot-art {
   width: 120px;
   height: 120px;
 }
@@ -314,116 +313,43 @@ body,
   position: relative;
 }
 
-.mascot-lottie,
-.mascot-fallback {
-  width: 176px;
-  height: 176px;
-  position: absolute;
-  inset: 0;
-}
-
-.mascot-lottie {
-  opacity: 0;
-}
-
-.mascot-fallback {
-  opacity: 1;
-}
-
-.mascot-lottie.ready {
-  opacity: 1;
-}
-
-.mascot:has(.mascot-lottie.ready) .mascot-fallback {
-  opacity: 0;
-}
-
-.mascot-lottie svg {
-  display: block;
+.mascot-art {
   width: 100%;
   height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  background: transparent;
 }
 
-.mascot-shadow {
-  fill: color-mix(in srgb, var(--text) 16%, transparent);
+.mascot-easy .mascot-art {
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--easy) 32%, transparent));
+}
+.mascot-medium .mascot-art {
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--medium) 32%, transparent));
+}
+.mascot-hard .mascot-art {
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--hard) 32%, transparent));
+}
+.mascot-expert .mascot-art {
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--expert) 32%, transparent));
+}
+.mascot-impossible .mascot-art {
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--impossible) 32%, transparent));
 }
 
-.mascot-ink {
-  fill: #1a1e16;
-  stroke: #1a1e16;
-}
-
-.mascot-cup {
-  fill: #22261d;
-}
-
-.mascot-cup-pad {
-  fill: #3a4034;
-}
-
-.mascot-cheek {
-  fill: #e8a0b0;
-}
-
-.mascot-easy .mascot-fill {
-  fill: var(--easy);
-}
-.mascot-easy .mascot-outline {
-  fill: #149a52;
-}
-.mascot-easy .mascot-belly {
-  fill: #6be89e;
-}
-.mascot-medium .mascot-fill {
-  fill: var(--medium);
-}
-.mascot-medium .mascot-outline {
-  fill: #c79a00;
-}
-.mascot-medium .mascot-belly {
-  fill: #ffe566;
-}
-.mascot-hard .mascot-fill {
-  fill: var(--hard);
-}
-.mascot-hard .mascot-outline {
-  fill: #b35e12;
-}
-.mascot-hard .mascot-belly {
-  fill: #f0a45a;
-}
-.mascot-expert .mascot-fill {
-  fill: var(--expert);
-}
-.mascot-expert .mascot-outline {
-  fill: #a82f2b;
-}
-.mascot-expert .mascot-belly {
-  fill: #ee7c76;
-}
-.mascot-impossible .mascot-fill {
-  fill: var(--impossible);
-}
-.mascot-impossible .mascot-outline {
-  fill: #6e32ad;
-}
-.mascot-impossible .mascot-belly {
-  fill: #c08af0;
-}
-
-.mascot-body-group {
-  transform-origin: 120px 200px;
-  animation: mascotIdle 2.8s ease-in-out infinite;
-}
-
-@keyframes mascotIdle {
-  50% {
-    transform: translateY(-5px);
-  }
-}
-
-.mascot-play .mascot-body-group {
+.mascot-play .mascot-art {
   animation: mascotPlay 0.5s ease-in-out infinite;
+}
+
+.mascot-win .mascot-art,
+.mascot-streak .mascot-art {
+  animation: mascotWin 0.66s var(--ease-spring) infinite;
+}
+
+.mascot-lose .mascot-art,
+.mascot-skip .mascot-art {
+  animation: mascotLose 1.4s ease-in-out infinite;
 }
 
 @keyframes mascotPlay {
@@ -432,20 +358,10 @@ body,
   }
 }
 
-.mascot-win .mascot-body-group,
-.mascot-streak .mascot-body-group {
-  animation: mascotWin 0.66s var(--ease-spring) infinite;
-}
-
 @keyframes mascotWin {
   50% {
     transform: translateY(-12px) scale(1.04);
   }
-}
-
-.mascot-lose .mascot-body-group,
-.mascot-skip .mascot-body-group {
-  animation: mascotLose 1.4s ease-in-out infinite;
 }
 
 @keyframes mascotLose {
@@ -1106,9 +1022,7 @@ body,
     font-size: 1.7rem;
   }
 
-  .mascot,
-  .mascot-lottie,
-  .mascot-fallback {
+  .mascot {
     width: 168px;
     height: 168px;
   }
@@ -1140,9 +1054,7 @@ body,
 }
 
 @media (width >= 960px) and (height <= 760px) {
-  .mascot,
-  .mascot-lottie,
-  .mascot-fallback {
+  .mascot {
     width: 132px;
     height: 132px;
   }
@@ -1206,7 +1118,7 @@ body,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mascot-body-group {
+  .mascot-art {
     animation: none !important;
   }
 
