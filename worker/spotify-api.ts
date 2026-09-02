@@ -1,4 +1,10 @@
-import type { SpotifyTrackRef } from './opm-artists'
+import type { SpotifyArtistRef, SpotifyTrackRef } from './opm-artists'
+
+export interface SpotifyArtistDetails extends SpotifyArtistRef {
+  id: string
+  popularity?: number
+  genres?: string[]
+}
 
 const MARKET = 'PH'
 
@@ -94,4 +100,64 @@ export async function fetchSpotifyTrack(
   }
 
   return (await response.json()) as SpotifyTrackRef
+}
+
+async function fetchSpotifyCollection<T extends { id?: string }>(
+  token: string,
+  path: string,
+  ids: string[],
+): Promise<T[]> {
+  const unique = [...new Set(ids.filter(Boolean))]
+  const collected: T[] = []
+  const singular = path.endsWith('s') ? path.slice(0, -1) : path
+
+  for (let index = 0; index < unique.length; index += 50) {
+    const batch = unique.slice(index, index + 50)
+    const url = new URL(`https://api.spotify.com/v1/${path}`)
+    url.searchParams.set('ids', batch.join(','))
+    if (path === 'tracks') url.searchParams.set('market', MARKET)
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.status === 403) {
+      for (const id of batch) {
+        const oneUrl = new URL(`https://api.spotify.com/v1/${path}/${id}`)
+        if (path === 'tracks') oneUrl.searchParams.set('market', MARKET)
+        const one = await fetch(oneUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (one.ok) {
+          collected.push((await one.json()) as T)
+        }
+      }
+      continue
+    }
+    if (!response.ok) {
+      const error = new Error(
+        `Spotify ${path} fetch failed: ${response.status} ${await response.text()}`,
+      )
+      ;(error as Error & { status?: number }).status = response.status
+      throw error
+    }
+    const data = (await response.json()) as Record<string, Array<T | null>>
+    for (const item of data[path] ?? data[singular] ?? []) {
+      if (item) collected.push(item)
+    }
+  }
+
+  return collected
+}
+
+export async function fetchSpotifyTracks(
+  token: string,
+  ids: string[],
+): Promise<SpotifyTrackRef[]> {
+  return fetchSpotifyCollection<SpotifyTrackRef>(token, 'tracks', ids)
+}
+
+export async function fetchSpotifyArtists(
+  token: string,
+  ids: string[],
+): Promise<SpotifyArtistDetails[]> {
+  return fetchSpotifyCollection<SpotifyArtistDetails>(token, 'artists', ids)
 }

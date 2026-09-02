@@ -5,19 +5,26 @@ import {
   type SearchResult,
   fetchAvailability,
   fetchRandomRound,
+  fetchRegions,
   searchTracks,
   submitGuess,
+  type CatalogRegion,
 } from '../lib/api'
 import {
   activeFilterCount,
   loadEraFilters,
   loadGenreFilters,
+  loadRegionFilters,
   saveEraFilters,
   saveGenreFilters,
+  saveRegionFilters,
   toggleFilterValue,
   ERA_OPTIONS,
+  GAME_REGIONS,
   GENRE_OPTIONS,
+  REGION_OPTIONS,
   type CatalogFilters,
+  type CountryCode,
   type EraFilter,
   type GenreFilter,
 } from '../lib/filters'
@@ -194,21 +201,24 @@ export function Game() {
   const spotify = useSpotify()
   const [eraFilters, setEraFilters] = useState<EraFilter[]>(loadEraFilters)
   const [genreFilters, setGenreFilters] = useState<GenreFilter[]>(loadGenreFilters)
+  const [regionFilters, setRegionFilters] = useState<CountryCode[]>(loadRegionFilters)
+  const [regions, setRegions] = useState<CatalogRegion[]>(GAME_REGIONS)
   const [filterModalOpen, setFilterModalOpen] = useState(false)
   const [draftEras, setDraftEras] = useState<EraFilter[]>([])
   const [draftGenres, setDraftGenres] = useState<GenreFilter[]>([])
+  const [draftCountries, setDraftCountries] = useState<CountryCode[]>([])
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<Difficulty, number> | null>(
     null,
   )
   const [draftPreviewCount, setDraftPreviewCount] = useState(0)
 
   const catalogFilters = useMemo<CatalogFilters>(
-    () => ({ eras: eraFilters, genres: genreFilters }),
-    [eraFilters, genreFilters],
+    () => ({ eras: eraFilters, genres: genreFilters, countries: regionFilters }),
+    [eraFilters, genreFilters, regionFilters],
   )
   const draftFilters = useMemo<CatalogFilters>(
-    () => ({ eras: draftEras, genres: draftGenres }),
-    [draftEras, draftGenres],
+    () => ({ eras: draftEras, genres: draftGenres, countries: draftCountries }),
+    [draftEras, draftGenres, draftCountries],
   )
   const activeFilterTotal = activeFilterCount(catalogFilters)
 
@@ -427,6 +437,16 @@ export function Game() {
   useEffect(() => {
     saveGenreFilters(genreFilters)
   }, [genreFilters])
+
+  useEffect(() => {
+    saveRegionFilters(regionFilters)
+  }, [regionFilters])
+
+  useEffect(() => {
+    void fetchRegions().then((next) => {
+      if (next.length > 0) setRegions(next)
+    })
+  }, [])
 
   useEffect(() => {
     void fetchAvailability(catalogFilters).then((data) => {
@@ -978,12 +998,14 @@ export function Game() {
   function openFilterModal() {
     setDraftEras([...eraFilters])
     setDraftGenres([...genreFilters])
+    setDraftCountries([...regionFilters])
     setFilterModalOpen(true)
   }
 
   function applyFilters() {
     setEraFilters([...draftEras])
     setGenreFilters([...draftGenres])
+    setRegionFilters([...draftCountries])
     setFilterModalOpen(false)
   }
 
@@ -1437,17 +1459,24 @@ export function Game() {
         difficulty={difficulty}
         draftEras={draftEras}
         draftGenres={draftGenres}
+        draftCountries={draftCountries}
+        regions={regions}
         previewCount={draftPreviewCount}
         onClose={() => setFilterModalOpen(false)}
         onToggleEra={(era) => setDraftEras((current) => toggleFilterValue(current, era, ERA_OPTIONS))}
         onToggleGenre={(genre) =>
           setDraftGenres((current) => toggleFilterValue(current, genre, GENRE_OPTIONS))
         }
+        onToggleRegion={(country) =>
+          setDraftCountries((current) => toggleFilterValue(current, country, REGION_OPTIONS))
+        }
         onClearEras={() => setDraftEras([])}
         onClearGenres={() => setDraftGenres([])}
+        onClearRegions={() => setDraftCountries([])}
         onClearAll={() => {
           setDraftEras([])
           setDraftGenres([])
+          setDraftCountries([])
         }}
         onApply={applyFilters}
       />

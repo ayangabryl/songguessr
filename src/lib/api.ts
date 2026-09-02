@@ -1,14 +1,31 @@
 import {
   type CatalogFilters,
+  type CountryCode,
   type EraFilter,
   type GenreFilter,
+  type RegionFilter,
   filtersToSearchParams,
 } from './filters'
 
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'expert' | 'impossible'
 
-export type { CatalogFilters, EraFilter, GenreFilter }
-export { ERA_LABELS, GENRE_LABELS, ERA_OPTIONS, GENRE_OPTIONS } from './filters'
+export type { CatalogFilters, CountryCode, EraFilter, GenreFilter, RegionFilter }
+export {
+  ERA_LABELS,
+  GENRE_LABELS,
+  ERA_OPTIONS,
+  GENRE_OPTIONS,
+  REGION_LABELS,
+  REGION_OPTIONS,
+  GAME_REGIONS,
+} from './filters'
+
+export interface CatalogRegion {
+  id: RegionFilter
+  label: string
+  country: CountryCode
+  count?: number
+}
 
 export const ALL_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
 export const DEFAULT_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
@@ -54,6 +71,16 @@ async function parseJson<T>(response: Response): Promise<T> {
     throw new Error(data.message ?? data.error ?? `Request failed (${response.status})`)
   }
   return data
+}
+
+export async function fetchRegions(): Promise<CatalogRegion[]> {
+  try {
+    const response = await fetch('/api/catalog/regions')
+    const data = await parseJson<{ regions: CatalogRegion[] }>(response)
+    return data.regions
+  } catch {
+    return []
+  }
 }
 
 export async function fetchAvailability(filters: CatalogFilters): Promise<AvailabilityCounts> {
@@ -105,6 +132,8 @@ export async function submitGuess(
       reveal: options.reveal ?? false,
       eras: round.filters.eras,
       genres: round.filters.genres,
+      countries: round.filters.countries,
+      regions: round.filters.countries,
     }),
   })
   return parseJson<GuessResult>(response)

@@ -393,6 +393,8 @@ function queueTrack(
     genreGroups: inferGenreGroups(artist, track.name ?? ''),
     popularity,
     durationMs: track.duration_ms,
+    country: 'PH',
+    catalog: 'opm',
   })
   return true
 }

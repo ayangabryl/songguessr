@@ -20,6 +20,10 @@ export interface CatalogJobSnapshot {
   skippedExisting?: number
   skippedNonOpm?: number
   skippedNoPreview?: number
+  skippedNonOpmNames?: string[]
+  updated?: number
+  country?: string
+  catalog?: string
   errors?: string[]
   source?: string
   fetched?: number
@@ -55,6 +59,10 @@ function toSnapshot(job: StoredJob): CatalogJobSnapshot {
     skippedExisting: job.skippedExisting,
     skippedNonOpm: job.skippedNonOpm,
     skippedNoPreview: job.skippedNoPreview,
+    skippedNonOpmNames: job.skippedNonOpmNames,
+    updated: job.updated,
+    country: job.country,
+    catalog: job.catalog,
     errors: job.errors,
     source: job.source,
     fetched: job.fetched,

@@ -95,6 +95,11 @@ export const OPM_ARTISTS = [
   'Louie Grammz',
   "Mi'Kel",
   'Jolianne',
+  'shirebound',
+  'Jin DC',
+  'Esremborak',
+  'Sugarfree',
+  'Amiel Sol',
 
   'SB19',
   'BINI',

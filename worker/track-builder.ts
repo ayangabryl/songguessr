@@ -1,12 +1,31 @@
 import {
+  DEFAULT_CATALOG,
+  DEFAULT_COUNTRY,
+  type CatalogKind,
+  type CountryCode,
+} from '../shared/catalog-meta'
+import {
   albumArtFromSpotifyTrack,
   fetchItunesArtwork,
   fetchSpotifyOembedArtwork,
 } from './album-art'
-import { assignDifficultyFromMetrics, parseReleaseYear } from './difficulty'
+import {
+  assignChartDifficulty,
+  assignDifficultyFromMetrics,
+  parseReleaseYear,
+} from './difficulty'
 import { isOpmSpotifyTrack, type SpotifyTrackRef } from './opm-artists'
 import { resolvePreviewSourcesForTrack } from './preview-sources'
 import type { GenreFilter, Track } from './types'
+
+export interface BuildTrackOptions {
+  country?: CountryCode
+  catalog?: CatalogKind
+  chartBoost?: boolean
+  requireOpm?: boolean
+  artistPopularity?: number
+  spotifyGenres?: string[]
+}
 
 function inferGenreGroups(artist: string, title: string): GenreFilter[] {
   const haystack = `${artist} ${title}`.toLowerCase()
@@ -29,12 +48,13 @@ function inferGenreGroups(artist: string, title: string): GenreFilter[] {
 
 export async function buildTrackFromSpotify(
   spotifyTrack: SpotifyTrackRef,
+  options: BuildTrackOptions = {},
 ): Promise<{ track: Track | null; reason?: string }> {
   if (!spotifyTrack.id) {
     return { track: null, reason: 'Track has no Spotify ID' }
   }
 
-  if (!isOpmSpotifyTrack(spotifyTrack)) {
+  if (options.requireOpm !== false && !isOpmSpotifyTrack(spotifyTrack)) {
     return { track: null, reason: 'Artist is not on our OPM list' }
   }
 
@@ -49,13 +69,20 @@ export async function buildTrackFromSpotify(
     return { track: null, reason: 'No preview URL available for this track' }
   }
 
-  const releaseYear = parseReleaseYear(spotifyTrack.album?.release_date)
+  const releaseDate = spotifyTrack.album?.release_date
+  const releaseYear = parseReleaseYear(releaseDate)
   const popularity = spotifyTrack.popularity ?? 0
+  const artistPopularity = options.artistPopularity ?? 0
   const albumArt =
     albumArtFromSpotifyTrack(spotifyTrack) ||
     (await fetchSpotifyOembedArtwork(spotifyTrack.id)) ||
     (await fetchItunesArtwork(spotifyTrack.name ?? '', artist)) ||
     ''
+
+  const chartBoost = options.chartBoost === true
+  const difficulty = chartBoost
+    ? assignChartDifficulty({ popularity, artistPopularity, artistName: artist })
+    : assignDifficultyFromMetrics({ popularity, artistPopularity, releaseYear })
 
   const track: Track = {
     id: spotifyTrack.id,
@@ -65,11 +92,18 @@ export async function buildTrackFromSpotify(
     ...(previews.hookPreviewUrl ? { hookPreviewUrl: previews.hookPreviewUrl } : {}),
     hookStartSeconds: previews.hookStartSeconds,
     albumArt,
-    difficulty: assignDifficultyFromMetrics({ popularity, releaseYear }),
+    difficulty,
     releaseYear,
+    releaseDate: releaseDate || undefined,
     genreGroups: inferGenreGroups(artist, spotifyTrack.name ?? ''),
+    spotifyGenres: options.spotifyGenres,
     popularity,
+    artistPopularity: options.artistPopularity,
     durationMs: spotifyTrack.duration_ms,
+    country: options.country ?? DEFAULT_COUNTRY,
+    catalog: options.catalog ?? DEFAULT_CATALOG,
+    chartBoost,
+    ...(chartBoost ? { forceTier: difficulty } : {}),
   }
 
   return { track }

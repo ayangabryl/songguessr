@@ -57,16 +57,22 @@ export interface CatalogTrack {
   artist: string
   difficulty: string
   releaseYear?: number
+  releaseDate?: string
   genreGroups?: string[]
+  spotifyGenres?: string[]
   era?: string | null
   albumArt: string
   hasPreview: boolean
+  popularity?: number
+  country?: string
+  catalog?: string
 }
 
 export interface CatalogCounts {
   difficulty: Record<string, number>
   genre: Record<string, number>
   era: Record<string, number>
+  country?: Record<string, number>
   missingPreview: number
 }
 
@@ -74,6 +80,7 @@ export interface CatalogFilters {
   difficulty?: string
   genre?: string
   era?: string
+  country?: string
   missingPreview?: boolean
 }
 
@@ -133,6 +140,10 @@ export interface CatalogJob {
   skippedExisting?: number
   skippedNonOpm?: number
   skippedNoPreview?: number
+  skippedNonOpmNames?: string[]
+  updated?: number
+  country?: string
+  catalog?: string
   errors?: string[]
   source?: string
   fetched?: number
@@ -168,6 +179,9 @@ export async function fetchCatalog(
   }
   if (filters.era && filters.era !== 'all') {
     params.set('era', filters.era)
+  }
+  if (filters.country && filters.country !== 'all') {
+    params.set('country', filters.country)
   }
   if (filters.missingPreview) params.set('missingPreview', '1')
   return request<CatalogResponse>(`/catalog?${params}`)
@@ -217,10 +231,18 @@ export async function syncSpotifyMetrics(): Promise<SpotifySyncResponse> {
   })
 }
 
-export async function startPlaylistImport(playlistUrl: string): Promise<string> {
+export async function startPlaylistImport(
+  playlistUrl: string,
+  options: { country?: string; catalog?: string; assumeAllLocal?: boolean } = {},
+): Promise<string> {
   const data = await request<{ jobId: string }>('/catalog/playlist', {
     method: 'POST',
-    body: JSON.stringify({ playlistUrl }),
+    body: JSON.stringify({
+      playlistUrl,
+      country: options.country,
+      catalog: options.catalog,
+      assumeAllLocal: options.assumeAllLocal === true,
+    }),
   })
   return data.jobId
 }

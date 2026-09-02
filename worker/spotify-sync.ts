@@ -161,6 +161,7 @@ interface SpotifyArtistMetrics {
   id: string
   name: string
   popularity: number
+  genres?: string[]
 }
 
 interface SpotifyTrackPayload extends SpotifyTrackRef {
@@ -265,6 +266,7 @@ export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {
   }
 
   const popularityByArtist = new Map<string, number>()
+  const genresByArtist = new Map<string, string[]>()
   const artistIdList = [...artistIds]
 
   for (let index = 0; index < artistIdList.length; index += ARTIST_BATCH_SIZE) {
@@ -279,6 +281,7 @@ export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {
       for (const artist of artists) {
         if (artist?.id) {
           popularityByArtist.set(artist.id, artist.popularity ?? 0)
+          if (artist.genres?.length) genresByArtist.set(artist.id, artist.genres)
         }
       }
     } catch (error) {
@@ -300,7 +303,15 @@ export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {
       popularity,
       artistPopularity,
       releaseYear,
+      releaseDate: track.album?.release_date,
       durationMs: track.duration_ms,
+      spotifyGenres: [
+        ...new Set(
+          (track.artists ?? []).flatMap((artist) =>
+            artist.id ? (genresByArtist.get(artist.id) ?? []) : [],
+          ),
+        ),
+      ],
       difficulty: assignDifficultyFromMetrics({
         popularity,
         artistPopularity,

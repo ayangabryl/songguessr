@@ -1,12 +1,39 @@
-import { findExistingTrackIds, insertTracks, MAX_CATALOG_TRACKS } from './catalog-d1'
-import { isOpmSpotifyTrack } from './opm-artists'
+import {
+  DEFAULT_CATALOG,
+  DEFAULT_COUNTRY,
+  isCatalogKind,
+  isCountryCode,
+  type CatalogKind,
+  type CountryCode,
+} from '../shared/catalog-meta'
+import {
+  isAllowedTrack,
+  loadArtistAllowlist,
+  seedOpmArtists,
+  upsertArtists,
+} from './artists-d1'
+import {
+  applyChartImportPatches,
+  findExistingTrackIds,
+  insertTracks,
+  MAX_CATALOG_TRACKS,
+  upsertTracks,
+} from './catalog-d1'
+import { assignChartDifficulty, parseReleaseYear } from './difficulty'
 import {
   fetchPlaylistTracks,
   MAX_PLAYLIST_TRACKS,
+  OPM_PLAYLIST_ID,
   parseSpotifyPlaylistId,
   type PlaylistTrackSource,
 } from './playlist-source'
-import { getSpotifyClientCredentialsToken, spotifyApiGet } from './spotify-api'
+import {
+  fetchSpotifyArtists,
+  fetchSpotifyTracks,
+  getSpotifyClientCredentialsToken,
+  spotifyApiGet,
+  type SpotifyArtistDetails,
+} from './spotify-api'
 import { buildTrackFromSpotify } from './track-builder'
 import type { Env, Track } from './types'
 
@@ -15,6 +42,13 @@ const PERSIST_EVERY_ADDED = 10
 const MAX_ERROR_MESSAGES = 8
 
 export type PlaylistImportPhase = 'fetching' | 'filtering' | 'resolving' | 'saving' | 'done'
+
+export interface PlaylistImportOptions {
+  country?: string
+  catalog?: string
+  assumeAllLocal?: boolean
+  chartBoost?: boolean
+}
 
 export interface PlaylistImportProgress {
   phase: PlaylistImportPhase
@@ -27,14 +61,20 @@ export interface PlaylistImportProgress {
 
 export interface PlaylistImportResult {
   added: number
+  updated: number
   skippedExisting: number
   skippedNonOpm: number
   skippedNoPreview: number
+  skippedNonOpmNames: string[]
   errors: string[]
   playlistId: string
   playlistName: string
   source: PlaylistTrackSource
   fetched: number
+  country: CountryCode
+  catalog: CatalogKind
+  assumeAllLocal: boolean
+  chartBoost: boolean
 }
 
 function pushError(errors: string[], message: string): void {
@@ -47,10 +87,31 @@ function pushError(errors: string[], message: string): void {
   }
 }
 
+export function parseImportCountry(value: string | undefined): CountryCode {
+  const normalized = value?.trim().toUpperCase()
+  return normalized && isCountryCode(normalized) ? normalized : DEFAULT_COUNTRY
+}
+
+export function parseImportCatalog(value: string | undefined): CatalogKind {
+  const normalized = value?.trim().toLowerCase()
+  return normalized && isCatalogKind(normalized) ? normalized : DEFAULT_CATALOG
+}
+
+function uniqueArtistNames(track: { artists?: Array<{ name?: string }> }): string[] {
+  return [
+    ...new Set(
+      (track.artists ?? [])
+        .map((artist) => artist.name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ),
+  ]
+}
+
 export async function importPlaylistToCatalog(
   env: Env,
   playlistUrl: string,
   onProgress?: (progress: PlaylistImportProgress) => void,
+  options: PlaylistImportOptions = {},
 ): Promise<PlaylistImportResult> {
   const playlistId = parseSpotifyPlaylistId(playlistUrl)
   if (!playlistId) {
@@ -63,6 +124,11 @@ export async function importPlaylistToCatalog(
     throw Object.assign(new Error('Spotify is not configured'), { status: 503 })
   }
 
+  const country = parseImportCountry(options.country)
+  const catalog = parseImportCatalog(options.catalog)
+  const assumeAllLocal = options.assumeAllLocal === true
+  const chartBoost = options.chartBoost === true || playlistId === OPM_PLAYLIST_ID
+
   onProgress?.({
     phase: 'fetching',
     processed: 0,
@@ -70,6 +136,8 @@ export async function importPlaylistToCatalog(
     added: 0,
     skipped: 0,
   })
+
+  await seedOpmArtists(env)
 
   const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
   const spotifyGet = (path: string, params?: Record<string, string | number | undefined>) =>
@@ -84,10 +152,24 @@ export async function importPlaylistToCatalog(
   const total = tracks.length
 
   const pending: Track[] = []
+  const chartPatches: Array<{
+    id: string
+    popularity?: number
+    artistPopularity?: number
+    releaseYear?: number
+    releaseDate?: string
+    spotifyGenres?: string[]
+    difficulty: Track['difficulty']
+    country: CountryCode
+    catalog: CatalogKind
+    forceTier: Track['difficulty']
+  }> = []
   let added = 0
+  let updated = 0
   let skippedExisting = 0
   let skippedNonOpm = 0
   let skippedNoPreview = 0
+  const skippedNonOpmNames = new Set<string>()
   const errors: string[] = []
   const runStartedAt = Date.now()
 
@@ -108,11 +190,26 @@ export async function importPlaylistToCatalog(
 
   report('filtering', 0)
 
+  if (assumeAllLocal) {
+    const playlistArtists = tracks.flatMap((track) =>
+      (track.artists ?? []).map((artist) => ({
+        id: artist.id,
+        name: artist.name,
+      })),
+    )
+    await upsertArtists(env, playlistArtists, country)
+  }
+
+  const allowlist = await loadArtistAllowlist(env, country)
+
   const persistPending = async (): Promise<boolean> => {
     if (pending.length === 0) return false
     report('saving', currentProcessed)
-    const saved = await insertTracks(env, pending)
+    const saved = chartBoost
+      ? await upsertTracks(env, pending)
+      : await insertTracks(env, pending)
     added += saved.added
+    updated += 'updated' in saved ? saved.updated : 0
     pending.length = 0
     if (saved.skippedCap > 0) {
       pushError(errors, `Catalog at ${MAX_CATALOG_TRACKS.toLocaleString()} track cap`)
@@ -121,8 +218,48 @@ export async function importPlaylistToCatalog(
     return false
   }
 
+  const artistIds = [
+    ...new Set(
+      tracks.flatMap((track) => (track.artists ?? []).map((artist) => artist.id).filter(Boolean)),
+    ),
+  ] as string[]
+
+  let artistDetails = new Map<string, SpotifyArtistDetails>()
+  try {
+    artistDetails = new Map(
+      (await fetchSpotifyArtists(token, artistIds)).map((artist) => [artist.id, artist]),
+    )
+    if (assumeAllLocal) {
+      await upsertArtists(
+        env,
+        [...artistDetails.values()].map((artist) => ({
+          id: artist.id,
+          name: artist.name,
+          popularity: artist.popularity,
+        })),
+        country,
+      )
+    }
+  } catch (error) {
+    pushError(errors, error instanceof Error ? error.message : 'Could not load artist details')
+  }
+
+  const hydrateIds = tracks.map((track) => track.id).filter((id): id is string => Boolean(id))
+  if (hydrateIds.length > 0) {
+    try {
+      const hydrated = await fetchSpotifyTracks(token, hydrateIds)
+      const byId = new Map(hydrated.map((track) => [track.id, track]))
+      for (const [index, track] of tracks.entries()) {
+        const full = track.id ? byId.get(track.id) : undefined
+        if (full) tracks[index] = { ...track, ...full }
+      }
+    } catch (error) {
+      pushError(errors, error instanceof Error ? error.message : 'Could not hydrate track popularity')
+    }
+  }
+
   for (const [index, track] of tracks.entries()) {
-    if (existingIds.size >= MAX_CATALOG_TRACKS) {
+    if (existingIds.size >= MAX_CATALOG_TRACKS && !chartBoost) {
       pushError(errors, `Catalog at ${MAX_CATALOG_TRACKS.toLocaleString()} track cap`)
       break
     }
@@ -137,26 +274,72 @@ export async function importPlaylistToCatalog(
       continue
     }
 
-    if (existingIds.has(track.id)) {
-      skippedExisting += 1
+    if (!isAllowedTrack(track, country, allowlist, { assumeAllLocal })) {
+      skippedNonOpm += 1
+      for (const name of uniqueArtistNames(track)) {
+        skippedNonOpmNames.add(name)
+      }
       report('filtering', index + 1)
       continue
     }
 
-    if (!isOpmSpotifyTrack(track)) {
-      skippedNonOpm += 1
+    const primaryArtist = track.artists?.[0]
+    const primaryDetails = primaryArtist?.id ? artistDetails.get(primaryArtist.id) : undefined
+    const spotifyGenres = [
+      ...new Set(
+        (track.artists ?? []).flatMap((artist) =>
+          artist.id ? (artistDetails.get(artist.id)?.genres ?? []) : [],
+        ),
+      ),
+    ]
+
+    if (existingIds.has(track.id)) {
+      if (chartBoost) {
+        const popularity = track.popularity ?? 0
+        const artistPopularity = primaryDetails?.popularity ?? 0
+        const difficulty = assignChartDifficulty({
+          popularity,
+          artistPopularity,
+          artistName: track.artists?.map((item) => item.name).join(', '),
+        })
+        chartPatches.push({
+          id: track.id,
+          popularity: track.popularity,
+          artistPopularity: primaryDetails?.popularity,
+          releaseYear: parseReleaseYear(track.album?.release_date),
+          releaseDate: track.album?.release_date,
+          spotifyGenres,
+          difficulty,
+          country,
+          catalog,
+          forceTier: difficulty,
+        })
+        updated += 1
+      } else {
+        skippedExisting += 1
+      }
       report('filtering', index + 1)
       continue
     }
 
     try {
       report('resolving', index + 1)
-      const built = await buildTrackFromSpotify(track)
+      const built = await buildTrackFromSpotify(track, {
+        country,
+        catalog,
+        chartBoost,
+        requireOpm: !assumeAllLocal && country === DEFAULT_COUNTRY,
+        artistPopularity: primaryDetails?.popularity,
+        spotifyGenres,
+      })
       if (!built.track) {
         if (built.reason?.toLowerCase().includes('preview')) {
           skippedNoPreview += 1
         } else if (built.reason?.toLowerCase().includes('opm')) {
           skippedNonOpm += 1
+          for (const name of uniqueArtistNames(track)) {
+            skippedNonOpmNames.add(name)
+          }
         } else {
           pushError(errors, built.reason ?? `Could not add ${track.name ?? track.id}`)
         }
@@ -187,17 +370,27 @@ export async function importPlaylistToCatalog(
   }
 
   await persistPending()
+  if (chartPatches.length > 0) {
+    report('saving', total)
+    updated = await applyChartImportPatches(env, chartPatches)
+  }
   report('done', total)
 
   return {
     added,
+    updated,
     skippedExisting,
     skippedNonOpm,
     skippedNoPreview,
+    skippedNonOpmNames: [...skippedNonOpmNames].sort((left, right) => left.localeCompare(right)),
     errors,
     playlistId: playlist.playlistId,
     playlistName: playlist.playlistName,
     source: playlist.source,
     fetched: playlist.tracks.length,
+    country,
+    catalog,
+    assumeAllLocal,
+    chartBoost,
   }
 }

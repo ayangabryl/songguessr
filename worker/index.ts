@@ -8,12 +8,14 @@ import {
   pickRandomTrack,
   searchCatalog,
 } from './catalog'
-import { getCatalogStats } from './catalog-d1'
+import { getCatalogStats, listCatalogCountries } from './catalog-d1'
+import { GAME_REGIONS, COUNTRY_LABELS, isCountryCode } from '../shared/catalog-meta'
 import { songIdentityKey } from './track-dedupe.ts'
 import {
   type CatalogFilters,
   type EraFilter,
   type GenreFilter,
+  parseCountryFilters,
   parseEraFilters,
   parseGenreFilters,
   trackMatchesFilters,
@@ -43,13 +45,19 @@ function parseCatalogFilters(c: { req: { query: (key: string) => string | undefi
   return {
     eras: parseEraFilters(c.req.query('eras')),
     genres: parseGenreFilters(c.req.query('genres')),
+    countries: parseCountryFilters(c.req.query('countries'), c.req.query('regions')),
   }
 }
 
 function parseCatalogFiltersFromBody(body: {
   eras?: string[]
   genres?: string[]
+  countries?: string[]
+  regions?: string[]
 }): CatalogFilters {
+  const countryValues = [...(body.countries ?? []), ...(body.regions ?? [])]
+    .map((item) => item.trim().toUpperCase())
+    .filter(isCountryCode)
   return {
     eras: (body.eras ?? []).filter((era): era is EraFilter =>
       (['modern', '2010s', '2000s', 'classics'] as const).includes(era as EraFilter),
@@ -57,6 +65,7 @@ function parseCatalogFiltersFromBody(body: {
     genres: (body.genres ?? []).filter((genre): genre is GenreFilter =>
       (['pop', 'hip-hop', 'r&b', 'rock', 'dance', 'other'] as const).includes(genre as GenreFilter),
     ),
+    countries: [...new Set(countryValues)],
   }
 }
 
@@ -196,6 +205,25 @@ app.get('/api/health', async (c) => {
   }
 })
 
+app.get('/api/catalog/regions', async (c) => {
+  try {
+    const counts = await listCatalogCountries(c.env)
+    const countByCountry = new Map(counts.map((row) => [row.country, row.count]))
+    return c.json({
+      regions: GAME_REGIONS.map((region) => ({
+        ...region,
+        label: COUNTRY_LABELS[region.country],
+        count: countByCountry.get(region.country) ?? 0,
+      })),
+    })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
+  }
+})
+
 app.get('/api/catalog/availability', async (c) => {
   try {
     const filters = parseCatalogFilters(c)
@@ -244,7 +272,7 @@ app.get('/api/random', async (c) => {
         {
           error: 'Catalogue error',
           message:
-            'No songs match these filters for this difficulty. Try another difficulty or clear the era and genre filters.',
+            'No songs match these filters for this difficulty. Try another difficulty or clear the region, era, and genre filters.',
         },
         404,
       )
@@ -328,6 +356,8 @@ app.post('/api/guess', async (c) => {
       reveal?: boolean
       eras?: string[]
       genres?: string[]
+      countries?: string[]
+      regions?: string[]
     }>()
 
     const difficulty = parseDifficulty(body.difficulty)

@@ -18,12 +18,27 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { formatNumber } from '@/lib/format'
+import { Switch } from '@/components/ui/switch'
+import {
+  CATALOG_KINDS,
+  CATALOG_LABELS,
+  COUNTRY_CODES,
+  COUNTRY_LABELS,
+  formatNumber,
+} from '@/lib/format'
 import { ListMusicIcon, SearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -50,6 +65,9 @@ export function AddSongsPage() {
   const [searching, setSearching] = useState(false)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [playlistUrl, setPlaylistUrl] = useState('')
+  const [country, setCountry] = useState('PH')
+  const [catalog, setCatalog] = useState('opm')
+  const [assumeAllLocal, setAssumeAllLocal] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [job, setJob] = useState<CatalogJob | null>(null)
   const [starting, setStarting] = useState(false)
@@ -125,7 +143,11 @@ export function AddSongsPage() {
     setStarting(true)
     setJob(null)
     try {
-      const id = await startPlaylistImport(playlistUrl.trim())
+      const id = await startPlaylistImport(playlistUrl.trim(), {
+        country,
+        catalog,
+        assumeAllLocal,
+      })
       setJobId(id)
       setJob({
         status: 'queued',
@@ -152,7 +174,8 @@ export function AddSongsPage() {
         <CardHeader>
           <CardTitle>Spotify playlist</CardTitle>
           <CardDescription>
-            Paste a public playlist URL or ID. Import runs in the background with live progress.
+            Paste a public playlist URL or ID. Set country and catalog so D1 knows where those
+            songs belong. Import runs in the background with live progress.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -160,20 +183,79 @@ export function AddSongsPage() {
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="playlist-url">Playlist URL</FieldLabel>
-                <div className="flex gap-2">
-                  <Input
-                    id="playlist-url"
-                    value={playlistUrl}
-                    onChange={(event) => setPlaylistUrl(event.target.value)}
-                    placeholder="https://open.spotify.com/playlist/…"
+                <Input
+                  id="playlist-url"
+                  value={playlistUrl}
+                  onChange={(event) => setPlaylistUrl(event.target.value)}
+                  placeholder="https://open.spotify.com/playlist/…"
+                  disabled={jobRunning || starting}
+                />
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel>Country</FieldLabel>
+                  <Select
+                    value={country}
+                    onValueChange={setCountry}
                     disabled={jobRunning || starting}
-                  />
-                  <Button type="submit" disabled={jobRunning || starting || !playlistUrl.trim()}>
-                    {jobRunning || starting ? <Spinner data-icon="inline-start" /> : null}
-                    {jobRunning || starting ? 'Importing…' : 'Add playlist'}
-                  </Button>
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {COUNTRY_CODES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {COUNTRY_LABELS[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field>
+                  <FieldLabel>Catalog</FieldLabel>
+                  <Select
+                    value={catalog}
+                    onValueChange={setCatalog}
+                    disabled={jobRunning || starting}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {CATALOG_KINDS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {CATALOG_LABELS[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <Field orientation="horizontal" className="items-start">
+                <Switch
+                  id="assume-all-local"
+                  checked={assumeAllLocal}
+                  onCheckedChange={setAssumeAllLocal}
+                  disabled={jobRunning || starting}
+                />
+                <div className="flex flex-col gap-1">
+                  <FieldLabel htmlFor="assume-all-local">
+                    All songs in this playlist are from this country
+                  </FieldLabel>
+                  <FieldDescription>
+                    Whitelist every artist on the playlist as {COUNTRY_LABELS[country as keyof typeof COUNTRY_LABELS] ?? country}.
+                    Leave off for mixed charts like Top 50 — Philippines.
+                  </FieldDescription>
                 </div>
               </Field>
+              <Button type="submit" disabled={jobRunning || starting || !playlistUrl.trim()}>
+                {jobRunning || starting ? <Spinner data-icon="inline-start" /> : null}
+                {jobRunning || starting ? 'Importing…' : 'Add playlist'}
+              </Button>
             </FieldGroup>
           </form>
 
@@ -204,17 +286,29 @@ export function AddSongsPage() {
               <Progress value={progressValue} />
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary">Added {formatNumber(job.added)}</Badge>
+                {job.updated != null && job.updated > 0 ? (
+                  <Badge variant="secondary">Updated {formatNumber(job.updated)}</Badge>
+                ) : null}
                 <Badge variant="outline">Skipped {formatNumber(job.skipped)}</Badge>
                 {job.skippedExisting != null ? (
                   <Badge variant="outline">Existing {formatNumber(job.skippedExisting)}</Badge>
                 ) : null}
                 {job.skippedNonOpm != null ? (
-                  <Badge variant="outline">Not OPM {formatNumber(job.skippedNonOpm)}</Badge>
+                  <Badge variant="outline">Not local {formatNumber(job.skippedNonOpm)}</Badge>
                 ) : null}
                 {job.skippedNoPreview != null ? (
                   <Badge variant="outline">No preview {formatNumber(job.skippedNoPreview)}</Badge>
                 ) : null}
+                {job.country ? <Badge variant="outline">{job.country}</Badge> : null}
               </div>
+              {job.skippedNonOpmNames?.length ? (
+                <p className="text-sm text-muted-foreground">
+                  Skipped artists: {job.skippedNonOpmNames.slice(0, 12).join(', ')}
+                  {job.skippedNonOpmNames.length > 12
+                    ? ` +${job.skippedNonOpmNames.length - 12} more`
+                    : ''}
+                </p>
+              ) : null}
               {job.error ? <p className="text-sm text-destructive">{job.error}</p> : null}
               {job.errors?.[0] ? (
                 <p className="text-sm text-muted-foreground">{job.errors[0]}</p>

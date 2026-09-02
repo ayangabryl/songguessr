@@ -12,6 +12,7 @@ import {
   MAX_CATALOG_TRACKS,
   removeTrackFromCatalog,
 } from './catalog-d1'
+import { isCountryCode, type CountryCode } from '../shared/catalog-meta'
 import { syncSpotifyMetrics } from './spotify-sync'
 import {
   ERA_OPTIONS,
@@ -21,7 +22,7 @@ import {
 } from './filters'
 import { createCatalogJob, getCatalogJob, updateCatalogJob } from './jobs'
 import { isOpmSpotifyTrack, UNIQUE_OPM_ARTISTS } from './opm-artists'
-import { importPlaylistToCatalog } from './playlist-import'
+import { importPlaylistToCatalog, type PlaylistImportOptions } from './playlist-import'
 import { parseSpotifyPlaylistId } from './playlist-source'
 import { backfillMissingAlbumArt } from './album-art-backfill'
 import { fetchSpotifyTrack, getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
@@ -203,6 +204,12 @@ function parseListEra(value: string | undefined): EraFilter | undefined {
   if (value && ERA_OPTIONS.includes(value as EraFilter)) {
     return value as EraFilter
   }
+  return undefined
+}
+
+function parseListCountry(value: string | undefined): CountryCode | undefined {
+  const normalized = value?.trim().toUpperCase()
+  if (normalized && isCountryCode(normalized)) return normalized
   return undefined
 }
 
@@ -392,6 +399,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         difficulty: parseListDifficulty(c.req.query('difficulty')),
         genre: parseListGenre(c.req.query('genre')),
         era: parseListEra(c.req.query('era')),
+        country: parseListCountry(c.req.query('country')),
         missingPreview:
           c.req.query('missingPreview') === '1' || c.req.query('missingPreview') === 'true',
       }
@@ -500,7 +508,15 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
   })
 
   admin.post('/admin/api/catalog/playlist', async (c) => {
-    const body = await c.req.json<{ playlistUrl?: string }>().catch(() => ({ playlistUrl: undefined }))
+    const body = await c.req
+      .json<{
+        playlistUrl?: string
+        country?: string
+        catalog?: string
+        assumeAllLocal?: boolean
+        wait?: boolean
+      }>()
+      .catch(() => ({ playlistUrl: undefined }))
     const playlistUrl = body.playlistUrl?.trim() ?? ''
     if (!playlistUrl) {
       return c.json({ error: 'playlistUrl is required' }, 400)
@@ -509,8 +525,19 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       return c.json({ error: 'Invalid Spotify playlist URL or ID' }, 400)
     }
 
+    const importOptions: PlaylistImportOptions = {
+      country: body.country,
+      catalog: body.catalog,
+      assumeAllLocal: body.assumeAllLocal === true,
+    }
+
     const jobId = createCatalogJob()
-    const run = runPlaylistImportJob(c.env, jobId, playlistUrl)
+    const run = runPlaylistImportJob(c.env, jobId, playlistUrl, importOptions)
+    if (body.wait === true) {
+      await run
+      const job = getCatalogJob(jobId)
+      return c.json({ jobId, ...(job ?? { status: 'error', error: 'Job missing after import' }) })
+    }
     try {
       c.executionCtx.waitUntil(run)
     } catch {
@@ -582,7 +609,12 @@ async function serveAdminAsset(env: Env, assetPath: string): Promise<Response> {
   return response
 }
 
-async function runPlaylistImportJob(env: Env, jobId: string, playlistUrl: string): Promise<void> {
+async function runPlaylistImportJob(
+  env: Env,
+  jobId: string,
+  playlistUrl: string,
+  options: PlaylistImportOptions = {},
+): Promise<void> {
   updateCatalogJob(jobId, { status: 'running', phase: 'fetching' })
   try {
     const result = await importPlaylistToCatalog(env, playlistUrl, (progress) => {
@@ -595,11 +627,12 @@ async function runPlaylistImportJob(env: Env, jobId: string, playlistUrl: string
         skipped: progress.skipped,
         playlistName: progress.playlistName,
       })
-    })
+    }, options)
     updateCatalogJob(jobId, {
       status: 'done',
       phase: 'done',
       added: result.added,
+      updated: result.updated,
       skipped: result.skippedExisting + result.skippedNonOpm + result.skippedNoPreview,
       processed: result.fetched,
       total: result.fetched,
@@ -607,6 +640,9 @@ async function runPlaylistImportJob(env: Env, jobId: string, playlistUrl: string
       skippedExisting: result.skippedExisting,
       skippedNonOpm: result.skippedNonOpm,
       skippedNoPreview: result.skippedNoPreview,
+      skippedNonOpmNames: result.skippedNonOpmNames,
+      country: result.country,
+      catalog: result.catalog,
       errors: result.errors,
       source: result.source,
       fetched: result.fetched,

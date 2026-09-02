@@ -49,6 +49,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  COUNTRY_CODES,
+  COUNTRY_FILTER_LABELS,
+  COUNTRY_LABELS,
   DIFFICULTY_LABELS,
   DIFFICULTY_OPTIONS,
   ERA_LABELS,
@@ -64,6 +67,7 @@ const EMPTY_COUNTS: CatalogCounts = {
   difficulty: {},
   genre: {},
   era: {},
+  country: {},
   missingPreview: 0,
 }
 
@@ -73,6 +77,7 @@ export function CatalogPage() {
   const [difficulty, setDifficulty] = useState('all')
   const [genre, setGenre] = useState('all')
   const [era, setEra] = useState('all')
+  const [country, setCountry] = useState('all')
   const [missingPreview, setMissingPreview] = useState(false)
   const [page, setPage] = useState(1)
   const [tracks, setTracks] = useState<CatalogTrack[]>([])
@@ -90,6 +95,7 @@ export function CatalogPage() {
         difficulty,
         genre,
         era,
+        country,
         missingPreview,
       })
       setTracks(data.tracks)
@@ -101,7 +107,7 @@ export function CatalogPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, query, difficulty, genre, era, missingPreview])
+  }, [page, query, difficulty, genre, era, country, missingPreview])
 
   useEffect(() => {
     void load()
@@ -201,6 +207,30 @@ export function CatalogPage() {
               </Select>
             </Field>
             <Field className="w-52">
+              <FieldLabel>Country</FieldLabel>
+              <Select
+                value={country}
+                onValueChange={(value) => {
+                  setCountry(value)
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">All countries</SelectItem>
+                    {COUNTRY_CODES.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {COUNTRY_FILTER_LABELS[option]} ({formatNumber(counts.country?.[option] ?? 0)})
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field className="w-52">
               <FieldLabel>Era</FieldLabel>
               <Select
                 value={era}
@@ -267,8 +297,10 @@ export function CatalogPage() {
                   <TableHead>Track</TableHead>
                   <TableHead>Artist</TableHead>
                   <TableHead>Difficulty</TableHead>
+                  <TableHead>Popularity</TableHead>
+                  <TableHead>Year</TableHead>
                   <TableHead>Genre</TableHead>
-                  <TableHead>Era</TableHead>
+                  <TableHead>Country</TableHead>
                   <TableHead>Preview</TableHead>
                   <TableHead />
                 </TableRow>
@@ -295,6 +327,16 @@ export function CatalogPage() {
                       <Badge variant="secondary">{track.difficulty}</Badge>
                     </TableCell>
                     <TableCell>
+                      {track.popularity != null ? (
+                        <span title="Official Spotify popularity 0–100">
+                          {formatNumber(track.popularity)}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell>{track.releaseYear ?? '—'}</TableCell>
+                    <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {(track.genreGroups ?? []).map((group) => (
                           <Badge key={group} variant="outline">
@@ -304,9 +346,10 @@ export function CatalogPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {track.era
-                        ? (ERA_LABELS[track.era as keyof typeof ERA_LABELS] ?? track.era)
-                        : '—'}
+                      {track.country
+                        ? (COUNTRY_LABELS[track.country as keyof typeof COUNTRY_LABELS] ??
+                          track.country)
+                        : 'Philippines'}
                     </TableCell>
                     <TableCell>
                       <Badge variant={track.hasPreview ? 'secondary' : 'destructive'}>

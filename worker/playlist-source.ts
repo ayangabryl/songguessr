@@ -61,6 +61,7 @@ function playlistArchiveUrls(playlistId: string): string[] {
 const NON_OPM_BLOCKLIST = new Set(
   [
     'Taylor Swift',
+    'ADÉLA',
     'Olivia Dean',
     'Daniel Caesar',
     'sombr',
@@ -172,6 +173,11 @@ export const PLAYLIST_OPM_ARTISTS = [
   "Mi'Kel",
   'Jolianne',
   'Halik Sobrang Diin',
+  'shirebound',
+  'Jin DC',
+  'Esremborak',
+  'Sugarfree',
+  'Amiel Sol',
 ] as const
 
 export function isBlockedNonOpmArtist(name: string): boolean {

@@ -4,11 +4,13 @@ import {
   ERA_OPTIONS,
   GENRE_LABELS,
   GENRE_OPTIONS,
+  REGION_LABELS,
+  type CountryCode,
   type EraFilter,
   type GenreFilter,
 } from '../lib/filters'
 import { DIFFICULTY_LABELS } from '../lib/game-state'
-import type { Difficulty } from '../lib/api'
+import type { CatalogRegion, Difficulty } from '../lib/api'
 import { FilterIcon } from './Icons'
 
 interface FilterModalProps {
@@ -16,12 +18,16 @@ interface FilterModalProps {
   difficulty: Difficulty
   draftEras: EraFilter[]
   draftGenres: GenreFilter[]
+  draftCountries: CountryCode[]
+  regions: CatalogRegion[]
   previewCount: number
   onClose: () => void
   onToggleEra: (era: EraFilter) => void
   onToggleGenre: (genre: GenreFilter) => void
+  onToggleRegion: (country: CountryCode) => void
   onClearEras: () => void
   onClearGenres: () => void
+  onClearRegions: () => void
   onClearAll: () => void
   onApply: () => void
 }
@@ -31,12 +37,16 @@ export function FilterModal({
   difficulty,
   draftEras,
   draftGenres,
+  draftCountries,
+  regions,
   previewCount,
   onClose,
   onToggleEra,
   onToggleGenre,
+  onToggleRegion,
   onClearEras,
   onClearGenres,
+  onClearRegions,
   onClearAll,
   onApply,
 }: FilterModalProps) {
@@ -53,7 +63,8 @@ export function FilterModal({
 
   if (!open) return null
 
-  const hasDraftFilters = draftEras.length > 0 || draftGenres.length > 0
+  const hasDraftFilters =
+    draftEras.length > 0 || draftGenres.length > 0 || draftCountries.length > 0
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -72,6 +83,33 @@ export function FilterModal({
             </p>
           </div>
         </div>
+
+        <fieldset className="filter-group">
+          <legend>
+            Region <span>(select any)</span>
+          </legend>
+          <div className="filter-options">
+            <button
+              type="button"
+              className={draftCountries.length === 0 ? 'selected' : ''}
+              aria-pressed={draftCountries.length === 0}
+              onClick={onClearRegions}
+            >
+              {REGION_LABELS.all}
+            </button>
+            {regions.map((region) => (
+              <button
+                key={region.id}
+                type="button"
+                className={draftCountries.includes(region.country) ? 'selected' : ''}
+                aria-pressed={draftCountries.includes(region.country)}
+                onClick={() => onToggleRegion(region.country)}
+              >
+                {region.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
 
         <fieldset className="filter-group">
           <legend>

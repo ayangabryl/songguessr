@@ -45,7 +45,7 @@ export async function pickRandomTrack(
   env: Env,
   difficulty: Difficulty,
   _seed: string,
-  filters: CatalogFilters = { eras: [], genres: [] },
+  filters: CatalogFilters = { eras: [], genres: [], countries: [] },
   excludeIds: ReadonlySet<string> = new Set(),
   excludeSongKeys: ReadonlySet<string> = new Set(),
 ): Promise<Track | null> {

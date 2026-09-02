@@ -1,4 +1,13 @@
 import {
+  CATALOG_KINDS,
+  COUNTRY_CODES,
+  DEFAULT_CATALOG,
+  DEFAULT_COUNTRY,
+  type CatalogKind,
+  type CountryCode,
+} from '../shared/catalog-meta'
+import {
+  EMPTY_CATALOG_FILTERS,
   ERA_OPTIONS,
   GENRE_OPTIONS,
   type CatalogFilters,
@@ -36,11 +45,17 @@ export interface TrackRow {
   popularity: number | null
   artist_popularity: number | null
   release_year: number | null
+  release_date: string | null
   duration_ms: number | null
   genre_groups: string | null
+  spotify_genres: string | null
   song_key: string | null
   updated_at: string | null
   spotify_synced_at: string | null
+  country: string | null
+  catalog: string | null
+  chart_boost: number | null
+  force_tier: string | null
 }
 
 export interface CatalogStats {
@@ -66,6 +81,7 @@ export interface CatalogListFilters {
   difficulty?: Difficulty
   genre?: GenreFilter
   era?: EraFilter
+  country?: CountryCode
   missingPreview: boolean
 }
 
@@ -81,6 +97,10 @@ export interface CatalogListPage {
     albumArt: string
     hasPreview: boolean
     popularity?: number
+    country: CountryCode
+    catalog: CatalogKind
+    releaseDate?: string
+    spotifyGenres: string[]
   }>
   page: number
   pageSize: number
@@ -90,6 +110,7 @@ export interface CatalogListPage {
     difficulty: Record<Difficulty, number>
     genre: Record<GenreFilter, number>
     era: Record<EraFilter, number>
+    country: Record<CountryCode, number>
     missingPreview: number
   }
 }
@@ -114,6 +135,38 @@ function parseGenreGroups(value: string | null): GenreFilter[] {
   }
 }
 
+function parseStringList(value: string | null): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  } catch {
+    return []
+  }
+}
+
+function parseCountry(value: string | null | undefined): CountryCode {
+  if (value && (COUNTRY_CODES as readonly string[]).includes(value)) {
+    return value as CountryCode
+  }
+  return DEFAULT_COUNTRY
+}
+
+function parseCatalog(value: string | null | undefined): CatalogKind {
+  if (value && (CATALOG_KINDS as readonly string[]).includes(value)) {
+    return value as CatalogKind
+  }
+  return DEFAULT_CATALOG
+}
+
+function parseForceTier(value: string | null | undefined): Difficulty | undefined {
+  if (value && DIFFICULTIES.includes(value as Difficulty)) {
+    return value as Difficulty
+  }
+  return undefined
+}
+
 function eraFromYear(year: number | null | undefined): EraFilter | null {
   if (!Number.isInteger(year)) return null
   const releaseYear = year as number
@@ -125,6 +178,8 @@ function eraFromYear(year: number | null | undefined): EraFilter | null {
 
 export function rowToTrack(row: TrackRow): Track {
   const genreGroups = parseGenreGroups(row.genre_groups)
+  const spotifyGenres = parseStringList(row.spotify_genres)
+  const forceTier = parseForceTier(row.force_tier)
   return {
     id: row.id,
     title: row.title,
@@ -135,10 +190,16 @@ export function rowToTrack(row: TrackRow): Track {
     albumArt: row.album_art ?? '',
     difficulty: row.difficulty,
     releaseYear: row.release_year ?? undefined,
+    releaseDate: row.release_date ?? undefined,
     genreGroups: genreGroups.length > 0 ? genreGroups : undefined,
+    spotifyGenres: spotifyGenres.length > 0 ? spotifyGenres : undefined,
     popularity: row.popularity ?? undefined,
     artistPopularity: row.artist_popularity ?? undefined,
     durationMs: row.duration_ms ?? undefined,
+    country: parseCountry(row.country),
+    catalog: parseCatalog(row.catalog),
+    chartBoost: Boolean(row.chart_boost),
+    ...(forceTier ? { forceTier } : {}),
   }
 }
 
@@ -155,19 +216,52 @@ function trackBindValues(track: Track, now: string): SqlValue[] {
     track.popularity ?? null,
     track.artistPopularity ?? null,
     track.releaseYear ?? null,
+    track.releaseDate ?? null,
     track.durationMs ?? null,
     JSON.stringify(track.genreGroups ?? []),
+    JSON.stringify(track.spotifyGenres ?? []),
     songIdentityKey(track),
     now,
     track.spotifySyncedAt ?? null,
+    track.country ?? DEFAULT_COUNTRY,
+    track.catalog ?? DEFAULT_CATALOG,
+    track.chartBoost ? 1 : 0,
+    track.forceTier ?? null,
   ]
 }
 
 const INSERT_COLUMNS = `id, title, artist, preview_url, hook_preview_url, hook_start_seconds,
-  album_art, difficulty, popularity, artist_popularity, release_year, duration_ms,
-  genre_groups, song_key, updated_at, spotify_synced_at`
+  album_art, difficulty, popularity, artist_popularity, release_year, release_date, duration_ms,
+  genre_groups, spotify_genres, song_key, updated_at, spotify_synced_at, country, catalog,
+  chart_boost, force_tier`
 
-const INSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const INSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+const UPSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    title = excluded.title,
+    artist = excluded.artist,
+    preview_url = COALESCE(excluded.preview_url, tracks.preview_url),
+    hook_preview_url = COALESCE(excluded.hook_preview_url, tracks.hook_preview_url),
+    hook_start_seconds = COALESCE(excluded.hook_start_seconds, tracks.hook_start_seconds),
+    album_art = COALESCE(excluded.album_art, tracks.album_art),
+    difficulty = CASE
+      WHEN excluded.chart_boost = 1 THEN excluded.difficulty
+      ELSE tracks.difficulty
+    END,
+    popularity = COALESCE(excluded.popularity, tracks.popularity),
+    artist_popularity = COALESCE(excluded.artist_popularity, tracks.artist_popularity),
+    release_year = COALESCE(excluded.release_year, tracks.release_year),
+    release_date = COALESCE(excluded.release_date, tracks.release_date),
+    duration_ms = COALESCE(excluded.duration_ms, tracks.duration_ms),
+    genre_groups = excluded.genre_groups,
+    spotify_genres = excluded.spotify_genres,
+    song_key = excluded.song_key,
+    updated_at = excluded.updated_at,
+    country = excluded.country,
+    catalog = excluded.catalog,
+    chart_boost = MAX(tracks.chart_boost, excluded.chart_boost),
+    force_tier = COALESCE(excluded.force_tier, tracks.force_tier)`
 
 function eraSql(era: EraFilter): string {
   switch (era) {
@@ -200,6 +294,11 @@ function buildFilterSql(filters: CatalogFilters): { sql: string; params: SqlValu
     )
     clauses.push(`(${genreClauses.join(' OR ')})`)
     params.push(...filters.genres)
+  }
+
+  if (filters.countries.length > 0) {
+    clauses.push(`country IN (${filters.countries.map(() => '?').join(', ')})`)
+    params.push(...filters.countries)
   }
 
   return {
@@ -312,7 +411,7 @@ export async function getAvailabilityCounts(
 export async function getDifficultyDistribution(
   env: Env,
 ): Promise<Record<Difficulty, number>> {
-  return getAvailabilityCounts(env, { eras: [], genres: [] })
+  return getAvailabilityCounts(env, EMPTY_CATALOG_FILTERS)
 }
 
 async function pickOne(
@@ -335,7 +434,7 @@ async function pickOne(
 export async function pickRandomTrack(
   env: Env,
   difficulty: Difficulty,
-  filters: CatalogFilters = { eras: [], genres: [] },
+  filters: CatalogFilters = EMPTY_CATALOG_FILTERS,
   excludeIds: ReadonlySet<string> = new Set(),
   excludeSongKeys: ReadonlySet<string> = new Set(),
 ): Promise<Track | null> {
@@ -430,6 +529,62 @@ export async function insertTracks(
   }
 }
 
+export interface UpsertTracksResult extends AddTracksToCatalogResult {
+  updated: number
+}
+
+export async function upsertTracks(
+  env: Env,
+  tracks: Track[],
+): Promise<UpsertTracksResult> {
+  const db = requireDb(env)
+  const totalBefore = await countTracks(env)
+  if (tracks.length === 0) {
+    return { added: 0, updated: 0, totalTracks: totalBefore, skippedExisting: 0, skippedCap: 0 }
+  }
+
+  const existing = await findExistingTrackIds(
+    env,
+    tracks.map((track) => track.id),
+  )
+  let skippedCap = 0
+  let remainingCap = Math.max(0, MAX_CATALOG_TRACKS - totalBefore)
+  const incoming: Track[] = []
+
+  for (const track of tracks) {
+    if (existing.has(track.id)) {
+      incoming.push(track)
+      continue
+    }
+    if (remainingCap <= 0) {
+      skippedCap += 1
+      continue
+    }
+    incoming.push(track)
+    remainingCap -= 1
+  }
+
+  if (incoming.length === 0) {
+    return { added: 0, updated: 0, totalTracks: totalBefore, skippedExisting: 0, skippedCap }
+  }
+
+  const now = new Date().toISOString()
+  const statements = incoming.map((track) => db.prepare(UPSERT_SQL).bind(...trackBindValues(track, now)))
+  for (let index = 0; index < statements.length; index += 100) {
+    await db.batch(statements.slice(index, index + 100))
+  }
+
+  const added = incoming.filter((track) => !existing.has(track.id)).length
+  const updated = incoming.length - added
+  return {
+    added,
+    updated,
+    totalTracks: totalBefore + added,
+    skippedExisting: 0,
+    skippedCap,
+  }
+}
+
 export async function addTrackToCatalog(env: Env, track: Track): Promise<CatalogMutationResult> {
   const result = await insertTracks(env, [track])
   if (result.skippedExisting > 0) {
@@ -467,8 +622,70 @@ export interface TrackMetricsPatch {
   popularity?: number
   artistPopularity?: number
   releaseYear?: number
+  releaseDate?: string
   durationMs?: number
+  spotifyGenres?: string[]
   difficulty: Difficulty
+}
+
+export interface ChartImportPatch {
+  id: string
+  popularity?: number
+  artistPopularity?: number
+  releaseYear?: number
+  releaseDate?: string
+  spotifyGenres?: string[]
+  difficulty: Difficulty
+  country: CountryCode
+  catalog: CatalogKind
+  forceTier: Difficulty
+}
+
+export async function applyChartImportPatches(
+  env: Env,
+  patches: ChartImportPatch[],
+): Promise<number> {
+  if (patches.length === 0) return 0
+  const db = requireDb(env)
+  const now = new Date().toISOString()
+  const statements = patches.map((patch) =>
+    db
+      .prepare(
+        `UPDATE tracks SET
+           popularity = COALESCE(?, popularity),
+           artist_popularity = COALESCE(?, artist_popularity),
+           release_year = COALESCE(?, release_year),
+           release_date = COALESCE(?, release_date),
+           spotify_genres = COALESCE(?, spotify_genres),
+           difficulty = ?,
+           country = ?,
+           catalog = ?,
+           chart_boost = 1,
+           force_tier = ?,
+           updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        patch.popularity ?? null,
+        patch.artistPopularity ?? null,
+        patch.releaseYear ?? null,
+        patch.releaseDate ?? null,
+        patch.spotifyGenres ? JSON.stringify(patch.spotifyGenres) : null,
+        patch.difficulty,
+        patch.country,
+        patch.catalog,
+        patch.forceTier,
+        now,
+        patch.id,
+      ),
+  )
+
+  let updated = 0
+  for (let index = 0; index < statements.length; index += 100) {
+    const result = await db.batch(statements.slice(index, index + 100))
+    updated += result.reduce((sum, item) => sum + (item.meta?.changes ?? 0), 0)
+  }
+  return updated
 }
 
 export async function applyTrackMetricPatches(
@@ -488,8 +705,16 @@ export async function applyTrackMetricPatches(
            popularity = ?,
            artist_popularity = ?,
            release_year = COALESCE(?, release_year),
+           release_date = COALESCE(?, release_date),
            duration_ms = COALESCE(?, duration_ms),
-           difficulty = ?,
+           spotify_genres = COALESCE(?, spotify_genres),
+           difficulty = CASE
+             WHEN chart_boost = 1 THEN CASE
+               WHEN ? IN ('easy', 'medium') THEN ?
+               ELSE COALESCE(force_tier, 'medium')
+             END
+             ELSE ?
+           END,
            updated_at = ?,
            spotify_synced_at = ?
          WHERE id = ?`,
@@ -501,7 +726,11 @@ export async function applyTrackMetricPatches(
         patch.popularity ?? null,
         patch.artistPopularity ?? null,
         patch.releaseYear ?? null,
+        patch.releaseDate ?? null,
         patch.durationMs ?? null,
+        patch.spotifyGenres ? JSON.stringify(patch.spotifyGenres) : null,
+        patch.difficulty,
+        patch.difficulty,
         patch.difficulty,
         now,
         now,
@@ -542,6 +771,10 @@ function listFilterSql(filters: CatalogListFilters): { sql: string; params: SqlV
   if (filters.era) {
     clauses.push(eraSql(filters.era))
   }
+  if (filters.country) {
+    clauses.push('country = ?')
+    params.push(filters.country)
+  }
   if (filters.missingPreview) {
     clauses.push("(preview_url IS NULL OR preview_url = '')")
   }
@@ -560,6 +793,7 @@ function emptyFacetCounts() {
     >,
     genre: Object.fromEntries(GENRE_OPTIONS.map((item) => [item, 0])) as Record<GenreFilter, number>,
     era: Object.fromEntries(ERA_OPTIONS.map((item) => [item, 0])) as Record<EraFilter, number>,
+    country: Object.fromEntries(COUNTRY_CODES.map((item) => [item, 0])) as Record<CountryCode, number>,
     missingPreview: 0,
   }
 }
@@ -577,8 +811,15 @@ export async function listCatalogPage(
   const searchedWhere = `WHERE 1 = 1${search.sql}`
   const filteredWhere = `${searchedWhere}${filter.sql}`
 
-  const [difficultyRows, genreRows, eraRows, missingRow, totalRow] = await db.batch<
-    { difficulty?: Difficulty; n?: number; genre?: GenreFilter; era?: EraFilter | null; total?: number }
+  const [difficultyRows, genreRows, eraRows, countryRows, missingRow, totalRow] = await db.batch<
+    {
+      difficulty?: Difficulty
+      n?: number
+      genre?: GenreFilter
+      era?: EraFilter | null
+      country?: string
+      total?: number
+    }
   >([
     db
       .prepare(
@@ -608,6 +849,11 @@ export async function listCatalogPage(
       .bind(...search.params),
     db
       .prepare(
+        `SELECT country, COUNT(*) AS n FROM tracks ${searchedWhere} GROUP BY country`,
+      )
+      .bind(...search.params),
+    db
+      .prepare(
         `SELECT COUNT(*) AS n FROM tracks ${searchedWhere} AND (preview_url IS NULL OR preview_url = '')`,
       )
       .bind(...search.params),
@@ -629,6 +875,10 @@ export async function listCatalogPage(
     if (row.era && ERA_OPTIONS.includes(row.era)) {
       counts.era[row.era] = row.n ?? 0
     }
+  }
+  for (const row of countryRows.results ?? []) {
+    const country = parseCountry(row.country)
+    counts.country[country] += row.n ?? 0
   }
   counts.missingPreview = missingRow.results?.[0]?.n ?? 0
 
@@ -658,6 +908,10 @@ export async function listCatalogPage(
         albumArt: track.albumArt,
         hasPreview: Boolean(track.previewUrl),
         popularity: track.popularity,
+        country: track.country ?? DEFAULT_COUNTRY,
+        catalog: track.catalog ?? DEFAULT_CATALOG,
+        releaseDate: track.releaseDate,
+        spotifyGenres: track.spotifyGenres ?? [],
       }
     }),
     page: safePage,
@@ -666,6 +920,20 @@ export async function listCatalogPage(
     totalPages,
     counts,
   }
+}
+
+export async function listCatalogCountries(env: Env): Promise<Array<{ country: CountryCode; count: number }>> {
+  const db = requireDb(env)
+  const result = await db
+    .prepare(`SELECT country, COUNT(*) AS n FROM tracks GROUP BY country`)
+    .all<{ country: string | null; n: number }>()
+
+  const counts = new Map<CountryCode, number>()
+  for (const row of result.results ?? []) {
+    const country = parseCountry(row.country)
+    counts.set(country, (counts.get(country) ?? 0) + (row.n ?? 0))
+  }
+  return [...counts.entries()].map(([country, count]) => ({ country, count }))
 }
 
 export async function listTracksMissingAlbumArt(
