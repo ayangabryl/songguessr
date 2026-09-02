@@ -12,11 +12,16 @@ import {
   seedOpmArtists,
   upsertArtists,
 } from './artists-d1'
-import { resolveCatalogIds, addTracksToCollections } from './catalogs-d1'
+import {
+  addTracksToCollections,
+  listCollectionsForTracks,
+  resolveCatalogIds,
+} from './catalogs-d1'
 import {
   applyChartImportPatches,
   findExistingIdentities,
   insertTracks,
+  mapIncomingIdsToCatalogIds,
   MAX_CATALOG_TRACKS,
   upsertTracks,
 } from './catalog-d1'
@@ -167,6 +172,8 @@ export interface PlaylistPreviewTrack {
   albumArt: string
   alreadyInCatalog: boolean
   isDuplicate: boolean
+  catalogTrackId?: string
+  collections: string[]
 }
 
 export interface PlaylistPreviewResult {
@@ -196,14 +203,13 @@ export async function previewPlaylistForCatalog(
   const playlist = await fetchPlaylistTracks(spotifyGet, playlistId)
   const tracks = playlist.tracks.filter((track): track is typeof track & { id: string } => Boolean(track.id))
 
-  const identities = await findExistingIdentities(
-    env,
-    tracks.map((track) => ({
-      id: track.id,
-      title: track.name ?? '',
-      artist: (track.artists ?? []).map((artist) => artist.name).join(', '),
-    })),
-  )
+  const previewTracks = tracks.map((track) => ({
+    id: track.id,
+    title: track.name ?? '',
+    artist: (track.artists ?? []).map((artist) => artist.name).join(', '),
+  }))
+  const catalogIdsByIncoming = await mapIncomingIdsToCatalogIds(env, previewTracks)
+  const collectionsMap = await listCollectionsForTracks(env, [...catalogIdsByIncoming.values()])
 
   const seenIds = new Set<string>()
   const seenKeys = new Set<string>()
@@ -218,13 +224,17 @@ export async function previewPlaylistForCatalog(
       const isDuplicate = seenIds.has(track.id) || seenKeys.has(key)
       seenIds.add(track.id)
       seenKeys.add(key)
+      const catalogTrackId = catalogIdsByIncoming.get(track.id)
+      const alreadyInCatalog = Boolean(catalogTrackId)
       return {
         id: track.id,
         title,
         artist,
         albumArt: track.album?.images?.[0]?.url ?? '',
-        alreadyInCatalog: identities.ids.has(track.id) || identities.songKeys.has(key),
+        alreadyInCatalog,
         isDuplicate,
+        catalogTrackId,
+        collections: catalogTrackId ? (collectionsMap.get(catalogTrackId) ?? []) : [],
       }
     }),
   }

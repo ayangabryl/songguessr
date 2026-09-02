@@ -1,4 +1,5 @@
-import type { AdminCatalog } from '@/api'
+import { useId } from 'react'
+import type { AdminCatalog, CollectionAssignMode } from '@/api'
 import { NotoEmoji } from '../../shared/noto-emoji'
 import {
   AlertDialog,
@@ -10,11 +11,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { FieldDescription } from '@/components/ui/field'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { pushAdminPath } from '@/lib/routes'
 
 export function toggleId(current: string[], id: string): string[] {
   return current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+}
+
+export function collectionsAfterAssign(
+  current: string[],
+  picked: string[],
+  mode: CollectionAssignMode,
+): string[] {
+  switch (mode) {
+    case 'replace':
+      return [...picked]
+    case 'add':
+      return [...new Set([...current, ...picked])]
+    default: {
+      const exhaustive: never = mode
+      return exhaustive
+    }
+  }
 }
 
 export function CollectionChecklist({
@@ -70,6 +88,57 @@ export function CollectionChecklist({
   )
 }
 
+export function CollectionAssignModeField({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: CollectionAssignMode
+  onChange: (mode: CollectionAssignMode) => void
+  disabled?: boolean
+}) {
+  const name = useId()
+  return (
+    <Field>
+      <FieldLabel>How to apply</FieldLabel>
+      <div className="flex flex-col gap-1 rounded-lg border p-2">
+        <label className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-1.5 hover:bg-muted/60">
+          <input
+            type="radio"
+            className="mt-1 size-4 accent-primary"
+            name={name}
+            checked={value === 'replace'}
+            disabled={disabled}
+            onChange={() => onChange('replace')}
+          />
+          <span>
+            <span className="block text-sm font-medium">Replace with these</span>
+            <span className="block text-sm text-muted-foreground">
+              Removes the current tags, then sets the ones you picked.
+            </span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-1.5 hover:bg-muted/60">
+          <input
+            type="radio"
+            className="mt-1 size-4 accent-primary"
+            name={name}
+            checked={value === 'add'}
+            disabled={disabled}
+            onChange={() => onChange('add')}
+          />
+          <span>
+            <span className="block text-sm font-medium">Add these</span>
+            <span className="block text-sm text-muted-foreground">
+              Keeps current tags and adds the ones you picked.
+            </span>
+          </span>
+        </label>
+      </div>
+    </Field>
+  )
+}
+
 export function CollectionPickerDialog({
   open,
   title,
@@ -81,6 +150,8 @@ export function CollectionPickerDialog({
   onConfirm,
   confirming = false,
   confirmLabel = 'Add',
+  mode,
+  onModeChange,
 }: {
   open: boolean
   title: string
@@ -92,6 +163,8 @@ export function CollectionPickerDialog({
   onConfirm: () => void
   confirming?: boolean
   confirmLabel?: string
+  mode?: CollectionAssignMode
+  onModeChange?: (mode: CollectionAssignMode) => void
 }) {
   return (
     <AlertDialog open={open} onOpenChange={(next) => !next && !confirming && onCancel()}>
@@ -109,9 +182,15 @@ export function CollectionPickerDialog({
           onChange={onSelectedChange}
           disabled={confirming}
         />
+        {mode && onModeChange ? (
+          <CollectionAssignModeField value={mode} onChange={onModeChange} disabled={confirming} />
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={confirming}>Cancel</AlertDialogCancel>
-          <AlertDialogAction disabled={confirming} onClick={() => void onConfirm()}>
+          <AlertDialogAction
+            disabled={confirming || (mode === 'add' && selected.length === 0)}
+            onClick={() => void onConfirm()}
+          >
             {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>

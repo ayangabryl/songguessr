@@ -712,6 +712,86 @@ export async function findExistingIdentities(
 }
 
 /**
+ * Map incoming Spotify IDs to catalog row IDs (exact id, then song_key, then
+ * normalized title + artist). Used so playlist tools retag the library row
+ * even when the playlist copy has a different Spotify ID.
+ */
+export async function mapIncomingIdsToCatalogIds(
+  env: Env,
+  tracks: Array<{ id?: string; title: string; artist: string }>,
+): Promise<Map<string, string>> {
+  const mapped = new Map<string, string>()
+  const incoming = tracks.filter((track): track is { id: string; title: string; artist: string } =>
+    Boolean(track.id),
+  )
+  if (incoming.length === 0) return mapped
+
+  const existingIds = await findExistingTrackIds(
+    env,
+    incoming.map((track) => track.id),
+  )
+  for (const track of incoming) {
+    if (existingIds.has(track.id)) mapped.set(track.id, track.id)
+  }
+
+  const unmatched = incoming.filter((track) => !mapped.has(track.id))
+  if (unmatched.length === 0) return mapped
+
+  const keyToIncoming = new Map<string, string>()
+  for (const track of unmatched) {
+    const key = songIdentityKey(track)
+    if (key.length > 1 && !keyToIncoming.has(key)) keyToIncoming.set(key, track.id)
+  }
+
+  const db = requireDb(env)
+  const keys = [...keyToIncoming.keys()]
+  for (let index = 0; index < keys.length; index += MAX_IN_PARAMS) {
+    const batch = keys.slice(index, index + MAX_IN_PARAMS)
+    const result = await db
+      .prepare(
+        `SELECT id, song_key FROM tracks WHERE song_key IN (${batch.map(() => '?').join(', ')})`,
+      )
+      .bind(...batch)
+      .all<{ id: string; song_key: string | null }>()
+    for (const row of result.results ?? []) {
+      if (!row.song_key) continue
+      const incomingId = keyToIncoming.get(row.song_key)
+      if (incomingId && !mapped.has(incomingId)) mapped.set(incomingId, row.id)
+    }
+  }
+
+  const stillUnmatched = unmatched.filter((track) => !mapped.has(track.id))
+  const titles = [
+    ...new Set(stillUnmatched.map((track) => track.title.trim().toLowerCase()).filter(Boolean)),
+  ]
+  if (titles.length === 0) return mapped
+
+  const incomingByKey = new Map<string, string>()
+  for (const track of stillUnmatched) {
+    const key = songIdentityKey(track)
+    if (key.length > 1 && !incomingByKey.has(key)) incomingByKey.set(key, track.id)
+  }
+
+  for (let index = 0; index < titles.length; index += MAX_IN_PARAMS) {
+    const batch = titles.slice(index, index + MAX_IN_PARAMS)
+    const result = await db
+      .prepare(
+        `SELECT id, title, artist, song_key FROM tracks
+         WHERE lower(title) IN (${batch.map(() => '?').join(', ')})`,
+      )
+      .bind(...batch)
+      .all<{ id: string; title: string; artist: string; song_key: string | null }>()
+    for (const row of result.results ?? []) {
+      const key = row.song_key || songIdentityKey(row)
+      const incomingId = incomingByKey.get(key)
+      if (incomingId && !mapped.has(incomingId)) mapped.set(incomingId, row.id)
+    }
+  }
+
+  return mapped
+}
+
+/**
  * Keep one row per song identity, including version variants.
  *
  * Grouping recomputes the canonical key instead of trusting `song_key`, so

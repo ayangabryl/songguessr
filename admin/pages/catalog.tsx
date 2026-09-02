@@ -6,9 +6,11 @@ import {
   removeTrack,
   removeTracksBulk,
   setTrackCollections,
+  assignTrackCollections,
   type AdminCatalog,
   type CatalogCounts,
   type CatalogTrack,
+  type CollectionAssignMode,
 } from '@/api'
 import {
   AlertDialog,
@@ -59,7 +61,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { CountryCombobox } from '@/components/country-combobox'
-import { CollectionPickerDialog } from '@/components/collection-picker'
+import { CollectionPickerDialog, collectionsAfterAssign } from '@/components/collection-picker'
 import { FixMissingPreviewsButton } from '@/components/fix-missing-previews'
 import { CountryFlag } from '../../shared/country-flag'
 import {
@@ -74,7 +76,7 @@ import {
   formatNumber,
   formatPlayCount,
 } from '@/lib/format'
-import { MusicIcon, RefreshCwIcon, SearchIcon, Trash2Icon } from 'lucide-react'
+import { MusicIcon, PencilIcon, RefreshCwIcon, SearchIcon, TagsIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 const EMPTY_COUNTS: CatalogCounts = {
@@ -108,6 +110,11 @@ export function CatalogPage() {
   const [editingCollections, setEditingCollections] = useState<CatalogTrack | null>(null)
   const [pickerCollections, setPickerCollections] = useState<string[]>([])
   const [savingCollections, setSavingCollections] = useState(false)
+  const [bulkPickerOpen, setBulkPickerOpen] = useState(false)
+  const [bulkMode, setBulkMode] = useState<CollectionAssignMode>('replace')
+  const [bulkCollections, setBulkCollections] = useState<string[]>([])
+  const [confirmingBulkCollections, setConfirmingBulkCollections] = useState(false)
+  const [savingBulkCollections, setSavingBulkCollections] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -173,6 +180,45 @@ export function CatalogPage() {
       toast.error(err instanceof Error ? err.message : 'Failed to update collections')
     } finally {
       setSavingCollections(false)
+    }
+  }
+
+  const openBulkCollections = () => {
+    setBulkCollections([])
+    setBulkMode('replace')
+    setBulkPickerOpen(true)
+  }
+
+  const saveBulkCollections = async () => {
+    if (selected.size === 0) return
+    if (bulkMode === 'add' && bulkCollections.length === 0) return
+    setSavingBulkCollections(true)
+    try {
+      const ids = [...selected]
+      const response = await assignTrackCollections(ids, bulkCollections, bulkMode)
+      const selectedIds = new Set(ids)
+      setTracks((current) =>
+        current.map((track) => {
+          if (!selectedIds.has(track.id)) return track
+          const currentIds = track.collections?.length
+            ? track.collections
+            : track.catalog
+              ? [track.catalog]
+              : []
+          const next = collectionsAfterAssign(currentIds, bulkCollections, bulkMode)
+          return { ...track, collections: next, catalog: next[0] }
+        }),
+      )
+      setConfirmingBulkCollections(false)
+      toast.success(
+        bulkMode === 'replace'
+          ? `Replaced collections on ${formatNumber(response.updated)} songs`
+          : `Added collections to ${formatNumber(response.updated)} songs`,
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update collections')
+    } finally {
+      setSavingBulkCollections(false)
     }
   }
 
@@ -254,7 +300,10 @@ export function CatalogPage() {
       <Card>
         <CardHeader>
           <CardTitle>{formatNumber(total)} tracks</CardTitle>
-          <CardDescription>Search and filter the live song library.</CardDescription>
+          <CardDescription>
+            Search and filter the live song library. Use Edit on a row to change collections, or
+            select several and click Set collections.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form onSubmit={handleSearch}>
@@ -401,6 +450,22 @@ export function CatalogPage() {
                   ? 'Refresh plays for selected'
                   : 'Refresh play counts'}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={selected.size === 0}
+              onClick={openBulkCollections}
+              title={
+                selected.size === 0
+                  ? 'Select songs first'
+                  : `Set collections on ${formatNumber(selected.size)} songs`
+              }
+            >
+              <TagsIcon data-icon="inline-start" />
+              {selected.size > 0
+                ? `Set collections (${formatNumber(selected.size)})`
+                : 'Set collections'}
+            </Button>
             {selected.size > 0 ? (
               <>
                 <Button variant="outline" size="sm" onClick={() => setSelected(new Set())}>
@@ -534,7 +599,8 @@ export function CatalogPage() {
                     <TableCell>
                       <button
                         type="button"
-                        className="flex max-w-48 flex-wrap items-center gap-1 text-left"
+                        title="Edit collections"
+                        className="flex max-w-52 cursor-pointer flex-wrap items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-muted/60"
                         onClick={() => openCollections(track)}
                       >
                         {(track.collections?.length
@@ -543,7 +609,7 @@ export function CatalogPage() {
                             ? [track.catalog]
                             : []
                         ).length === 0 ? (
-                          <span className="text-muted-foreground">Uncategorized</span>
+                          <span className="text-muted-foreground">Untagged</span>
                         ) : (
                           (track.collections?.length
                             ? track.collections
@@ -556,6 +622,7 @@ export function CatalogPage() {
                             </Badge>
                           ))
                         )}
+                        <PencilIcon className="size-3.5 shrink-0 text-muted-foreground" />
                       </button>
                     </TableCell>
                     <TableCell>
@@ -564,9 +631,19 @@ export function CatalogPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button variant="destructive" size="sm" onClick={() => setPendingRemove(track)}>
-                        Remove
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openCollections(track)}
+                        >
+                          <PencilIcon data-icon="inline-start" />
+                          Edit
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => setPendingRemove(track)}>
+                          Remove
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -642,7 +719,8 @@ export function CatalogPage() {
 
       <CollectionPickerDialog
         open={editingCollections !== null}
-        title={editingCollections ? `Collections for “${editingCollections.title}”` : 'Collections'}
+        title={editingCollections ? `Edit collections — “${editingCollections.title}”` : 'Edit collections'}
+        description="Pick the collections for this song. Saving replaces the current tags."
         collections={collections}
         selected={pickerCollections}
         onSelectedChange={setPickerCollections}
@@ -651,6 +729,52 @@ export function CatalogPage() {
         confirming={savingCollections}
         confirmLabel={savingCollections ? 'Saving…' : 'Save'}
       />
+
+      <CollectionPickerDialog
+        open={bulkPickerOpen}
+        title={`Set collections on ${formatNumber(selected.size)} songs`}
+        description="Replace is the default — it removes the wrong tags, then sets the ones you pick. Add these keeps current tags."
+        collections={collections}
+        selected={bulkCollections}
+        onSelectedChange={setBulkCollections}
+        mode={bulkMode}
+        onModeChange={setBulkMode}
+        onCancel={() => setBulkPickerOpen(false)}
+        onConfirm={() => {
+          setBulkPickerOpen(false)
+          setConfirmingBulkCollections(true)
+        }}
+        confirmLabel="Continue"
+      />
+
+      <AlertDialog
+        open={confirmingBulkCollections}
+        onOpenChange={(open) => !open && setConfirmingBulkCollections(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkMode === 'replace'
+                ? `Replace collections on ${formatNumber(selected.size)} songs?`
+                : `Add collections to ${formatNumber(selected.size)} songs?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkMode === 'replace'
+                ? 'Songs stay in the library. Current collection tags on the selected songs will be replaced with the ones you picked.'
+                : 'Songs stay in the library. Current tags stay, and the collections you picked will be added.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingBulkCollections}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={savingBulkCollections || (bulkMode === 'add' && bulkCollections.length === 0)}
+              onClick={() => void saveBulkCollections()}
+            >
+              {bulkMode === 'replace' ? 'Replace' : 'Add'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -53,7 +53,7 @@ import { CollectionPickerDialog } from '@/components/collection-picker'
 import { CountryFlag } from '../../shared/country-flag'
 import { countryDisplayName, formatNumber, formatPlayCount } from '@/lib/format'
 import { pathForPage, pushAdminPath } from '@/lib/routes'
-import { MusicIcon, SearchIcon } from 'lucide-react'
+import { MusicIcon, PencilIcon, SearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function ArtistDetailPage({ artistId }: { artistId: string }) {
@@ -273,7 +273,8 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
                     <TableCell>
                       <button
                         type="button"
-                        className="flex max-w-48 flex-wrap items-center gap-1 text-left"
+                        title="Change collections"
+                        className="flex max-w-48 cursor-pointer flex-wrap items-center gap-1 rounded-md text-left hover:bg-muted/60"
                         onClick={() => {
                           setEditingCollections(track)
                           setPickerCollections(
@@ -304,12 +305,32 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
                             </Badge>
                           ))
                         )}
+                        <PencilIcon className="size-3.5 shrink-0 text-muted-foreground" />
                       </button>
                     </TableCell>
                     <TableCell>
-                      <Button variant="destructive" size="sm" onClick={() => setPendingRemove(track)}>
-                        Remove
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingCollections(track)
+                            setPickerCollections(
+                              track.collections?.length
+                                ? track.collections
+                                : track.catalog
+                                  ? [track.catalog]
+                                  : [],
+                            )
+                          }}
+                        >
+                          <PencilIcon data-icon="inline-start" />
+                          Edit
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => setPendingRemove(track)}>
+                          Remove
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

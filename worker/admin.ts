@@ -20,6 +20,8 @@ import {
   deleteCatalog,
   listCatalogs,
   listCollectionsForTracks,
+  assignCollectionsToTracks,
+  parseCollectionAssignMode,
   parseRequestedCollectionIds,
   removeCollectionsForTracks,
   resolveCatalogIds,
@@ -836,6 +838,45 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       }
       return c.json(
         { error: error instanceof Error ? error.message : 'Could not add track' },
+        500,
+      )
+    }
+  })
+
+  admin.post('/admin/api/catalog/collections', async (c) => {
+    const body = await c.req
+      .json<{
+        trackIds?: unknown
+        collections?: unknown
+        catalogs?: unknown
+        catalog?: string
+        mode?: unknown
+      }>()
+      .catch(() => ({}))
+    const trackIds = Array.isArray(body.trackIds)
+      ? body.trackIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : []
+    if (trackIds.length === 0) {
+      return c.json({ error: 'trackIds must be a non-empty array of track IDs' }, 400)
+    }
+    if (trackIds.length > MAX_BULK_REMOVE) {
+      return c.json({ error: `Update at most ${MAX_BULK_REMOVE} tracks per request` }, 400)
+    }
+
+    try {
+      const result = await assignCollectionsToTracks(
+        c.env,
+        trackIds,
+        parseRequestedCollectionIds(body),
+        parseCollectionAssignMode(body.mode),
+      )
+      return c.json({ ok: true, ...result })
+    } catch (error) {
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not update collections' },
         500,
       )
     }

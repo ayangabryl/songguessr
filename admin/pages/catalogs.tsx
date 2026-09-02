@@ -140,8 +140,10 @@ export function CatalogsPage() {
         <CardHeader>
           <CardTitle>Add collection</CardTitle>
           <CardDescription>
-            Add a collection (name + emoji) then assign songs to one or more when importing. Country
-            origin is separate — K-drama can mix Korean songs and English OSTs.
+            Add a collection (name + emoji) then assign songs to one or more when importing. Wrong
+            tags after import? On Add songs, use Fix collections — or select songs on Songs and click
+            Set collections. Country origin is separate — K-drama can mix Korean songs and English
+            OSTs.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -334,6 +334,8 @@ export interface PlaylistPreviewTrack {
   albumArt: string
   alreadyInCatalog: boolean
   isDuplicate: boolean
+  catalogTrackId?: string
+  collections?: string[]
 }
 
 export interface PlaylistPreview {
@@ -483,6 +485,28 @@ export async function setTrackCollections(
     },
   )
   return data.collections
+}
+
+export type CollectionAssignMode = 'replace' | 'add'
+
+export interface BulkCollectionsResponse {
+  ok: boolean
+  updated: number
+  notFound: number
+  requested: number
+  collections: string[]
+  mode: CollectionAssignMode
+}
+
+export async function assignTrackCollections(
+  trackIds: string[],
+  collections: string[],
+  mode: CollectionAssignMode = 'replace',
+): Promise<BulkCollectionsResponse> {
+  return request<BulkCollectionsResponse>('/catalog/collections', {
+    method: 'POST',
+    body: JSON.stringify({ trackIds, collections, mode }),
+  })
 }
 
 export async function createCatalog(input: {

@@ -308,6 +308,25 @@ export async function listCollectionsForTracks(
   } catch {
     // Join table is created by migration 0006; older DBs fall back to tracks.catalog.
   }
+
+  const missing = ids.filter((id) => !map.has(id))
+  if (missing.length === 0) return map
+  try {
+    for (let index = 0; index < missing.length; index += MAX_IN_PARAMS) {
+      const batch = missing.slice(index, index + MAX_IN_PARAMS)
+      const result = await db
+        .prepare(
+          `SELECT id, catalog FROM tracks WHERE id IN (${batch.map(() => '?').join(', ')})`,
+        )
+        .bind(...batch)
+        .all<{ id: string; catalog: string | null }>()
+      for (const row of result.results ?? []) {
+        if (row.catalog && isCatalogKind(row.catalog)) map.set(row.id, [row.catalog])
+      }
+    }
+  } catch {
+    // Catalog column may be missing on very old schemas.
+  }
   return map
 }
 
@@ -340,38 +359,127 @@ export async function setTrackCollections(
   return resolved
 }
 
-export async function addTracksToCollections(
+export type CollectionAssignMode = 'replace' | 'add'
+
+export interface CollectionAssignResult {
+  updated: number
+  notFound: number
+  requested: number
+  collections: CatalogKind[]
+  mode: CollectionAssignMode
+}
+
+async function existingTrackIds(env: Env, ids: string[]): Promise<Set<string>> {
+  const found = new Set<string>()
+  if (ids.length === 0) return found
+  const db = requireDb(env)
+  for (let index = 0; index < ids.length; index += MAX_IN_PARAMS) {
+    const batch = ids.slice(index, index + MAX_IN_PARAMS)
+    const result = await db
+      .prepare(`SELECT id FROM tracks WHERE id IN (${batch.map(() => '?').join(', ')})`)
+      .bind(...batch)
+      .all<{ id: string }>()
+    for (const row of result.results ?? []) found.add(row.id)
+  }
+  return found
+}
+
+export function parseCollectionAssignMode(value: unknown): CollectionAssignMode {
+  return value === 'add' ? 'add' : 'replace'
+}
+
+export async function assignCollectionsToTracks(
   env: Env,
   trackIds: string[],
   collectionIds: string[],
-): Promise<void> {
-  const ids = uniqueIds(trackIds)
+  mode: CollectionAssignMode = 'replace',
+): Promise<CollectionAssignResult> {
+  const requested = uniqueIds(trackIds)
+  const existing = await existingTrackIds(env, requested)
+  const ids = requested.filter((id) => existing.has(id))
   const resolved = await resolveCatalogIds(env, collectionIds)
-  if (ids.length === 0) return
+  const result: CollectionAssignResult = {
+    updated: ids.length,
+    notFound: requested.length - ids.length,
+    requested: requested.length,
+    collections: resolved,
+    mode,
+  }
+
+  if (ids.length === 0) return result
+  if (mode === 'add' && resolved.length === 0) {
+    return { ...result, updated: 0 }
+  }
+
   const db = requireDb(env)
   const statements: D1PreparedStatement[] = []
+  const primary = resolved[0] ?? null
 
-  for (const trackId of ids) {
-    statements.push(
-      db.prepare(`DELETE FROM track_collections WHERE track_id = ?`).bind(trackId),
-    )
-    for (const collectionId of resolved) {
-      statements.push(
-        db
-          .prepare(
-            `INSERT OR IGNORE INTO track_collections (track_id, collection_id) VALUES (?, ?)`,
+  switch (mode) {
+    case 'replace':
+      for (const trackId of ids) {
+        statements.push(
+          db.prepare(`DELETE FROM track_collections WHERE track_id = ?`).bind(trackId),
+        )
+        for (const collectionId of resolved) {
+          statements.push(
+            db
+              .prepare(
+                `INSERT OR IGNORE INTO track_collections (track_id, collection_id) VALUES (?, ?)`,
+              )
+              .bind(trackId, collectionId),
           )
-          .bind(trackId, collectionId),
-      )
+        }
+        statements.push(
+          db.prepare(`UPDATE tracks SET catalog = ? WHERE id = ?`).bind(primary, trackId),
+        )
+      }
+      break
+    case 'add':
+      for (const trackId of ids) {
+        for (const collectionId of resolved) {
+          statements.push(
+            db
+              .prepare(
+                `INSERT OR IGNORE INTO track_collections (track_id, collection_id) VALUES (?, ?)`,
+              )
+              .bind(trackId, collectionId),
+          )
+        }
+        statements.push(
+          db
+            .prepare(
+              `INSERT OR IGNORE INTO track_collections (track_id, collection_id)
+               SELECT id, catalog FROM tracks
+               WHERE id = ? AND catalog IS NOT NULL AND catalog != ''`,
+            )
+            .bind(trackId),
+        )
+        statements.push(
+          db
+            .prepare(`UPDATE tracks SET catalog = COALESCE(NULLIF(catalog, ''), ?) WHERE id = ?`)
+            .bind(primary, trackId),
+        )
+      }
+      break
+    default: {
+      const exhaustive: never = mode
+      throw new Error(`Unknown collection assign mode: ${String(exhaustive)}`)
     }
-    statements.push(
-      db.prepare(`UPDATE tracks SET catalog = ? WHERE id = ?`).bind(resolved[0] ?? null, trackId),
-    )
   }
 
   for (let index = 0; index < statements.length; index += 100) {
     await db.batch(statements.slice(index, index + 100))
   }
+  return result
+}
+
+export async function addTracksToCollections(
+  env: Env,
+  trackIds: string[],
+  collectionIds: string[],
+): Promise<void> {
+  await assignCollectionsToTracks(env, trackIds, collectionIds, 'replace')
 }
 
 export async function removeCollectionsForTracks(env: Env, trackIds: string[]): Promise<void> {

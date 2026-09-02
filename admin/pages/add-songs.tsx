@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   addTrack,
+  assignTrackCollections,
   fetchCatalogs,
   fetchJob,
   previewPlaylist,
@@ -9,8 +10,10 @@ import {
   startPlaylistImport,
   type AdminCatalog,
   type CatalogJob,
+  type CollectionAssignMode,
   type JobPhase,
   type PlaylistPreview,
+  type PlaylistPreviewTrack,
   type SpotifySearchResult,
 } from '@/api'
 import {
@@ -39,10 +42,15 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { CountryCombobox } from '@/components/country-combobox'
-import { CollectionChecklist, CollectionPickerDialog } from '@/components/collection-picker'
+import {
+  CollectionAssignModeField,
+  CollectionChecklist,
+  CollectionPickerDialog,
+  collectionsAfterAssign,
+} from '@/components/collection-picker'
 import { Switch } from '@/components/ui/switch'
 import { countryDisplayName, formatNumber } from '@/lib/format'
-import { ListMusicIcon, SearchIcon, Trash2Icon } from 'lucide-react'
+import { ListMusicIcon, SearchIcon, TagsIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 const PHASE_LABELS: Record<JobPhase, string> = {
@@ -290,6 +298,7 @@ export function AddSongsPage() {
           <CardTitle>Spotify playlist</CardTitle>
           <CardDescription>
             Paste a Spotify playlist. Set origin for the songs, then which collections to tag.
+            Already imported with the wrong tags? Use Fix collections below — don’t re-import.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -517,6 +526,8 @@ export function AddSongsPage() {
         </CardContent>
       </Card>
 
+      <FixCollectionsByPlaylistCard catalogs={catalogs} />
+
       <RemoveByPlaylistCard />
 
       <Card>
@@ -611,6 +622,285 @@ interface RemoveResultSummary {
   removed: number
   notFound: number
   totalTracks: number
+}
+
+function libraryTrackId(track: PlaylistPreviewTrack): string | null {
+  if (!track.alreadyInCatalog) return null
+  return track.catalogTrackId ?? track.id
+}
+
+function FixCollectionsByPlaylistCard({ catalogs }: { catalogs: AdminCatalog[] }) {
+  const [playlistUrl, setPlaylistUrl] = useState('')
+  const [preview, setPreview] = useState<PlaylistPreview | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectedCollections, setSelectedCollections] = useState<string[]>([])
+  const [mode, setMode] = useState<CollectionAssignMode>('replace')
+  const [fetching, setFetching] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [result, setResult] = useState<{ updated: number; notFound: number } | null>(null)
+
+  const collectionLabel = (id: string) => catalogs.find((item) => item.id === id)?.name ?? id
+
+  const inLibraryTracks = useMemo(
+    () => (preview?.tracks ?? []).filter((track) => Boolean(libraryTrackId(track))),
+    [preview],
+  )
+
+  const selectedCatalogIds = useMemo(() => {
+    if (!preview) return []
+    const ids: string[] = []
+    for (const track of preview.tracks) {
+      if (!selected.has(track.id)) continue
+      const catalogId = libraryTrackId(track)
+      if (catalogId) ids.push(catalogId)
+    }
+    return [...new Set(ids)]
+  }, [preview, selected])
+
+  const handleFetch = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!playlistUrl.trim() || fetching) return
+    setFetching(true)
+    setPreview(null)
+    setSelected(new Set())
+    setResult(null)
+    try {
+      const next = await previewPlaylist(playlistUrl.trim())
+      setPreview(next)
+      setSelected(
+        new Set(next.tracks.filter((track) => Boolean(libraryTrackId(track))).map((track) => track.id)),
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Playlist fetch failed')
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const toggle = (id: string, enabled: boolean) => {
+    if (!enabled) return
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleApply = async () => {
+    if (selectedCatalogIds.length === 0) return
+    if (mode === 'add' && selectedCollections.length === 0) return
+    setApplying(true)
+    try {
+      const response = await assignTrackCollections(selectedCatalogIds, selectedCollections, mode)
+      setResult({ updated: response.updated, notFound: response.notFound })
+      const updatedIds = new Set(selected)
+      setPreview((current) =>
+        current
+          ? {
+              ...current,
+              tracks: current.tracks.map((track) => {
+                if (!updatedIds.has(track.id) || !libraryTrackId(track)) return track
+                const nextCollections = collectionsAfterAssign(
+                  track.collections ?? [],
+                  selectedCollections,
+                  mode,
+                )
+                return { ...track, collections: nextCollections }
+              }),
+            }
+          : current,
+      )
+      setConfirming(false)
+      toast.success(
+        mode === 'replace'
+          ? `Replaced collections on ${formatNumber(response.updated)} songs`
+          : `Added collections to ${formatNumber(response.updated)} songs`,
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update collections')
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const applyDisabled =
+    applying ||
+    selectedCatalogIds.length === 0 ||
+    (mode === 'add' && selectedCollections.length === 0)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Fix collections</CardTitle>
+        <CardDescription>
+          Tagged the wrong collections on import? Paste the same playlist, pick the right ones, and
+          replace the tags. Songs stay in the library.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <form onSubmit={(event) => void handleFetch(event)}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="fix-playlist-url">Playlist URL</FieldLabel>
+              <Input
+                id="fix-playlist-url"
+                value={playlistUrl}
+                onChange={(event) => {
+                  setPlaylistUrl(event.target.value)
+                  setPreview(null)
+                  setSelected(new Set())
+                  setResult(null)
+                }}
+                placeholder="https://open.spotify.com/playlist/…"
+                disabled={fetching || applying}
+              />
+            </Field>
+            <Button type="submit" variant="outline" disabled={fetching || applying || !playlistUrl.trim()}>
+              {fetching ? <Spinner data-icon="inline-start" /> : null}
+              {fetching ? 'Fetching…' : 'Fetch songs'}
+            </Button>
+          </FieldGroup>
+        </form>
+
+        {preview ? (
+          <div className="flex flex-col gap-3 rounded-xl border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{preview.playlistName}</p>
+                <p className="text-sm text-muted-foreground">
+                  {formatNumber(selectedCatalogIds.length)} selected ·{' '}
+                  {formatNumber(inLibraryTracks.length)} in library ·{' '}
+                  {formatNumber(preview.tracks.length)} in playlist
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setSelected(new Set(inLibraryTracks.map((track) => track.id)))
+                  }
+                >
+                  Only in library ({formatNumber(inLibraryTracks.length)})
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSelected(new Set())}>
+                  Select none
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel>Correct collections</FieldLabel>
+                <CollectionChecklist
+                  collections={catalogs}
+                  selected={selectedCollections}
+                  onChange={setSelectedCollections}
+                  disabled={applying}
+                />
+              </Field>
+              <CollectionAssignModeField value={mode} onChange={setMode} disabled={applying} />
+            </div>
+
+            <div className="flex max-h-96 flex-col gap-2 overflow-auto">
+              {preview.tracks.map((track) => {
+                const inLibrary = Boolean(libraryTrackId(track))
+                const current = track.collections ?? []
+                return (
+                  <div
+                    key={`${track.id}-${track.title}`}
+                    className={`flex items-center gap-3 rounded-lg border p-3 ${
+                      inLibrary ? '' : 'opacity-60'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      checked={selected.has(track.id) && inLibrary}
+                      disabled={!inLibrary || applying}
+                      onChange={() => toggle(track.id, inLibrary)}
+                    />
+                    {track.albumArt ? (
+                      <img src={track.albumArt} alt="" className="size-10 rounded-md object-cover" />
+                    ) : (
+                      <div className="size-10 rounded-md bg-muted" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{track.title}</p>
+                      <p className="truncate text-sm text-muted-foreground">{track.artist}</p>
+                    </div>
+                    {inLibrary ? (
+                      <div className="flex max-w-48 flex-wrap justify-end gap-1">
+                        {current.length === 0 ? (
+                          <Badge variant="outline">Untagged</Badge>
+                        ) : (
+                          current.map((id) => (
+                            <Badge key={id} variant="secondary">
+                              {collectionLabel(id)}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    ) : (
+                      <Badge variant="outline">Not in library</Badge>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <Button
+              type="button"
+              disabled={applyDisabled}
+              onClick={() => setConfirming(true)}
+            >
+              {applying ? <Spinner data-icon="inline-start" /> : <TagsIcon data-icon="inline-start" />}
+              {applying
+                ? 'Updating…'
+                : mode === 'replace'
+                  ? `Replace on selected (${formatNumber(selectedCatalogIds.length)})`
+                  : `Add to selected (${formatNumber(selectedCatalogIds.length)})`}
+            </Button>
+          </div>
+        ) : null}
+
+        {result ? (
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">Updated {formatNumber(result.updated)}</Badge>
+            {result.notFound > 0 ? (
+              <Badge variant="outline">Not in library {formatNumber(result.notFound)}</Badge>
+            ) : null}
+          </div>
+        ) : null}
+      </CardContent>
+
+      <AlertDialog open={confirming} onOpenChange={(open) => !open && setConfirming(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {mode === 'replace'
+                ? `Replace collections on ${formatNumber(selectedCatalogIds.length)} songs?`
+                : `Add collections to ${formatNumber(selectedCatalogIds.length)} songs?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {mode === 'replace'
+                ? 'Songs stay in the library. Current collection tags on the selected songs will be replaced with the ones you picked.'
+                : 'Songs stay in the library. Current tags stay, and the collections you picked will be added.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={applying}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={applying} onClick={() => void handleApply()}>
+              {mode === 'replace' ? 'Replace' : 'Add'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  )
 }
 
 function RemoveByPlaylistCard() {
