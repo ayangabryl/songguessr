@@ -69,7 +69,7 @@ export async function upsertArtists(
   artists: Array<{ id?: string; name: string; popularity?: number }>,
   country: CountryCode,
 ): Promise<number> {
-  if (artists.length === 0) return 0
+  if (country === 'GLOBAL' || artists.length === 0) return 0
 
   const db = requireDb(env)
   const now = new Date().toISOString()
@@ -107,6 +107,10 @@ export async function upsertArtists(
 }
 
 export async function loadArtistAllowlist(env: Env, country: CountryCode): Promise<ArtistAllowlist> {
+  if (country === 'GLOBAL') {
+    return { ids: new Set(), names: new Set() }
+  }
+
   const db = requireDb(env)
   const result = await db
     .prepare(
@@ -382,4 +386,129 @@ export async function deleteArtist(
 
   await db.prepare(`DELETE FROM artists WHERE id = ?`).bind(id).run()
   return { ok: true, songsRemoved }
+}
+
+export interface ArtistTrackRow {
+  id: string
+  title: string
+  artist: string
+  albumArt: string
+  difficulty: string
+  playCount?: number
+  releaseDate?: string
+  releaseYear?: number
+  catalog: string
+  country: string
+  hasPreview: boolean
+}
+
+export interface ArtistDetail {
+  artist: AdminArtistRow
+  tracks: ArtistTrackRow[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+function trackBelongsToArtist(
+  artistName: string,
+  row: { artist: string; song_key: string | null },
+): boolean {
+  const normalized = normalizeName(artistName)
+  const credited = (row.artist ?? '')
+    .split(',')
+    .map((part) => normalizeName(part))
+    .filter(Boolean)
+  const keyPrefix = row.song_key?.split('|')[0]
+  return credited.includes(normalized) || keyPrefix === normalized
+}
+
+export async function getArtistDetail(
+  env: Env,
+  id: string,
+  page: number,
+  pageSize: number,
+  query: string,
+): Promise<ArtistDetail> {
+  const db = requireDb(env)
+  const current = await db
+    .prepare(`SELECT id, name, country, whitelisted, popularity FROM artists WHERE id = ?`)
+    .bind(id)
+    .first<{
+      id: string
+      name: string
+      country: string | null
+      whitelisted: number
+      popularity: number | null
+    }>()
+  if (!current) {
+    throw Object.assign(new Error('Artist not found'), { status: 404 })
+  }
+
+  const result = await db
+    .prepare(
+      `SELECT id, title, artist, album_art, difficulty, play_count, release_date, release_year,
+              catalog, country, preview_url, song_key
+       FROM tracks`,
+    )
+    .all<{
+      id: string
+      title: string
+      artist: string
+      album_art: string | null
+      difficulty: string
+      play_count: number | null
+      release_date: string | null
+      release_year: number | null
+      catalog: string | null
+      country: string | null
+      preview_url: string | null
+      song_key: string | null
+    }>()
+
+  const needle = query.trim().toLowerCase()
+  const matched = (result.results ?? []).filter((row) => {
+    if (!trackBelongsToArtist(current.name, row)) return false
+    if (!needle) return true
+    return (
+      row.title.toLowerCase().includes(needle) ||
+      row.id.toLowerCase().includes(needle) ||
+      row.artist.toLowerCase().includes(needle)
+    )
+  })
+
+  const total = matched.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1)
+  const safePage = Math.min(Math.max(page, 1), totalPages)
+  const offset = (safePage - 1) * pageSize
+  const songCounts = await countSongsForArtists(env, [current.name])
+
+  return {
+    artist: {
+      id: current.id,
+      name: current.name,
+      country: parseStoredCountry(current.country),
+      whitelisted: current.whitelisted === 1,
+      songCount: songCounts.get(normalizeName(current.name)) ?? total,
+      ...(current.popularity != null ? { popularity: current.popularity } : {}),
+    },
+    tracks: matched.slice(offset, offset + pageSize).map((row) => ({
+      id: row.id,
+      title: row.title,
+      artist: row.artist,
+      albumArt: row.album_art ?? '',
+      difficulty: row.difficulty,
+      ...(row.play_count != null ? { playCount: row.play_count } : {}),
+      ...(row.release_date ? { releaseDate: row.release_date } : {}),
+      ...(row.release_year != null ? { releaseYear: row.release_year } : {}),
+      catalog: row.catalog ?? 'opm',
+      country: parseStoredCountry(row.country),
+      hasPreview: Boolean(row.preview_url),
+    })),
+    page: safePage,
+    pageSize,
+    total,
+    totalPages,
+  }
 }

@@ -30,8 +30,10 @@ export interface Track {
   genreGroups?: GenreFilter[]
   /** Artist genres from Spotify when available. */
   spotifyGenres?: string[]
-  /** Official Spotify track.popularity 0–100. No public play-count exists. */
+  /** Official Spotify track.popularity 0–100. */
   popularity?: number
+  /** Play count from the public open.spotify.com track page. Never invented. */
+  playCount?: number
   /** Official Spotify primary-artist.popularity 0–100. */
   artistPopularity?: number
   durationMs?: number

@@ -50,8 +50,14 @@ export interface PlaylistImportOptions {
   country?: string
   catalog?: string
   assumeAllLocal?: boolean
+  /** Add selected artists to each row's country known-artist list. */
+  trustArtists?: boolean
+  /** Skip artists not already known for their row's country. */
+  requireKnownArtists?: boolean
   chartBoost?: boolean
   trackIds?: string[]
+  /** Per-track origin; falls back to `country`. Independent from catalog. */
+  trackCountries?: Record<string, string>
 }
 
 export interface PlaylistImportProgress {
@@ -93,7 +99,29 @@ function pushError(errors: string[], message: string): void {
 
 export function parseImportCountry(value: string | undefined): CountryCode {
   const normalized = value?.trim().toUpperCase()
+  if (normalized === 'GLOBAL') return DEFAULT_COUNTRY
   return normalized && isCountryCode(normalized) ? normalized : DEFAULT_COUNTRY
+}
+
+function parseTrackCountries(
+  value: Record<string, string> | undefined,
+  fallback: CountryCode,
+): Map<string, CountryCode> {
+  const map = new Map<string, CountryCode>()
+  if (!value) return map
+  for (const [id, code] of Object.entries(value)) {
+    if (!id.trim()) continue
+    map.set(id, parseImportCountry(code ?? fallback))
+  }
+  return map
+}
+
+function countryForTrack(
+  trackId: string,
+  fallback: CountryCode,
+  trackCountries: Map<string, CountryCode>,
+): CountryCode {
+  return trackCountries.get(trackId) ?? fallback
 }
 
 export function parseImportCatalog(value: string | undefined): CatalogKind {
@@ -230,7 +258,15 @@ export async function importPlaylistToCatalog(
 
   const country = parseImportCountry(options.country)
   const catalog = await resolveCatalogId(env, options.catalog)
-  const assumeAllLocal = options.assumeAllLocal === true
+  const trustArtists = options.trustArtists === true || options.assumeAllLocal === true
+  const requireKnownArtists =
+    options.requireKnownArtists === true
+      ? true
+      : options.requireKnownArtists === false
+        ? false
+        : !trustArtists
+  const assumeAllLocal = trustArtists
+  const trackCountryMap = parseTrackCountries(options.trackCountries, country)
   const chartBoost = options.chartBoost === true || playlistId === OPM_PLAYLIST_ID
   const selectedIds = options.trackIds?.filter(Boolean) ?? []
   const selectedSet = selectedIds.length > 0 ? new Set(selectedIds) : null
@@ -309,17 +345,29 @@ export async function importPlaylistToCatalog(
 
   report('filtering', 0)
 
-  if (assumeAllLocal) {
-    const playlistArtists = tracks.flatMap((track) =>
-      (track.artists ?? []).map((artist) => ({
-        id: artist.id,
-        name: artist.name,
-      })),
-    )
-    await upsertArtists(env, playlistArtists, country)
+  const allowlists = new Map<CountryCode, Awaited<ReturnType<typeof loadArtistAllowlist>>>()
+  const allowlistFor = async (origin: CountryCode) => {
+    const existing = allowlists.get(origin)
+    if (existing) return existing
+    const loaded = await loadArtistAllowlist(env, origin)
+    allowlists.set(origin, loaded)
+    return loaded
   }
 
-  const allowlist = await loadArtistAllowlist(env, country)
+  if (trustArtists) {
+    const artistsByCountry = new Map<CountryCode, Array<{ id?: string; name: string }>>()
+    for (const track of tracks) {
+      const origin = countryForTrack(track.id ?? '', country, trackCountryMap)
+      const list = artistsByCountry.get(origin) ?? []
+      for (const artist of track.artists ?? []) {
+        list.push({ id: artist.id, name: artist.name })
+      }
+      artistsByCountry.set(origin, list)
+    }
+    for (const [origin, artists] of artistsByCountry) {
+      await upsertArtists(env, artists, origin)
+    }
+  }
 
   const persistPending = async (): Promise<boolean> => {
     if (pending.length === 0) return false
@@ -349,16 +397,25 @@ export async function importPlaylistToCatalog(
     artistDetails = new Map(
       (await fetchSpotifyArtists(token, artistIds)).map((artist) => [artist.id, artist]),
     )
-    if (assumeAllLocal) {
-      await upsertArtists(
-        env,
-        [...artistDetails.values()].map((artist) => ({
-          id: artist.id,
-          name: artist.name,
-          popularity: artist.popularity,
-        })),
-        country,
-      )
+    if (trustArtists) {
+      const artistsByCountry = new Map<CountryCode, Array<{ id: string; name: string; popularity?: number }>>()
+      for (const track of tracks) {
+        const origin = countryForTrack(track.id ?? '', country, trackCountryMap)
+        const list = artistsByCountry.get(origin) ?? []
+        for (const artist of track.artists ?? []) {
+          if (!artist.id) continue
+          const details = artistDetails.get(artist.id)
+          list.push({
+            id: artist.id,
+            name: details?.name ?? artist.name,
+            popularity: details?.popularity,
+          })
+        }
+        artistsByCountry.set(origin, list)
+      }
+      for (const [origin, artists] of artistsByCountry) {
+        await upsertArtists(env, artists, origin)
+      }
     }
   } catch (error) {
     pushError(errors, error instanceof Error ? error.message : 'Could not load artist details')
@@ -394,13 +451,18 @@ export async function importPlaylistToCatalog(
       continue
     }
 
-    if (!isAllowedTrack(track, country, allowlist, { assumeAllLocal })) {
-      skippedNonOpm += 1
-      for (const name of uniqueArtistNames(track)) {
-        skippedNonOpmNames.add(name)
+    const trackCountry = countryForTrack(track.id, country, trackCountryMap)
+
+    if (requireKnownArtists) {
+      const allowlist = await allowlistFor(trackCountry)
+      if (!isAllowedTrack(track, trackCountry, allowlist, { assumeAllLocal: false })) {
+        skippedNonOpm += 1
+        for (const name of uniqueArtistNames(track)) {
+          skippedNonOpmNames.add(name)
+        }
+        report('filtering', index + 1)
+        continue
       }
-      report('filtering', index + 1)
-      continue
     }
 
     const primaryArtist = track.artists?.[0]
@@ -432,7 +494,7 @@ export async function importPlaylistToCatalog(
           releaseDate: track.album?.release_date,
           spotifyGenres,
           difficulty,
-          country,
+          country: trackCountry,
           catalog,
           forceTier: difficulty,
         })
@@ -453,10 +515,10 @@ export async function importPlaylistToCatalog(
     try {
       report('resolving', index + 1)
       const built = await buildTrackFromSpotify(track, {
-        country,
+        country: trackCountry,
         catalog,
         chartBoost,
-        requireOpm: !assumeAllLocal && country === DEFAULT_COUNTRY,
+        requireOpm: false,
         artistPopularity: primaryDetails?.popularity,
         spotifyGenres,
       })

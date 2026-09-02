@@ -19,8 +19,15 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { pageFromPath, pathForPage, titleForPage, type AdminPage } from '@/lib/routes'
+import {
+  artistIdFromPath,
+  pageFromPath,
+  pathForPage,
+  titleForPage,
+  type AdminPage,
+} from '@/lib/routes'
 import { AddSongsPage } from '@/pages/add-songs'
+import { ArtistDetailPage } from '@/pages/artist-detail'
 import { ArtistsPage } from '@/pages/artists'
 import { CatalogPage } from '@/pages/catalog'
 import { CatalogsPage } from '@/pages/catalogs'
@@ -48,6 +55,9 @@ const NAV_ITEMS: { page: AdminPage; title: string; icon: typeof LayoutDashboardI
 export function AdminApp() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [page, setPage] = useState<AdminPage>(() => pageFromPath(window.location.pathname))
+  const [artistId, setArtistId] = useState<string | null>(() =>
+    artistIdFromPath(window.location.pathname),
+  )
   const [status, setStatus] = useState<StatusResponse | null>(null)
 
   const checkAuth = useCallback(async () => {
@@ -69,7 +79,10 @@ export function AdminApp() {
   }, [checkAuth])
 
   useEffect(() => {
-    const onPopState = () => setPage(pageFromPath(window.location.pathname))
+    const onPopState = () => {
+      setPage(pageFromPath(window.location.pathname))
+      setArtistId(artistIdFromPath(window.location.pathname))
+    }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
@@ -85,6 +98,7 @@ export function AdminApp() {
   const navigate = (next: AdminPage) => {
     window.history.pushState({}, '', pathForPage(next))
     setPage(next)
+    setArtistId(null)
   }
 
   const handleLogout = () => {
@@ -150,7 +164,9 @@ export function AdminApp() {
           <header className="flex h-14 items-center gap-3 border-b px-4">
             <SidebarTrigger />
             <div className="flex flex-col">
-              <h1 className="text-sm font-medium">{titleForPage(page)}</h1>
+              <h1 className="text-sm font-medium">
+                {page === 'artists' && artistId ? 'Artist' : titleForPage(page)}
+              </h1>
               <p className="text-xs text-muted-foreground">admin.songguessr.lol</p>
             </div>
           </header>
@@ -159,7 +175,9 @@ export function AdminApp() {
               <DashboardPage status={status} onStatusRefresh={() => void checkAuth()} />
             ) : null}
             {page === 'catalog' ? <CatalogPage /> : null}
-            {page === 'artists' ? <ArtistsPage /> : null}
+            {page === 'artists' ? (
+              artistId ? <ArtistDetailPage artistId={artistId} /> : <ArtistsPage />
+            ) : null}
             {page === 'catalogs' ? <CatalogsPage /> : null}
             {page === 'add' ? <AddSongsPage /> : null}
             {page === 'settings' ? <SettingsPage onLogout={handleLogout} /> : null}

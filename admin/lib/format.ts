@@ -19,6 +19,12 @@ export function formatNumber(value: number): string {
   return value.toLocaleString()
 }
 
+export function formatPlayCount(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value < 0) return '—'
+  if (value < 1000) return formatNumber(value)
+  return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
 export const DIFFICULTY_OPTIONS = ['easy', 'medium', 'hard', 'expert', 'impossible'] as const
 export const ERA_OPTIONS = ['modern', '2010s', '2000s', 'classics'] as const
 export const GENRE_OPTIONS = ['pop', 'hip-hop', 'r&b', 'rock', 'dance', 'other'] as const

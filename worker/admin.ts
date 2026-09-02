@@ -17,10 +17,12 @@ import {
   createCatalog,
   deleteCatalog,
   listCatalogs,
+  resolveCatalogId,
   updateCatalog,
 } from './catalogs-d1'
 import {
   deleteArtist,
+  getArtistDetail,
   listArtistsPage,
   updateArtist,
 } from './artists-d1'
@@ -36,6 +38,7 @@ import { createCatalogJob, getCatalogJob, updateCatalogJob } from './jobs'
 import { isOpmSpotifyTrack, UNIQUE_OPM_ARTISTS } from './opm-artists'
 import {
   importPlaylistToCatalog,
+  parseImportCountry,
   previewPlaylistForCatalog,
   type PlaylistImportOptions,
 } from './playlist-import'
@@ -450,6 +453,24 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     }
   })
 
+  admin.get('/admin/api/artists/:id', async (c) => {
+    try {
+      const page = Number(c.req.query('page') ?? '1')
+      const pageSize = Number(c.req.query('pageSize') ?? '50')
+      const query = c.req.query('q') ?? ''
+      return c.json(await getArtistDetail(c.env, c.req.param('id'), page, pageSize, query))
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not load artist' },
+        status === 404 ? 404 : 400,
+      )
+    }
+  })
+
   admin.patch('/admin/api/artists/:id', async (c) => {
     try {
       const body = await c.req
@@ -607,7 +628,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       return c.json({ error: 'Spotify is not configured' }, 503)
     }
 
-    const body = await c.req.json<{ trackId?: string }>()
+    const body = await c.req.json<{ trackId?: string; country?: string; catalog?: string }>()
     const trackId = body.trackId?.trim()
     if (!trackId) {
       return c.json({ error: 'trackId is required' }, 400)
@@ -619,7 +640,11 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       return c.json({ error: 'Track not found on Spotify' }, 404)
     }
 
-    const built = await buildTrackFromSpotify(spotifyTrack)
+    const built = await buildTrackFromSpotify(spotifyTrack, {
+      country: parseImportCountry(body.country),
+      catalog: await resolveCatalogId(c.env, body.catalog),
+      requireOpm: false,
+    })
     if (!built.track) {
       return c.json({ error: built.reason ?? 'Could not add track' }, 400)
     }
@@ -698,7 +723,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         country?: string
         catalog?: string
         assumeAllLocal?: boolean
+        trustArtists?: boolean
+        requireKnownArtists?: boolean
         trackIds?: string[]
+        trackCountries?: Record<string, string>
         wait?: boolean
       }>()
       .catch(() => ({ playlistUrl: undefined }))
@@ -714,9 +742,20 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       country: body.country,
       catalog: body.catalog,
       assumeAllLocal: body.assumeAllLocal === true,
+      trustArtists: body.trustArtists === true,
+      requireKnownArtists: body.requireKnownArtists,
       trackIds: Array.isArray(body.trackIds)
         ? body.trackIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
         : undefined,
+      trackCountries:
+        body.trackCountries && typeof body.trackCountries === 'object'
+          ? Object.fromEntries(
+              Object.entries(body.trackCountries).filter(
+                (entry): entry is [string, string] =>
+                  typeof entry[0] === 'string' && typeof entry[1] === 'string',
+              ),
+            )
+          : undefined,
     }
 
     const jobId = createCatalogJob()

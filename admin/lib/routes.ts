@@ -1,5 +1,25 @@
 export type AdminPage = 'dashboard' | 'catalog' | 'artists' | 'catalogs' | 'add' | 'settings'
 
+export function artistIdFromPath(pathname: string): string | null {
+  const path = pathname.replace(/^\/admin\/?/, '/') || '/'
+  const match = path.match(/^\/artists\/([^/]+)/)
+  if (!match?.[1]) return null
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
+export function pathForArtist(id: string): string {
+  return `/artists/${encodeURIComponent(id)}`
+}
+
+export function pushAdminPath(path: string): void {
+  window.history.pushState({}, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
 export function pageFromPath(pathname: string): AdminPage {
   const path = pathname.replace(/^\/admin\/?/, '/') || '/'
   if (path.startsWith('/catalogs')) return 'catalogs'

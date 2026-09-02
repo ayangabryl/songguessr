@@ -39,6 +39,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { CountryCombobox } from '@/components/country-combobox'
 import { Switch } from '@/components/ui/switch'
 import { countryDisplayName, formatNumber } from '@/lib/format'
+import { pushAdminPath } from '@/lib/routes'
 import { ListMusicIcon, SearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -68,9 +69,11 @@ export function AddSongsPage() {
   const [country, setCountry] = useState('PH')
   const [catalog, setCatalog] = useState('opm')
   const [catalogs, setCatalogs] = useState<AdminCatalog[]>([])
-  const [assumeAllLocal, setAssumeAllLocal] = useState(false)
+  const [trustArtists, setTrustArtists] = useState(false)
+  const [requireKnownArtists, setRequireKnownArtists] = useState(true)
   const [preview, setPreview] = useState<PlaylistPreview | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [trackCountries, setTrackCountries] = useState<Record<string, string>>({})
   const [previewing, setPreviewing] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [job, setJob] = useState<CatalogJob | null>(null)
@@ -147,7 +150,7 @@ export function AddSongsPage() {
     if (!track.id) return
     setAddingId(track.id)
     try {
-      await addTrack(track.id)
+      await addTrack(track.id, { country, catalog })
       toast.success(`Added “${track.title}”`)
       setResults((current) =>
         current.map((item) => (item.id === track.id ? { ...item, inCatalog: true } : item)),
@@ -170,6 +173,7 @@ export function AddSongsPage() {
     try {
       const next = await previewPlaylist(playlistUrl.trim())
       setPreview(next)
+      setTrackCountries(Object.fromEntries(next.tracks.map((track) => [track.id, country])))
       setSelected(
         new Set(
           next.tracks
@@ -197,6 +201,25 @@ export function AddSongsPage() {
   const selectAll = () => setSelected(new Set(eligibleIds))
   const selectNone = () => setSelected(new Set())
 
+  const setDefaultCountry = (next: string) => {
+    setCountry(next)
+    setTrackCountries((current) => {
+      if (!preview) return current
+      const updated = { ...current }
+      for (const track of preview.tracks) {
+        if (!updated[track.id] || updated[track.id] === country) {
+          updated[track.id] = next
+        }
+      }
+      return updated
+    })
+  }
+
+  const applyCountryToAllRows = () => {
+    if (!preview) return
+    setTrackCountries(Object.fromEntries(preview.tracks.map((track) => [track.id, country])))
+  }
+
   const handleAddSelected = async () => {
     if (!playlistUrl.trim() || starting || selected.size === 0) return
     setStarting(true)
@@ -205,8 +228,12 @@ export function AddSongsPage() {
       const id = await startPlaylistImport(playlistUrl.trim(), {
         country,
         catalog,
-        assumeAllLocal,
+        trustArtists,
+        requireKnownArtists: trustArtists ? false : requireKnownArtists,
         trackIds: [...selected],
+        trackCountries: Object.fromEntries(
+          [...selected].map((trackId) => [trackId, trackCountries[trackId] ?? country]),
+        ),
       })
       setJobId(id)
       setJob({
@@ -236,8 +263,9 @@ export function AddSongsPage() {
         <CardHeader>
           <CardTitle>Spotify playlist</CardTitle>
           <CardDescription>
-            Paste a public playlist URL, fetch the track list, then pick which songs to add.
-            Country and whitelist still apply to the selected IDs only.
+            Catalog is the collection (K-drama can mix Korean songs and English OSTs). Country is
+            where that song or artist is from. Known artists are an import guard per country — not
+            OPM-only, and not a game filter.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -259,24 +287,43 @@ export function AddSongsPage() {
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field>
-                  <FieldLabel>Country</FieldLabel>
+                  <FieldLabel>Default country</FieldLabel>
                   <CountryCombobox
                     value={country}
-                    onChange={setCountry}
+                    onChange={setDefaultCountry}
                     disabled={jobRunning || starting}
                   />
+                  <FieldDescription>
+                    Used for each song unless you override it on the checklist. Global is a game
+                    mix, not a country here.
+                  </FieldDescription>
                 </Field>
                 <Field>
-                  <FieldLabel>Catalog</FieldLabel>
+                  <div className="flex items-center justify-between gap-2">
+                    <FieldLabel>Catalog</FieldLabel>
+                    <button
+                      type="button"
+                      className="text-xs text-primary underline-offset-4 hover:underline"
+                      onClick={() => pushAdminPath('/catalogs')}
+                    >
+                      Manage catalogs
+                    </button>
+                  </div>
                   <Select
                     value={catalog}
-                    onValueChange={setCatalog}
+                    onValueChange={(value) => {
+                      setCatalog(value)
+                      const next = catalogs.find((item) => item.id === value)
+                      if (next?.country && next.country !== 'GLOBAL') {
+                        setDefaultCountry(next.country)
+                      }
+                    }}
                     disabled={jobRunning || starting}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder={selectedCatalog?.name ?? 'Catalog'} />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       <SelectGroup>
                         {catalogOptions.map((option) => (
                           <SelectItem key={option.id} value={option.id}>
@@ -289,22 +336,46 @@ export function AddSongsPage() {
                       </SelectGroup>
                     </SelectContent>
                   </Select>
+                  <FieldDescription>
+                    Collection only. K-drama can include KR tracks and English OSTs together.
+                  </FieldDescription>
                 </Field>
               </div>
               <Field orientation="horizontal" className="items-start">
                 <Switch
-                  id="assume-all-local"
-                  checked={assumeAllLocal}
-                  onCheckedChange={setAssumeAllLocal}
+                  id="trust-artists"
+                  checked={trustArtists}
+                  onCheckedChange={(checked) => {
+                    setTrustArtists(checked)
+                    if (checked) setRequireKnownArtists(false)
+                  }}
                   disabled={jobRunning || starting}
                 />
                 <div className="flex flex-col gap-1">
-                  <FieldLabel htmlFor="assume-all-local">
-                    Whitelist all selected artists as this country
+                  <FieldLabel htmlFor="trust-artists">
+                    Add selected artists to this country’s known-artist list
                   </FieldLabel>
                   <FieldDescription>
-                    Every artist on the selected songs is stored as {countryDisplayName(country)}.
-                    Leave off for mixed charts like Top 50 — Philippines.
+                    Writes each row’s artists as known for that row’s country (KR, US, PH, …).
+                  </FieldDescription>
+                </div>
+              </Field>
+              <Field orientation="horizontal" className="items-start">
+                <Switch
+                  id="require-known"
+                  checked={requireKnownArtists && !trustArtists}
+                  onCheckedChange={(checked) => {
+                    setRequireKnownArtists(checked)
+                    if (checked) setTrustArtists(false)
+                  }}
+                  disabled={jobRunning || starting}
+                />
+                <div className="flex flex-col gap-1">
+                  <FieldLabel htmlFor="require-known">
+                    Only add artists already known for their row’s country
+                  </FieldLabel>
+                  <FieldDescription>
+                    Stops international chart noise. Game Filters → Region is separate.
                   </FieldDescription>
                 </div>
               </Field>
@@ -325,12 +396,15 @@ export function AddSongsPage() {
                     playlist
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={selectAll}>
                     Select all
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={selectNone}>
                     Select none
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={applyCountryToAllRows}>
+                    Set all countries to {countryDisplayName(country)}
                   </Button>
                 </div>
               </div>
@@ -338,7 +412,7 @@ export function AddSongsPage() {
                 {preview.tracks.map((track) => {
                   const disabled = track.alreadyInCatalog || track.isDuplicate
                   return (
-                    <label
+                    <div
                       key={`${track.id}-${track.title}`}
                       className={`flex items-center gap-3 rounded-lg border p-3 ${
                         disabled ? 'opacity-60' : ''
@@ -360,11 +434,20 @@ export function AddSongsPage() {
                         <p className="truncate font-medium">{track.title}</p>
                         <p className="truncate text-sm text-muted-foreground">{track.artist}</p>
                       </div>
+                      <div className="w-44 shrink-0">
+                        <CountryCombobox
+                          value={trackCountries[track.id] ?? country}
+                          disabled={disabled || jobRunning || starting}
+                          onChange={(value) =>
+                            setTrackCountries((current) => ({ ...current, [track.id]: value }))
+                          }
+                        />
+                      </div>
                       {track.alreadyInCatalog ? (
                         <Badge variant="outline">In catalog</Badge>
                       ) : null}
                       {track.isDuplicate ? <Badge variant="outline">Duplicate</Badge> : null}
-                    </label>
+                    </div>
                   )
                 })}
               </div>
@@ -441,7 +524,10 @@ export function AddSongsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Spotify search</CardTitle>
-          <CardDescription>Find an OPM track and add it to the catalog.</CardDescription>
+          <CardDescription>
+            Adds into the catalog and default country selected above. Known-artist rules apply only
+            to playlist import, not this one-off search.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form onSubmit={(event) => void handleSearch(event)}>
@@ -490,15 +576,12 @@ export function AddSongsPage() {
                     <p className="truncate text-sm text-muted-foreground">{track.artist}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={track.isOpm ? 'secondary' : 'outline'}>
-                      {track.isOpm ? 'OPM' : 'Not OPM'}
-                    </Badge>
                     {track.inCatalog ? (
                       <Badge variant="outline">In catalog</Badge>
                     ) : (
                       <Button
                         size="sm"
-                        disabled={!track.isOpm || !track.id || addingId === track.id}
+                        disabled={!track.id || addingId === track.id}
                         onClick={() => void handleAdd(track)}
                       >
                         {addingId === track.id ? <Spinner data-icon="inline-start" /> : null}

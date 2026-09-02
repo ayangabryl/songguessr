@@ -36,69 +36,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { CatalogEmojiPicker } from '@/components/emoji-picker'
 import { CountryCombobox } from '@/components/country-combobox'
 import { CountryFlag } from '../../shared/country-flag'
 import { formatNumber } from '@/lib/format'
 import { toast } from 'sonner'
-
-const CATALOG_EMOJI_CHOICES = [
-  '🇵🇭',
-  '🎵',
-  '🎤',
-  '🇰🇷',
-  '🎌',
-  '📺',
-  '🇯🇵',
-  '🎸',
-  '🎹',
-  '🥁',
-  '🎶',
-  '🌍',
-  '⭐',
-  '🔥',
-  '💜',
-  '🌸',
-  '🎬',
-  '🎧',
-]
-
-function EmojiPicker({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string
-  onChange: (emoji: string) => void
-  disabled?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-1.5">
-        {CATALOG_EMOJI_CHOICES.map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            disabled={disabled}
-            className={`flex size-8 items-center justify-center rounded-md border ${
-              value === emoji ? 'border-foreground bg-muted' : 'border-transparent hover:bg-muted/70'
-            }`}
-            onClick={() => onChange(emoji)}
-            title={emoji}
-          >
-            <NotoEmoji emoji={emoji} className="size-5" />
-          </button>
-        ))}
-      </div>
-      <Input
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Or paste an emoji"
-        aria-label="Catalog emoji"
-      />
-    </div>
-  )
-}
 
 export function CatalogsPage() {
   const [catalogs, setCatalogs] = useState<AdminCatalog[]>([])
@@ -198,8 +140,8 @@ export function CatalogsPage() {
         <CardHeader>
           <CardTitle>Add catalog</CardTitle>
           <CardDescription>
-            Custom catalogs pair a slug with a Noto Color Emoji icon. Add playlist uses this list
-            instead of a hardcoded Other dropdown.
+            Add a catalog (name + emoji) then pick it when importing. Catalog is the collection —
+            not the country. K-drama can mix Korean songs and English OSTs.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -216,7 +158,7 @@ export function CatalogsPage() {
               </Field>
               <Field>
                 <FieldLabel>Emoji</FieldLabel>
-                <EmojiPicker value={emoji} onChange={setEmoji} disabled={creating} />
+                <CatalogEmojiPicker value={emoji} onChange={setEmoji} disabled={creating} />
               </Field>
               <Field>
                 <FieldLabel>Default country (optional)</FieldLabel>
@@ -268,7 +210,7 @@ export function CatalogsPage() {
                     <TableRow key={catalog.id}>
                       <TableCell>
                         {editing ? (
-                          <EmojiPicker
+                          <CatalogEmojiPicker
                             value={editEmoji}
                             onChange={setEditEmoji}
                             disabled={savingId === catalog.id}

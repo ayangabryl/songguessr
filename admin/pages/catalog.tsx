@@ -59,6 +59,7 @@ import {
   GENRE_OPTIONS,
   countryDisplayName,
   formatNumber,
+  formatPlayCount,
 } from '@/lib/format'
 import { MusicIcon, SearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -286,7 +287,8 @@ export function CatalogPage() {
                   <TableHead>Artist</TableHead>
                   <TableHead>Difficulty</TableHead>
                   <TableHead>Popularity</TableHead>
-                  <TableHead>Year</TableHead>
+                  <TableHead>Plays</TableHead>
+                  <TableHead>Released</TableHead>
                   <TableHead>Genre</TableHead>
                   <TableHead>Country</TableHead>
                   <TableHead>Preview</TableHead>
@@ -323,7 +325,8 @@ export function CatalogPage() {
                         '—'
                       )}
                     </TableCell>
-                    <TableCell>{track.releaseYear ?? '—'}</TableCell>
+                    <TableCell>{formatPlayCount(track.playCount)}</TableCell>
+                    <TableCell>{track.releaseDate ?? track.releaseYear ?? '—'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {(track.genreGroups ?? []).map((group) => (

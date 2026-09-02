@@ -43,6 +43,7 @@ export interface TrackRow {
   album_art: string | null
   difficulty: Difficulty
   popularity: number | null
+  play_count: number | null
   artist_popularity: number | null
   release_year: number | null
   release_date: string | null
@@ -64,6 +65,8 @@ export interface CatalogStats {
   spotifySyncedAt: string | null
   popularityFilled: number
   popularityMissing: number
+  playCountFilled: number
+  playCountMissing: number
 }
 
 export interface CatalogMutationResult {
@@ -99,6 +102,7 @@ export interface CatalogListPage {
     albumArt: string
     hasPreview: boolean
     popularity?: number
+    playCount?: number
     country: CountryCode
     catalog: CatalogKind
     releaseDate?: string
@@ -194,6 +198,7 @@ export function rowToTrack(row: TrackRow): Track {
     genreGroups: genreGroups.length > 0 ? genreGroups : undefined,
     spotifyGenres: spotifyGenres.length > 0 ? spotifyGenres : undefined,
     popularity: row.popularity ?? undefined,
+    playCount: row.play_count ?? undefined,
     artistPopularity: row.artist_popularity ?? undefined,
     durationMs: row.duration_ms ?? undefined,
     country: parseCountry(row.country),
@@ -214,6 +219,7 @@ function trackBindValues(track: Track, now: string): SqlValue[] {
     track.albumArt || null,
     track.difficulty,
     track.popularity ?? null,
+    track.playCount ?? null,
     track.artistPopularity ?? null,
     track.releaseYear ?? null,
     track.releaseDate ?? null,
@@ -231,13 +237,13 @@ function trackBindValues(track: Track, now: string): SqlValue[] {
 }
 
 const INSERT_COLUMNS = `id, title, artist, preview_url, hook_preview_url, hook_start_seconds,
-  album_art, difficulty, popularity, artist_popularity, release_year, release_date, duration_ms,
+  album_art, difficulty, popularity, play_count, artist_popularity, release_year, release_date, duration_ms,
   genre_groups, spotify_genres, song_key, updated_at, spotify_synced_at, country, catalog,
   chart_boost, force_tier`
 
-const INSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const INSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-const UPSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+const UPSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
     title = excluded.title,
     artist = excluded.artist,
@@ -250,6 +256,7 @@ const UPSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?
       ELSE tracks.difficulty
     END,
     popularity = COALESCE(excluded.popularity, tracks.popularity),
+    play_count = COALESCE(excluded.play_count, tracks.play_count),
     artist_popularity = COALESCE(excluded.artist_popularity, tracks.artist_popularity),
     release_year = COALESCE(excluded.release_year, tracks.release_year),
     release_date = COALESCE(excluded.release_date, tracks.release_date),
@@ -329,7 +336,9 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
          MAX(updated_at) AS updated_at,
          MAX(spotify_synced_at) AS spotify_synced_at,
          SUM(CASE WHEN popularity IS NOT NULL AND popularity > 0 THEN 1 ELSE 0 END) AS popularity_filled,
-         SUM(CASE WHEN popularity IS NULL OR popularity = 0 THEN 1 ELSE 0 END) AS popularity_missing
+         SUM(CASE WHEN popularity IS NULL OR popularity = 0 THEN 1 ELSE 0 END) AS popularity_missing,
+         SUM(CASE WHEN play_count IS NOT NULL THEN 1 ELSE 0 END) AS play_count_filled,
+         SUM(CASE WHEN play_count IS NULL THEN 1 ELSE 0 END) AS play_count_missing
        FROM tracks`,
     )
     .first<{
@@ -338,6 +347,8 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
       spotify_synced_at: string | null
       popularity_filled: number | null
       popularity_missing: number | null
+      play_count_filled: number | null
+      play_count_missing: number | null
     }>()
 
   return {
@@ -346,6 +357,8 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
     spotifySyncedAt: row?.spotify_synced_at ?? null,
     popularityFilled: row?.popularity_filled ?? 0,
     popularityMissing: row?.popularity_missing ?? 0,
+    playCountFilled: row?.play_count_filled ?? 0,
+    playCountMissing: row?.play_count_missing ?? 0,
   }
 }
 
@@ -357,6 +370,20 @@ export async function countTracks(env: Env): Promise<number> {
 export async function listTrackIds(env: Env): Promise<string[]> {
   const db = requireDb(env)
   const result = await db.prepare('SELECT id FROM tracks').all<{ id: string }>()
+  return (result.results ?? []).map((row) => row.id)
+}
+
+export async function listTrackIdsMissingPlayCount(env: Env, limit = 40): Promise<string[]> {
+  const db = requireDb(env)
+  const result = await db
+    .prepare(
+      `SELECT id FROM tracks
+       WHERE play_count IS NULL
+       ORDER BY (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
+       LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ id: string }>()
   return (result.results ?? []).map((row) => row.id)
 }
 
@@ -883,6 +910,7 @@ export interface TrackMetricsPatch {
   artist?: string
   albumArt?: string
   popularity?: number
+  playCount?: number
   artistPopularity?: number
   releaseYear?: number
   releaseDate?: string
@@ -966,6 +994,7 @@ export async function applyTrackMetricPatches(
            artist = COALESCE(?, artist),
            album_art = COALESCE(?, album_art),
            popularity = COALESCE(?, popularity),
+           play_count = COALESCE(?, play_count),
            artist_popularity = COALESCE(?, artist_popularity),
            release_year = COALESCE(?, release_year),
            release_date = COALESCE(?, release_date),
@@ -980,7 +1009,7 @@ export async function applyTrackMetricPatches(
              ELSE ?
            END,
            updated_at = ?,
-           spotify_synced_at = CASE WHEN ? IS NOT NULL THEN ? ELSE spotify_synced_at END
+           spotify_synced_at = CASE WHEN COALESCE(?, ?) IS NOT NULL THEN ? ELSE spotify_synced_at END
          WHERE id = ?`,
       )
       .bind(
@@ -988,6 +1017,7 @@ export async function applyTrackMetricPatches(
         patch.artist ?? null,
         patch.albumArt ?? null,
         patch.popularity ?? null,
+        patch.playCount ?? null,
         patch.artistPopularity ?? null,
         patch.releaseYear ?? null,
         patch.releaseDate ?? null,
@@ -999,6 +1029,7 @@ export async function applyTrackMetricPatches(
         patch.difficulty ?? null,
         now,
         patch.popularity ?? null,
+        patch.playCount ?? null,
         now,
         patch.id,
       ),
@@ -1174,6 +1205,7 @@ export async function listCatalogPage(
         albumArt: track.albumArt,
         hasPreview: Boolean(track.previewUrl),
         popularity: track.popularity,
+        playCount: track.playCount,
         country: track.country ?? DEFAULT_COUNTRY,
         catalog: track.catalog ?? DEFAULT_CATALOG,
         releaseDate: track.releaseDate,

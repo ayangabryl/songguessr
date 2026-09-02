@@ -67,6 +67,7 @@ export interface CatalogTrack {
   albumArt: string
   hasPreview: boolean
   popularity?: number
+  playCount?: number
   country?: string
   catalog?: string
 }
@@ -196,10 +197,17 @@ export async function searchSpotify(query: string): Promise<SpotifySearchResult[
   return data.results
 }
 
-export async function addTrack(trackId: string): Promise<void> {
+export async function addTrack(
+  trackId: string,
+  options: { country?: string; catalog?: string } = {},
+): Promise<void> {
   await request('/catalog/add', {
     method: 'POST',
-    body: JSON.stringify({ trackId }),
+    body: JSON.stringify({
+      trackId,
+      country: options.country,
+      catalog: options.catalog,
+    }),
   })
 }
 
@@ -266,7 +274,10 @@ export async function startPlaylistImport(
     country?: string
     catalog?: string
     assumeAllLocal?: boolean
+    trustArtists?: boolean
+    requireKnownArtists?: boolean
     trackIds?: string[]
+    trackCountries?: Record<string, string>
   } = {},
 ): Promise<string> {
   const data = await request<{ jobId: string }>('/catalog/playlist', {
@@ -276,7 +287,10 @@ export async function startPlaylistImport(
       country: options.country,
       catalog: options.catalog,
       assumeAllLocal: options.assumeAllLocal === true,
+      trustArtists: options.trustArtists === true,
+      requireKnownArtists: options.requireKnownArtists,
       trackIds: options.trackIds,
+      trackCountries: options.trackCountries,
     }),
   })
   return data.jobId
@@ -301,6 +315,25 @@ export interface ArtistsResponse {
   pageSize: number
   total: number
   totalPages: number
+}
+
+export interface ArtistDetailResponse {
+  artist: AdminArtist
+  tracks: CatalogTrack[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+export async function fetchArtist(
+  id: string,
+  page: number,
+  query: string,
+): Promise<ArtistDetailResponse> {
+  const params = new URLSearchParams({ page: String(page), pageSize: '50' })
+  if (query.trim()) params.set('q', query.trim())
+  return request<ArtistDetailResponse>(`/artists/${encodeURIComponent(id)}?${params}`)
 }
 
 export async function fetchArtists(
