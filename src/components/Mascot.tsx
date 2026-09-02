@@ -1,9 +1,9 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import type { Difficulty } from '../lib/api'
 import type { MascotMood } from '../lib/mascot'
 
 /**
- * Noot mascot: keyed PNG flipbooks from the video-kit sequences.
+ * Noot mascot: original SMIL SVG flipbooks from the video-kit sequences.
  * Not affiliated with Duolingo.
  */
 interface MascotProps {
@@ -11,23 +11,16 @@ interface MascotProps {
   mood: MascotMood
 }
 
-interface NootClip {
-  src: string
-  duration: string
-  frames: number
-  loop: boolean
-}
+const STILL = '/mascot/noot-still.png?v=8'
 
-const STILL = '/mascot/noot-still.png?v=7'
-
-const NOOT_CLIPS: Record<MascotMood, NootClip> = {
-  idle: { src: '/mascot/noot-idle.png?v=7', duration: '3s', frames: 24, loop: true },
-  play: { src: '/mascot/noot-play.png?v=7', duration: '2s', frames: 24, loop: true },
-  win: { src: '/mascot/noot-win.png?v=7', duration: '1.3s', frames: 24, loop: false },
-  lose: { src: '/mascot/noot-lose.png?v=7', duration: '1.2s', frames: 24, loop: false },
-  skip: { src: '/mascot/noot-skip.png?v=7', duration: '1.1s', frames: 24, loop: false },
-  streak: { src: '/mascot/noot-streak.png?v=7', duration: '1.5s', frames: 24, loop: false },
-  switch: { src: '/mascot/noot-switch.png?v=7', duration: '1.2s', frames: 24, loop: false },
+const NOOT_CLIPS: Record<MascotMood, string> = {
+  idle: '/mascot/noot-idle.svg?v=8',
+  play: '/mascot/noot-play.svg?v=8',
+  win: '/mascot/noot-win.svg?v=8',
+  lose: '/mascot/noot-lose.svg?v=8',
+  skip: '/mascot/noot-skip.svg?v=8',
+  streak: '/mascot/noot-streak.svg?v=8',
+  switch: '/mascot/noot-switch.svg?v=8',
 }
 
 export function Mascot({ difficulty, mood }: MascotProps) {
@@ -41,22 +34,18 @@ export function Mascot({ difficulty, mood }: MascotProps) {
     return () => media.removeEventListener('change', apply)
   }, [])
 
-  const clip = NOOT_CLIPS[mood]
-  const src = reduceMotion ? STILL : clip.src
-  const frameCount = reduceMotion ? 1 : clip.frames
-  const stepCount = reduceMotion || clip.loop ? frameCount : Math.max(frameCount - 1, 1)
-  const endFrames = stepCount
-  const style = {
-    backgroundImage: `url("${src}")`,
-    animationDuration: reduceMotion ? '0s' : clip.duration,
-    animationIterationCount: reduceMotion || !clip.loop ? '1' : 'infinite',
-    animationTimingFunction: `steps(${stepCount})`,
-    '--noot-end': String(endFrames),
-  } as CSSProperties
-
   return (
     <div className={`mascot mascot-${mood} mascot-${difficulty}`} aria-hidden="true">
-      <div key={mood} className="mascot-sprite" style={style} />
+      {reduceMotion ? (
+        <img className="mascot-svg" src={STILL} alt="" />
+      ) : (
+        <object
+          key={mood}
+          className="mascot-svg"
+          type="image/svg+xml"
+          data={NOOT_CLIPS[mood]}
+        />
+      )}
     </div>
   )
 }

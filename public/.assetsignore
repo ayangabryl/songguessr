@@ -1,8 +1,11 @@
-wrangler.json
-.dev.vars
 mascot/video-kit/**
-mascot/concepts/**
 mascot/archive/**
+mascot/concepts/**
 mascot/streak-evolution/**
-mascot/streak-fire-note.png
-mascot/streak-fire-note.prompt.txt
+mascot/noot-idle.png
+mascot/noot-lose.png
+mascot/noot-play.png
+mascot/noot-skip.png
+mascot/noot-streak.png
+mascot/noot-switch.png
+mascot/noot-win.png
