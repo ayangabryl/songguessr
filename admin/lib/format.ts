@@ -3,7 +3,9 @@ import {
   CATALOG_LABELS,
   COUNTRY_CODES,
   COUNTRY_LABELS,
+  countryDisplayName,
 } from '../../shared/catalog-meta'
+import { ISO_COUNTRIES, ISO_COUNTRY_CODES } from '../../shared/iso-countries'
 
 export function formatDate(value: string | null): string {
   if (!value) return '—'
@@ -20,7 +22,15 @@ export function formatNumber(value: number): string {
 export const DIFFICULTY_OPTIONS = ['easy', 'medium', 'hard', 'expert', 'impossible'] as const
 export const ERA_OPTIONS = ['modern', '2010s', '2000s', 'classics'] as const
 export const GENRE_OPTIONS = ['pop', 'hip-hop', 'r&b', 'rock', 'dance', 'other'] as const
-export { CATALOG_KINDS, CATALOG_LABELS, COUNTRY_CODES, COUNTRY_LABELS }
+export {
+  CATALOG_KINDS,
+  CATALOG_LABELS,
+  COUNTRY_CODES,
+  COUNTRY_LABELS,
+  ISO_COUNTRIES,
+  ISO_COUNTRY_CODES,
+  countryDisplayName,
+}
 
 export const ERA_LABELS: Record<(typeof ERA_OPTIONS)[number] | 'all', string> = {
   all: 'All eras',
@@ -49,7 +59,7 @@ export const DIFFICULTY_LABELS: Record<(typeof DIFFICULTY_OPTIONS)[number] | 'al
   impossible: 'Impossible',
 }
 
-export const COUNTRY_FILTER_LABELS: Record<(typeof COUNTRY_CODES)[number] | 'all', string> = {
+export const COUNTRY_FILTER_LABELS: Record<string, string> = {
   all: 'All countries',
   ...COUNTRY_LABELS,
 }

@@ -1,8 +1,8 @@
 import {
   CATALOG_KINDS,
-  COUNTRY_CODES,
   DEFAULT_CATALOG,
   DEFAULT_COUNTRY,
+  isCountryCode,
   type CatalogKind,
   type CountryCode,
 } from '../shared/catalog-meta'
@@ -110,7 +110,7 @@ export interface CatalogListPage {
     difficulty: Record<Difficulty, number>
     genre: Record<GenreFilter, number>
     era: Record<EraFilter, number>
-    country: Record<CountryCode, number>
+    country: Record<string, number>
     missingPreview: number
   }
 }
@@ -147,9 +147,8 @@ function parseStringList(value: string | null): string[] {
 }
 
 function parseCountry(value: string | null | undefined): CountryCode {
-  if (value && (COUNTRY_CODES as readonly string[]).includes(value)) {
-    return value as CountryCode
-  }
+  const normalized = value?.trim().toUpperCase()
+  if (normalized && isCountryCode(normalized)) return normalized
   return DEFAULT_COUNTRY
 }
 
@@ -385,14 +384,70 @@ export async function findTrackById(env: Env, id: string): Promise<Track | undef
   return row ? rowToTrack(row) : undefined
 }
 
+const FAME_SQL = `(
+  0.62 * COALESCE(popularity, 0)
+  + 0.22 * COALESCE(artist_popularity, 0)
+  + CASE WHEN COALESCE(chart_boost, 0) = 1 THEN 16 ELSE 0 END
+  + CASE WHEN force_tier = 'easy' THEN 10 ELSE 0 END
+  + CASE difficulty
+      WHEN 'easy' THEN 28
+      WHEN 'medium' THEN 14
+      WHEN 'hard' THEN 6
+      ELSE 0
+    END
+  - CASE
+      WHEN COALESCE(popularity, 0) < 40
+        AND COALESCE(chart_boost, 0) = 0
+        AND release_year IS NOT NULL
+        AND release_year >= CAST(strftime('%Y', 'now') AS INTEGER) - 1
+      THEN 22
+      ELSE 0
+    END
+)`
+
+function fameThreshold(difficulty: Difficulty): number {
+  switch (difficulty) {
+    case 'easy':
+      return 42
+    case 'medium':
+      return 28
+    case 'hard':
+      return 14
+    case 'expert':
+      return 6
+    case 'impossible':
+      return 0
+    default: {
+      const _never: never = difficulty
+      throw new Error(`Unhandled difficulty: ${_never}`)
+    }
+  }
+}
+
+function shouldApplyFameGate(filters: CatalogFilters, fameGate: boolean): boolean {
+  return fameGate && filters.countries.length === 0
+}
+
+const FAME_GATE_SQL = ` AND ${FAME_SQL} >= CASE difficulty
+  WHEN 'easy' THEN 42
+  WHEN 'medium' THEN 28
+  WHEN 'hard' THEN 14
+  WHEN 'expert' THEN 6
+  ELSE 0
+END`
+
 export async function getAvailabilityCounts(
   env: Env,
   filters: CatalogFilters,
+  options: { fameGate?: boolean } = {},
 ): Promise<Record<Difficulty, number>> {
   const db = requireDb(env)
   const { sql, params } = buildFilterSql(filters)
+  const fameSql = shouldApplyFameGate(filters, options.fameGate !== false) ? FAME_GATE_SQL : ''
   const result = await db
-    .prepare(`SELECT difficulty, COUNT(*) AS n FROM tracks WHERE 1 = 1${sql} GROUP BY difficulty`)
+    .prepare(
+      `SELECT difficulty, COUNT(*) AS n FROM tracks WHERE 1 = 1${sql}${fameSql} GROUP BY difficulty`,
+    )
     .bind(...params)
     .all<{ difficulty: Difficulty; n: number }>()
 
@@ -411,7 +466,7 @@ export async function getAvailabilityCounts(
 export async function getDifficultyDistribution(
   env: Env,
 ): Promise<Record<Difficulty, number>> {
-  return getAvailabilityCounts(env, EMPTY_CATALOG_FILTERS)
+  return getAvailabilityCounts(env, EMPTY_CATALOG_FILTERS, { fameGate: false })
 }
 
 async function pickOne(
@@ -421,7 +476,28 @@ async function pickOne(
   filterParams: SqlValue[],
   extraSql: string,
   extraParams: SqlValue[],
+  useFame: boolean,
 ): Promise<Track | null> {
+  if (useFame) {
+    const thresholds = [
+      fameThreshold(difficulty),
+      Math.floor(fameThreshold(difficulty) / 2),
+      0,
+    ]
+    for (const minFame of thresholds) {
+      const row = await db
+        .prepare(
+          `SELECT * FROM tracks
+           WHERE difficulty = ?${filterSql}${extraSql} AND ${FAME_SQL} >= ?
+           ORDER BY (${FAME_SQL} + 15) * ((ABS(RANDOM()) % 80) + 20) DESC
+           LIMIT 1`,
+        )
+        .bind(difficulty, ...filterParams, ...extraParams, minFame)
+        .first<TrackRow>()
+      if (row) return rowToTrack(row)
+    }
+  }
+
   const row = await db
     .prepare(
       `SELECT * FROM tracks WHERE difficulty = ?${filterSql}${extraSql} ORDER BY RANDOM() LIMIT 1`,
@@ -452,8 +528,17 @@ export async function pickRandomTrack(
     { sql: '', params: [] },
   ]
 
+  const useFame = shouldApplyFameGate(filters, true)
   for (const attempt of attempts) {
-    const track = await pickOne(db, difficulty, filterSql, filterParams, attempt.sql, attempt.params)
+    const track = await pickOne(
+      db,
+      difficulty,
+      filterSql,
+      filterParams,
+      attempt.sql,
+      attempt.params,
+      useFame,
+    )
     if (track) return track
   }
   return null
@@ -793,7 +878,7 @@ function emptyFacetCounts() {
     >,
     genre: Object.fromEntries(GENRE_OPTIONS.map((item) => [item, 0])) as Record<GenreFilter, number>,
     era: Object.fromEntries(ERA_OPTIONS.map((item) => [item, 0])) as Record<EraFilter, number>,
-    country: Object.fromEntries(COUNTRY_CODES.map((item) => [item, 0])) as Record<CountryCode, number>,
+    country: {} as Record<string, number>,
     missingPreview: 0,
   }
 }
@@ -878,7 +963,7 @@ export async function listCatalogPage(
   }
   for (const row of countryRows.results ?? []) {
     const country = parseCountry(row.country)
-    counts.country[country] += row.n ?? 0
+    counts.country[country] = (counts.country[country] ?? 0) + (row.n ?? 0)
   }
   counts.missingPreview = missingRow.results?.[0]?.n ?? 0
 
@@ -944,6 +1029,40 @@ export async function listTracksMissingAlbumArt(
     .prepare(`SELECT id, title, artist FROM tracks WHERE album_art IS NULL OR album_art = ''`)
     .all<{ id: string; title: string; artist: string }>()
   return result.results ?? []
+}
+
+export interface OembedPatch {
+  id: string
+  title?: string
+  artist?: string
+  albumArt?: string
+}
+
+export async function applyOembedPatches(env: Env, patches: OembedPatch[]): Promise<number> {
+  const usable = patches.filter((patch) => patch.id && (patch.title || patch.artist || patch.albumArt))
+  if (usable.length === 0) return 0
+
+  const db = requireDb(env)
+  const now = new Date().toISOString()
+  const statements = usable.map((patch) =>
+    db
+      .prepare(
+        `UPDATE tracks SET
+           title = COALESCE(?, title),
+           artist = COALESCE(?, artist),
+           album_art = COALESCE(?, album_art),
+           updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(patch.title ?? null, patch.artist ?? null, patch.albumArt ?? null, now, patch.id),
+  )
+
+  let updated = 0
+  for (let index = 0; index < statements.length; index += 100) {
+    const result = await db.batch(statements.slice(index, index + 100))
+    updated += result.reduce((sum, item) => sum + (item.meta?.changes ?? 0), 0)
+  }
+  return updated
 }
 
 export async function applyAlbumArtPatches(

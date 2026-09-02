@@ -31,12 +31,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
+import { CountryCombobox } from '@/components/country-combobox'
 import { Switch } from '@/components/ui/switch'
 import {
   CATALOG_KINDS,
   CATALOG_LABELS,
-  COUNTRY_CODES,
-  COUNTRY_LABELS,
+  countryDisplayName,
   formatNumber,
 } from '@/lib/format'
 import { ListMusicIcon, SearchIcon } from 'lucide-react'
@@ -194,24 +194,11 @@ export function AddSongsPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field>
                   <FieldLabel>Country</FieldLabel>
-                  <Select
+                  <CountryCombobox
                     value={country}
-                    onValueChange={setCountry}
+                    onChange={setCountry}
                     disabled={jobRunning || starting}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {COUNTRY_CODES.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {COUNTRY_LABELS[option]}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  />
                 </Field>
                 <Field>
                   <FieldLabel>Catalog</FieldLabel>
@@ -247,7 +234,7 @@ export function AddSongsPage() {
                     All songs in this playlist are from this country
                   </FieldLabel>
                   <FieldDescription>
-                    Whitelist every artist on the playlist as {COUNTRY_LABELS[country as keyof typeof COUNTRY_LABELS] ?? country}.
+                    Whitelist every artist on the playlist as {countryDisplayName(country)}.
                     Leave off for mixed charts like Top 50 — Philippines.
                   </FieldDescription>
                 </div>

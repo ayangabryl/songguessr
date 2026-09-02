@@ -63,7 +63,13 @@ export function upgradeItunesArtwork(url: string): string {
   return url.replace(/\d+x\d+bb/g, '600x600bb').replace(/\/\d+x\d+(?=[^/]*$)/, '/600x600')
 }
 
-export async function fetchSpotifyOembedArtwork(trackId: string): Promise<string | null> {
+export interface SpotifyOembed {
+  title?: string
+  authorName?: string
+  thumbnailUrl?: string
+}
+
+export async function fetchSpotifyOembed(trackId: string): Promise<SpotifyOembed | null> {
   if (!trackId) return null
   try {
     const url = `https://open.spotify.com/oembed?url=${encodeURIComponent(
@@ -71,10 +77,17 @@ export async function fetchSpotifyOembedArtwork(trackId: string): Promise<string
     )}`
     const response = await fetch(url)
     if (!response.ok) return null
-    const data = (await response.json()) as { thumbnail_url?: string }
+    const data = (await response.json()) as {
+      title?: string
+      author_name?: string
+      thumbnail_url?: string
+    }
     const thumb = data.thumbnail_url?.trim()
-    if (!thumb) return null
-    return thumb.replace('ab67616d00001e02', 'ab67616d0000b273')
+    return {
+      title: data.title?.trim() || undefined,
+      authorName: data.author_name?.trim() || undefined,
+      thumbnailUrl: thumb ? thumb.replace('ab67616d00001e02', 'ab67616d0000b273') : undefined,
+    }
   } catch (error) {
     console.warn(
       `[album-art] oEmbed failed for ${trackId}: ${
@@ -83,6 +96,11 @@ export async function fetchSpotifyOembedArtwork(trackId: string): Promise<string
     )
     return null
   }
+}
+
+export async function fetchSpotifyOembedArtwork(trackId: string): Promise<string | null> {
+  const oembed = await fetchSpotifyOembed(trackId)
+  return oembed?.thumbnailUrl ?? null
 }
 
 export async function fetchItunesArtwork(

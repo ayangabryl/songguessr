@@ -9,7 +9,8 @@ import {
   searchCatalog,
 } from './catalog'
 import { getCatalogStats, listCatalogCountries } from './catalog-d1'
-import { GAME_REGIONS, COUNTRY_LABELS, isCountryCode } from '../shared/catalog-meta'
+import { GAME_REGIONS, isCountryCode } from '../shared/catalog-meta'
+import { countryDisplayName } from '../shared/iso-countries'
 import { songIdentityKey } from './track-dedupe.ts'
 import {
   type CatalogFilters,
@@ -212,7 +213,7 @@ app.get('/api/catalog/regions', async (c) => {
     return c.json({
       regions: GAME_REGIONS.map((region) => ({
         ...region,
-        label: COUNTRY_LABELS[region.country],
+        label: countryDisplayName(region.country),
         count: countByCountry.get(region.country) ?? 0,
       })),
     })

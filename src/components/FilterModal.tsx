@@ -1,4 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { CountryFlag } from '../../shared/country-flag'
+import { filterIsoCountries } from '../../shared/iso-countries'
 import {
   ERA_LABELS,
   ERA_OPTIONS,
@@ -50,8 +52,13 @@ export function FilterModal({
   onClearAll,
   onApply,
 }: FilterModalProps) {
+  const [regionQuery, setRegionQuery] = useState('')
+
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      setRegionQuery('')
+      return
+    }
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -60,6 +67,12 @@ export function FilterModal({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open, onClose])
+
+  const countByCountry = useMemo(
+    () => new Map(regions.map((region) => [region.country, region.count ?? 0])),
+    [regions],
+  )
+  const visibleCountries = useMemo(() => filterIsoCountries(regionQuery), [regionQuery])
 
   if (!open) return null
 
@@ -88,7 +101,15 @@ export function FilterModal({
           <legend>
             Region <span>(select any)</span>
           </legend>
-          <div className="filter-options">
+          <input
+            type="search"
+            className="filter-region-search"
+            value={regionQuery}
+            onChange={(event) => setRegionQuery(event.target.value)}
+            placeholder="Search all countries"
+            aria-label="Search regions"
+          />
+          <div className="filter-options filter-region-list">
             <button
               type="button"
               className={draftCountries.length === 0 ? 'selected' : ''}
@@ -97,17 +118,28 @@ export function FilterModal({
             >
               {REGION_LABELS.all}
             </button>
-            {regions.map((region) => (
-              <button
-                key={region.id}
-                type="button"
-                className={draftCountries.includes(region.country) ? 'selected' : ''}
-                aria-pressed={draftCountries.includes(region.country)}
-                onClick={() => onToggleRegion(region.country)}
-              >
-                {region.label}
-              </button>
-            ))}
+            {visibleCountries.map((country) => {
+              const count = countByCountry.get(country.code)
+              return (
+                <button
+                  key={country.code}
+                  type="button"
+                  className={draftCountries.includes(country.code) ? 'selected' : ''}
+                  aria-pressed={draftCountries.includes(country.code)}
+                  onClick={() => onToggleRegion(country.code)}
+                >
+                  <CountryFlag
+                    code={country.code}
+                    className="filter-flag"
+                    title={country.name}
+                  />
+                  <span>{country.name}</span>
+                  {count != null && count > 0 ? (
+                    <span className="filter-region-count">{count}</span>
+                  ) : null}
+                </button>
+              )
+            })}
           </div>
         </fieldset>
 

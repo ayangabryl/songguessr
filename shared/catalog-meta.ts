@@ -1,21 +1,31 @@
-/** ISO-like catalog origin. All current songs are PH / OPM. */
-export const COUNTRY_CODES = ['PH', 'KR', 'JP', 'US', 'GLOBAL'] as const
-export type CountryCode = (typeof COUNTRY_CODES)[number]
+import {
+  ISO_COUNTRIES,
+  countryDisplayName,
+  isIsoCountryCode,
+  type IsoCountryCode,
+} from './iso-countries'
+
+/** ISO 3166-1 alpha-2, plus GLOBAL for mixed/non-territorial D1 rows. */
+export type CountryCode = IsoCountryCode | 'GLOBAL'
+
+export const COUNTRY_CODES: readonly CountryCode[] = [
+  ...ISO_COUNTRIES.map((country) => country.code),
+  'GLOBAL',
+]
 
 export const CATALOG_KINDS = ['opm', 'kpop', 'anime', 'other'] as const
 export type CatalogKind = (typeof CATALOG_KINDS)[number]
 
-/** Game-facing regions. Add KR, JP, … here when those catalogs exist. */
-export const REGION_OPTIONS = ['PH'] as const
-export type RegionFilter = (typeof REGION_OPTIONS)[number]
+/** Game region filters are every official ISO country. GLOBAL is not a region. */
+export const REGION_OPTIONS: readonly IsoCountryCode[] = ISO_COUNTRIES.map(
+  (country) => country.code,
+)
+export type RegionFilter = IsoCountryCode
 
-export const COUNTRY_LABELS: Record<CountryCode, string> = {
-  PH: 'Philippines',
-  KR: 'Korea',
-  JP: 'Japan',
-  US: 'United States',
-  GLOBAL: 'Global',
-}
+export const COUNTRY_LABELS: Record<string, string> = Object.fromEntries([
+  ...ISO_COUNTRIES.map((country) => [country.code, country.name] as const),
+  ['GLOBAL', 'Global'] as const,
+])
 
 export const CATALOG_LABELS: Record<CatalogKind, string> = {
   opm: 'OPM',
@@ -24,9 +34,9 @@ export const CATALOG_LABELS: Record<CatalogKind, string> = {
   other: 'Other',
 }
 
-export const REGION_LABELS: Record<RegionFilter | 'all', string> = {
+export const REGION_LABELS: Record<string, string> = {
   all: 'All regions',
-  PH: 'Philippines',
+  ...Object.fromEntries(ISO_COUNTRIES.map((country) => [country.code, country.name])),
 }
 
 export interface CatalogRegion {
@@ -35,17 +45,17 @@ export interface CatalogRegion {
   country: CountryCode
 }
 
-export const GAME_REGIONS: CatalogRegion[] = REGION_OPTIONS.map((id) => ({
-  id,
-  label: REGION_LABELS[id],
-  country: id,
+export const GAME_REGIONS: CatalogRegion[] = ISO_COUNTRIES.map((country) => ({
+  id: country.code,
+  label: country.name,
+  country: country.code,
 }))
 
 export const DEFAULT_COUNTRY: CountryCode = 'PH'
 export const DEFAULT_CATALOG: CatalogKind = 'opm'
 
 export function isCountryCode(value: string): value is CountryCode {
-  return (COUNTRY_CODES as readonly string[]).includes(value)
+  return isIsoCountryCode(value) || value === 'GLOBAL'
 }
 
 export function isCatalogKind(value: string): value is CatalogKind {
@@ -53,7 +63,7 @@ export function isCatalogKind(value: string): value is CatalogKind {
 }
 
 export function isRegionFilter(value: string): value is RegionFilter {
-  return (REGION_OPTIONS as readonly string[]).includes(value)
+  return isIsoCountryCode(value)
 }
 
 export function parseCountryList(value: string | undefined): CountryCode[] {
@@ -76,7 +86,7 @@ export function parseRegionList(value: string | undefined): RegionFilter[] {
   return [...seen]
 }
 
-/** Regions query values are country codes (PH, KR, …). */
+/** Regions query values are ISO country codes (PH, KR, …). */
 export function countriesFromQuery(
   countries?: string,
   regions?: string,
@@ -84,3 +94,5 @@ export function countriesFromQuery(
   const merged = [...parseCountryList(countries), ...parseCountryList(regions)]
   return [...new Set(merged)]
 }
+
+export { countryDisplayName }

@@ -3,14 +3,16 @@ import {
   GAME_REGIONS,
   REGION_LABELS,
   REGION_OPTIONS,
+  isRegionFilter,
   type CountryCode,
   type RegionFilter,
 } from '../../shared/catalog-meta'
+import { ISO_COUNTRY_CODES } from '../../shared/iso-countries'
 import { readMigratedItem } from './storage'
 
 export const ERA_OPTIONS = ['modern', '2010s', '2000s', 'classics'] as const
 export const GENRE_OPTIONS = ['pop', 'hip-hop', 'r&b', 'rock', 'dance', 'other'] as const
-export { COUNTRY_LABELS, GAME_REGIONS, REGION_LABELS, REGION_OPTIONS }
+export { COUNTRY_LABELS, GAME_REGIONS, ISO_COUNTRY_CODES, REGION_LABELS, REGION_OPTIONS }
 export type { CountryCode, RegionFilter }
 
 export type EraFilter = (typeof ERA_OPTIONS)[number]
@@ -90,9 +92,7 @@ export function loadRegionFilters(): CountryCode[] {
     if (!Array.isArray(parsed)) return []
     return parsed
       .map((item) => item.trim().toUpperCase())
-      .filter((item): item is CountryCode =>
-        (REGION_OPTIONS as readonly string[]).includes(item),
-      )
+      .filter((item): item is CountryCode => isRegionFilter(item))
   } catch {
     return []
   }

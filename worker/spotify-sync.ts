@@ -1,4 +1,6 @@
+import { fetchSpotifyOembed } from './album-art'
 import {
+  applyOembedPatches,
   applyTrackMetricPatches,
   getDifficultyDistribution,
   listTrackIdsForSync,
@@ -195,6 +197,33 @@ export interface SpotifySyncResult {
   errors: string[]
 }
 
+async function syncOembedMetadata(
+  ids: string[],
+  env: Env,
+  log: (message: string) => void,
+  runStartedAt: number,
+): Promise<number> {
+  const patches: Array<{ id: string; title?: string; artist?: string; albumArt?: string }> = []
+  for (const id of ids) {
+    if (Date.now() - runStartedAt >= CRON_TIME_BUDGET_MS) {
+      log(`Time budget reached during oEmbed after ${patches.length} tracks`)
+      break
+    }
+    const oembed = await fetchSpotifyOembed(id)
+    if (!oembed) continue
+    patches.push({
+      id,
+      title: oembed.title,
+      artist: oembed.authorName,
+      albumArt: oembed.thumbnailUrl,
+    })
+    await sleep(40)
+  }
+  const updated = await applyOembedPatches(env, patches)
+  log(`oEmbed updated ${updated} tracks (title/art only; spotify_synced_at unchanged)`)
+  return updated
+}
+
 export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {
   const log = (message: string) => console.log(`[spotify-sync] ${message}`)
   const emptyDistribution = {
@@ -204,20 +233,6 @@ export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {
     expert: 0,
     impossible: 0,
   } as Record<Difficulty, number>
-
-  const clientId = env.SPOTIFY_CLIENT_ID
-  const clientSecret = env.SPOTIFY_CLIENT_SECRET
-  if (!clientId || !clientSecret) {
-    return {
-      skipped: true,
-      reason: 'Spotify credentials not configured',
-      updated: 0,
-      tracks: 0,
-      distribution: emptyDistribution,
-      rateLimited: false,
-      errors: [],
-    }
-  }
 
   const ids = await listTrackIdsForSync(env)
   if (ids.length === 0) {
@@ -232,9 +247,31 @@ export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {
     }
   }
 
+  const runStartedAt = Date.now()
+  let oembedUpdated = 0
+  try {
+    log(`oEmbed-first sync for ${Math.min(ids.length, 250)} of ${ids.length} tracks (no auth)`)
+    oembedUpdated = await syncOembedMetadata(ids.slice(0, 250), env, log, runStartedAt)
+  } catch (error) {
+    log(`oEmbed pass failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  const clientId = env.SPOTIFY_CLIENT_ID
+  const clientSecret = env.SPOTIFY_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    const distribution = await getDifficultyDistribution(env)
+    return {
+      skipped: false,
+      updated: oembedUpdated,
+      tracks: ids.length,
+      distribution,
+      rateLimited: false,
+      errors: ['Spotify credentials not configured; popularity sync skipped'],
+    }
+  }
+
   const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
   const client = new IdOnlySpotifyClient(token, log)
-  const runStartedAt = Date.now()
   const errors: string[] = []
   const patches: TrackMetricsPatch[] = []
   const artistIds = new Set<string>()
@@ -322,11 +359,11 @@ export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {
 
   const updated = await applyTrackMetricPatches(env, patches)
   const distribution = await getDifficultyDistribution(env)
-  log(`Updated ${updated} tracks. Distribution ${JSON.stringify(distribution)}`)
+  log(`Updated ${updated} popularity rows + ${oembedUpdated} oEmbed rows. Distribution ${JSON.stringify(distribution)}`)
 
   return {
     skipped: false,
-    updated,
+    updated: updated + oembedUpdated,
     tracks: ids.length,
     distribution,
     rateLimited: client.rateLimited,

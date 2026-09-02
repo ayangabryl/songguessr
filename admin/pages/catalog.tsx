@@ -48,16 +48,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { CountryCombobox } from '@/components/country-combobox'
 import {
-  COUNTRY_CODES,
-  COUNTRY_FILTER_LABELS,
-  COUNTRY_LABELS,
   DIFFICULTY_LABELS,
   DIFFICULTY_OPTIONS,
   ERA_LABELS,
   ERA_OPTIONS,
   GENRE_LABELS,
   GENRE_OPTIONS,
+  countryDisplayName,
   formatNumber,
 } from '@/lib/format'
 import { MusicIcon, SearchIcon } from 'lucide-react'
@@ -206,29 +205,17 @@ export function CatalogPage() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field className="w-52">
+            <Field className="w-56">
               <FieldLabel>Country</FieldLabel>
-              <Select
+              <CountryCombobox
                 value={country}
-                onValueChange={(value) => {
+                includeAllOption
+                counts={counts.country}
+                onChange={(value) => {
                   setCountry(value)
                   setPage(1)
                 }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="all">All countries</SelectItem>
-                    {COUNTRY_CODES.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {COUNTRY_FILTER_LABELS[option]} ({formatNumber(counts.country?.[option] ?? 0)})
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              />
             </Field>
             <Field className="w-52">
               <FieldLabel>Era</FieldLabel>
@@ -346,10 +333,7 @@ export function CatalogPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {track.country
-                        ? (COUNTRY_LABELS[track.country as keyof typeof COUNTRY_LABELS] ??
-                          track.country)
-                        : 'Philippines'}
+                      {track.country ? countryDisplayName(track.country) : 'Philippines'}
                     </TableCell>
                     <TableCell>
                       <Badge variant={track.hasPreview ? 'secondary' : 'destructive'}>

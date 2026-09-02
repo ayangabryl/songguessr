@@ -22,7 +22,7 @@ import {
   ERA_OPTIONS,
   GAME_REGIONS,
   GENRE_OPTIONS,
-  REGION_OPTIONS,
+  ISO_COUNTRY_CODES,
   type CatalogFilters,
   type CountryCode,
   type EraFilter,
@@ -1468,7 +1468,7 @@ export function Game() {
           setDraftGenres((current) => toggleFilterValue(current, genre, GENRE_OPTIONS))
         }
         onToggleRegion={(country) =>
-          setDraftCountries((current) => toggleFilterValue(current, country, REGION_OPTIONS))
+          setDraftCountries((current) => toggleFilterValue(current, country, ISO_COUNTRY_CODES))
         }
         onClearEras={() => setDraftEras([])}
         onClearGenres={() => setDraftGenres([])}
