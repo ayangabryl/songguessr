@@ -88,7 +88,8 @@ import {
   type ResolvedTheme,
   type ThemePreference,
 } from '../lib/theme'
-import type { MascotMood } from '../lib/mascot'
+import type { MascotIntent } from '../lib/mascot'
+import { MASCOT_DURATION_MS } from '../lib/mascot'
 import {
   AutoRerollIcon,
   FeedbackIcon,
@@ -120,19 +121,18 @@ type PlaybackMode = 'idle' | 'clip' | 'reveal'
 const REVEAL_PLAYBACK_MS = 45_000
 
 
-function resolveMascotMood(input: {
+function resolveMascotIntent(input: {
   switching: boolean
-  streakBump: boolean
   skipPulse: boolean
   status: ShellStatus
   isPlaying: boolean
-}): MascotMood {
+  playPulse: boolean
+}): MascotIntent {
   if (input.switching) return 'switch'
-  if (input.streakBump) return 'streak'
   if (input.status === 'won') return 'win'
   if (input.status === 'lost') return 'lose'
   if (input.skipPulse) return 'skip'
-  if (input.isPlaying) return 'play'
+  if (input.isPlaying || input.playPulse) return 'play'
   return 'idle'
 }
 
@@ -242,6 +242,7 @@ export function Game() {
   const streakBumpTimeoutRef = useRef<number | null>(null)
   const mascotSwitchTimeoutRef = useRef<number | null>(null)
   const mascotSkipTimeoutRef = useRef<number | null>(null)
+  const mascotPlayTimeoutRef = useRef<number | null>(null)
 
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -290,6 +291,9 @@ export function Game() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mascotSwitch, setMascotSwitch] = useState(false)
   const [mascotSkip, setMascotSkip] = useState(false)
+  const [mascotPlay, setMascotPlay] = useState(false)
+  const [mascotLoseReason, setMascotLoseReason] = useState<'wrong' | 'timeout' | 'skip'>('wrong')
+  const [mascotWinStreak, setMascotWinStreak] = useState(false)
 
   const catalogFilters = useMemo<CatalogFilters>(
     () => ({
@@ -666,6 +670,7 @@ export function Game() {
       if (streakBumpTimeoutRef.current) window.clearTimeout(streakBumpTimeoutRef.current)
       if (mascotSwitchTimeoutRef.current) window.clearTimeout(mascotSwitchTimeoutRef.current)
       if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
+      if (mascotPlayTimeoutRef.current) window.clearTimeout(mascotPlayTimeoutRef.current)
     }
   }, [])
 
@@ -715,6 +720,8 @@ export function Game() {
     clearAutoReroll()
     clearSearchSelection()
     setAudioError(null)
+    setMascotWinStreak(false)
+    setMascotLoseReason('wrong')
     updateRound(level, {
       stageIndex: 0,
       wrongGuesses: [],
@@ -732,6 +739,8 @@ export function Game() {
     clearAutoReroll()
     clearSearchSelection()
     setAudioError(null)
+    setMascotWinStreak(false)
+    setMascotLoseReason('wrong')
     const prefetched = prefetchedRef.current[level]
     if (prefetched) {
       delete prefetchedRef.current[level]
@@ -834,6 +843,7 @@ export function Game() {
       return
     }
 
+    pulseMascotPlay()
     const stageEndpoint = currentStageEndpoint
     const startTimeline =
       activeState.unlockedSeconds >= stageEndpoint ? 0 : activeState.unlockedSeconds
@@ -873,6 +883,7 @@ export function Game() {
 
         endClipLoading()
         setIsPlaying(true)
+        pulseMascotPlay()
         const playbackStart = startTimeline + alreadyElapsedMs / 1000
         updateRound(difficulty, {
           unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
@@ -979,6 +990,7 @@ export function Game() {
 
       endClipLoading()
       setIsPlaying(true)
+      pulseMascotPlay()
       updateRound(difficulty, {
         unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
         playbackSeconds: startTimeline,
@@ -1015,18 +1027,20 @@ export function Game() {
   function noteStreakWin() {
     const next = incrementStreak()
     setStreak(next)
+    setMascotWinStreak(true)
     setStreakBump(true)
     if (streakBumpTimeoutRef.current) window.clearTimeout(streakBumpTimeoutRef.current)
     streakBumpTimeoutRef.current = window.setTimeout(() => {
       setStreakBump(false)
       streakBumpTimeoutRef.current = null
-    }, 1500)
+    }, MASCOT_DURATION_MS.win + MASCOT_DURATION_MS.streak)
   }
 
   function noteStreakFail() {
     if (loadStreak() === 0 && streak === 0) return
     setStreak(resetStreak())
     setStreakBump(false)
+    setMascotWinStreak(false)
   }
 
   async function playReveal(round: GameRound) {
@@ -1198,6 +1212,7 @@ export function Game() {
 
     if (nextIndex >= activeStages.length) {
       const reveal = await submitGuess(round, { reveal: true })
+      setMascotLoseReason('wrong')
       updateRound(difficulty, {
         status: 'lost',
         answer: reveal.answer,
@@ -1234,15 +1249,33 @@ export function Game() {
     })
   }
 
+  function pulseMascotPlay() {
+    setMascotPlay(true)
+    if (mascotPlayTimeoutRef.current) window.clearTimeout(mascotPlayTimeoutRef.current)
+    mascotPlayTimeoutRef.current = window.setTimeout(() => {
+      setMascotPlay(false)
+      mascotPlayTimeoutRef.current = null
+    }, MASCOT_DURATION_MS.play * 2)
+  }
+
   function handleSkip() {
     void activateSpotifyElement()
     noteStreakFail()
-    setMascotSkip(true)
-    if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
-    mascotSkipTimeoutRef.current = window.setTimeout(() => {
-      setMascotSkip(false)
-      mascotSkipTimeoutRef.current = null
-    }, 1100)
+
+    const nextIndex = roundsRef.current[difficulty].stageIndex + 1
+    const isLastStage = nextIndex >= activeStages.length
+
+    if (isLastStage) {
+      setMascotLoseReason('timeout')
+    } else {
+      setMascotSkip(true)
+      if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
+      mascotSkipTimeoutRef.current = window.setTimeout(() => {
+        setMascotSkip(false)
+        mascotSkipTimeoutRef.current = null
+      }, MASCOT_DURATION_MS.skip)
+    }
+
     void stopClip({ preserveProgress: true }).then(() => {
       advanceStageAfterSkip()
     })
@@ -1353,10 +1386,10 @@ export function Game() {
       : 1
 
   const showResult = activeState.status === 'won' || activeState.status === 'lost'
-  const mascotMood = resolveMascotMood({
+  const mascotIntent = resolveMascotIntent({
     switching: mascotSwitch,
-    streakBump,
     skipPulse: mascotSkip,
+    playPulse: mascotPlay,
     status: shellStatus,
     isPlaying,
   })
@@ -1366,10 +1399,11 @@ export function Game() {
     setDifficulty(level)
     setMascotSwitch(true)
     if (mascotSwitchTimeoutRef.current) window.clearTimeout(mascotSwitchTimeoutRef.current)
+    const switchMs = MASCOT_DURATION_MS.switch
     mascotSwitchTimeoutRef.current = window.setTimeout(() => {
       setMascotSwitch(false)
       mascotSwitchTimeoutRef.current = null
-    }, 1300)
+    }, switchMs)
   }
 
   function handleThemePreference(next: ThemePreference) {
@@ -1399,7 +1433,15 @@ export function Game() {
     <div className="app-shell" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
       <div className="game-layout">
           <header className="game-topbar">
-            <h1 className="wordmark">SongGuessr</h1>
+            <h1 className="wordmark">
+              <img
+                className="wordmark-icon"
+                src="/app-icons/noot-app-icon.png"
+                alt=""
+                aria-hidden="true"
+              />
+              <span>SongGuessr</span>
+            </h1>
             <div className="topbar-actions">
               <button
                 type="button"
@@ -1446,7 +1488,12 @@ export function Game() {
           <div className="game-center">
           <div className={`game-content ${showResult ? 'result-state' : ''}`}>
             <div className="game-stage">
-              <Mascot difficulty={difficulty} mood={mascotMood} />
+              <Mascot
+                difficulty={difficulty}
+                intent={mascotIntent}
+                withStreak={mascotWinStreak}
+                loseReason={mascotLoseReason}
+              />
               {!showResult ? (
                 <>
                   <div className="stage-streak">

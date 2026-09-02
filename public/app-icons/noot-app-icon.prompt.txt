@@ -1,0 +1,10 @@
+Use case: precise-object-edit
+Asset type: production PNG app icon and compact header icon
+Input images: Image 1 is the edit target and authoritative composition.
+Primary request: Refine Image 1 while preserving the same green Noot character, facial expression, headphones, colors, centered close-up crop, and musical-note crest. Remove every visible outline and border from the artwork.
+Tile/background: retain a clean solid near-white rounded-square tile with a consistent modern corner radius of approximately 22% of the canvas width. The tile must have no stroke, no gray hairline, no inset outline, no outer outline, and no shadow. Make the four areas outside the rounded-square tile genuinely transparent alpha, not white.
+Illustration treatment: remove the dark contour strokes around Noot's green body, musical-note crest, eyes, arms, headphones, headband, and ear cups. Define all forms using clean adjacent flat-color shapes and restrained soft tonal shading only. Do not replace outlines with glow or shadow. Keep the neutral graphite-gray and silver headphone colors clearly visible in both light and dark mode.
+Composition: keep the icon square, centered, symmetrical, tightly cropped, and readable at 32 px. Keep the musical-note tip fully visible and the headphones near the side edges.
+Constraints: change only the border, corner transparency, and outline treatment. Preserve Noot's identity, proportions, expression, eye direction, blush, palette, headphone design, and overall composition. No text, badge, extra objects, border, frame, stroke, outline, halo, glow, watermark, black contour, dark contour, or background outside the rounded tile. Output a true PNG with alpha transparency outside the rounded tile.
+
+Post-processing note: the built-in image generator visually represented transparency with a checkerboard but exported it as RGB. A 194 px antialiased rounded alpha mask was therefore applied at an 18 px inset so the final project PNG has genuine transparent corners.
