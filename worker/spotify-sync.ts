@@ -1,11 +1,21 @@
 import {
-  applyOembedPatches,
   applyTrackMetricPatches,
   getCatalogStats,
   getDifficultyDistribution,
   listTrackIds,
+  listTrackIdsMissingPublicStats,
+  listTrackIdsStalestStats,
+  listTrackScoringRows,
   type TrackMetricsPatch,
+  type TrackScoringRow,
 } from './catalog-d1'
+import {
+  PUBLIC_STATS_CONCURRENCY,
+  PUBLIC_STATS_RUN_LIMIT,
+  fetchPublicTrackStatsBatch,
+  openWebPlayerSession,
+  type PublicTrackStats,
+} from './spotify-public-stats'
 import { assignDifficultyFromMetrics, parseReleaseYear } from './difficulty'
 import type { SpotifyArtistRef, SpotifyTrackRef } from './opm-artists'
 import { getSpotifyClientCredentialsToken } from './spotify-api'
@@ -18,14 +28,27 @@ const RATE_LIMIT_BASE_DELAY_SECONDS = 2
 const RATE_LIMIT_MAX_WAIT_SECONDS = 45
 const TRANSIENT_ERROR_MAX_ATTEMPTS = 5
 const CRON_TIME_BUDGET_MS = 4 * 60 * 1000
-const EMBED_SAMPLE_SIZE = 3
-const EMBED_CONCURRENCY = 4
-const EMBED_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 export const SPOTIFY_SYNC_RESULT_R2_KEY = 'catalog/spotify-sync-result.json'
 
-export type SpotifySyncSource = 'web-api' | 'embed' | 'mixed' | 'none'
+export type SpotifySyncSource = 'web-api' | 'web-player' | 'mixed' | 'none'
+
+/** Fields this run actually wrote, by field. */
+export interface SpotifySyncFilled {
+  popularity: number
+  playCount: number
+  releaseDate: number
+}
+
+/** Catalog-wide coverage after the run. */
+export interface SpotifySyncCoverage {
+  popularityFilled: number
+  popularityMissing: number
+  playCountFilled: number
+  playCountMissing: number
+  releaseDateFilled: number
+  releaseDateMissing: number
+}
 
 export interface SpotifySyncResult {
   skipped: boolean
@@ -34,7 +57,10 @@ export interface SpotifySyncResult {
   tracks: number
   popularityFilled: number
   popularityMissing: number
+  filled: SpotifySyncFilled
+  coverage: SpotifySyncCoverage
   source: SpotifySyncSource
+  sources: string[]
   distribution: Record<Difficulty, number>
   rateLimited: boolean
   errors: string[]
@@ -56,32 +82,40 @@ function emptyDistribution(): Record<Difficulty, number> {
   }
 }
 
-function describeSource(source: SpotifySyncSource): string {
-  switch (source) {
-    case 'web-api':
-      return 'GET /v1/tracks?ids='
-    case 'embed':
-      return 'Spotify embed page'
-    case 'mixed':
-      return 'Web API + embed fallback'
-    case 'none':
-      return 'no source'
-    default: {
-      const _never: never = source
-      return _never
-    }
-  }
-}
+const WEB_API_SOURCE = 'Spotify Web API GET /v1/tracks?ids='
+const WEB_PLAYER_SOURCE = 'open.spotify.com web player (anonymous token + pathfinder getTrack)'
 
 function describeSync(result: Omit<SpotifySyncResult, 'message'>): string {
   if (result.skipped) {
     return `Spotify sync skipped${result.reason ? `: ${result.reason}` : ''}`
   }
-  const filled = `Filled ${result.popularityFilled} of ${result.tracks} tracks with Spotify popularity (${describeSource(result.source)})`
-  if (result.popularityFilled === 0 && result.rateLimited) {
-    return `${filled}. Web API returned 429 QUOTA_EXCEEDED; embed HTML has no popularity. Retry after the rate-limit window.`
+
+  const parts = [
+    `${result.filled.releaseDate} release dates`,
+    `${result.filled.playCount} play counts`,
+    `${result.filled.popularity} popularity values`,
+  ]
+  const via = result.sources.length > 0 ? ` via ${result.sources.join(' + ')}` : ''
+  const sentences = [`Filled ${parts.join(', ')} across ${result.tracks} tracks${via}.`]
+
+  const gaps: string[] = []
+  if (result.coverage.playCountMissing > 0) {
+    gaps.push(`${result.coverage.playCountMissing} without plays`)
   }
-  return filled
+  if (result.coverage.releaseDateMissing > 0) {
+    gaps.push(`${result.coverage.releaseDateMissing} without a release date`)
+  }
+  if (gaps.length > 0) {
+    sentences.push(`${gaps.join(' and ')} remain; the next sync picks up where this one stopped.`)
+  }
+
+  if (result.rateLimited && result.filled.popularity === 0) {
+    sentences.push('The Spotify Web API is quota limited, so popularity could not be refreshed.')
+  } else if (result.rateLimited) {
+    sentences.push('Spotify rate limited part of this run.')
+  }
+
+  return sentences.join(' ')
 }
 
 function statusOf(error: unknown): number | undefined {
@@ -236,17 +270,6 @@ interface SpotifyTrackPayload extends SpotifyTrackRef {
   duration_ms?: number
 }
 
-interface EmbedTrackMetrics {
-  id: string
-  title?: string
-  artist?: string
-  popularity?: number
-  artistPopularity?: number
-  albumArt?: string
-  releaseDate?: string
-  durationMs?: number
-}
-
 function primaryArtistPopularity(
   artists: SpotifyArtistRef[] | undefined,
   popularityById: Map<string, number>,
@@ -265,121 +288,17 @@ function primaryArtistPopularity(
   return max
 }
 
-function findNumericPopularity(value: unknown, depth = 0): number | undefined {
-  if (value == null || depth > 10) return undefined
-  if (typeof value !== 'object') return undefined
-  const record = value as Record<string, unknown>
-  if (typeof record.popularity === 'number' && record.popularity >= 0 && record.popularity <= 100) {
-    return Math.round(record.popularity)
-  }
-  for (const child of Object.values(record)) {
-    const found = findNumericPopularity(child, depth + 1)
-    if (found != null) return found
-  }
-  return undefined
-}
-
-function largestEmbedImage(value: unknown): string | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const record = value as { visualIdentity?: { image?: Array<{ url?: string; maxWidth?: number }> } }
-  const images = record.visualIdentity?.image ?? []
-  const ranked = [...images].sort((left, right) => (right.maxWidth ?? 0) - (left.maxWidth ?? 0))
-  return ranked[0]?.url
-}
-
-function embedReleaseDate(value: unknown): string | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const record = value as { releaseDate?: string | { isoString?: string } }
-  if (typeof record.releaseDate === 'string') return record.releaseDate
-  return record.releaseDate?.isoString
-}
-
-function parseEmbedEntity(id: string, entity: Record<string, unknown> | undefined): EmbedTrackMetrics | null {
-  if (!entity) return null
-  const artists = Array.isArray(entity.artists) ? entity.artists : []
-  const artistNames = artists
-    .map((artist) =>
-      artist && typeof artist === 'object' && 'name' in artist
-        ? String((artist as { name?: string }).name ?? '')
-        : '',
-    )
-    .filter(Boolean)
-  const primaryArtist = artists[0]
-  const artistPopularity =
-    primaryArtist && typeof primaryArtist === 'object'
-      ? findNumericPopularity(primaryArtist)
-      : undefined
-
-  return {
-    id,
-    title: typeof entity.name === 'string' ? entity.name : typeof entity.title === 'string' ? entity.title : undefined,
-    artist: artistNames.join(', ') || undefined,
-    popularity: findNumericPopularity(entity),
-    artistPopularity,
-    albumArt: largestEmbedImage(entity),
-    releaseDate: embedReleaseDate(entity)?.slice(0, 10),
-    durationMs: typeof entity.duration === 'number' ? entity.duration : undefined,
-  }
-}
-
-async function fetchHtml(url: string): Promise<string | null> {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': EMBED_USER_AGENT,
-        Accept: 'text/html',
-      },
-    })
-    if (!response.ok) return null
-    return response.text()
-  } catch {
-    return null
-  }
-}
-
-function parseNextDataEntity(html: string): Record<string, unknown> | undefined {
-  const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)
-  if (!match?.[1]) return undefined
-  try {
-    const data = JSON.parse(match[1]) as {
-      props?: { pageProps?: { state?: { data?: { entity?: Record<string, unknown> } } } }
-    }
-    return data.props?.pageProps?.state?.data?.entity
-  } catch {
-    return undefined
-  }
-}
-
-async function fetchTrackMetricsFromEmbed(id: string): Promise<EmbedTrackMetrics | null> {
-  const embedHtml = await fetchHtml(`https://open.spotify.com/embed/track/${encodeURIComponent(id)}`)
-  if (embedHtml) {
-    const fromEmbed = parseEmbedEntity(id, parseNextDataEntity(embedHtml))
-    if (fromEmbed) return fromEmbed
-  }
-
-  const pageHtml = await fetchHtml(`https://open.spotify.com/track/${encodeURIComponent(id)}`)
-  if (!pageHtml) return null
-  const fromPage = parseEmbedEntity(id, parseNextDataEntity(pageHtml))
-  if (fromPage) return fromPage
-
-  const popularity = findNumericPopularity(
-    [...pageHtml.matchAll(/"popularity"\s*:\s*(\d{1,3})/g)].map((item) => ({
-      popularity: Number(item[1]),
-    })),
-  )
-  if (popularity == null) return null
-  return { id, popularity }
-}
-
 function patchFromTrack(
   track: SpotifyTrackPayload,
   popularityByArtist: Map<string, number>,
   genresByArtist: Map<string, string[]>,
+  existing?: TrackScoringRow,
 ): TrackMetricsPatch | null {
   if (!track.id) return null
   const popularity = track.popularity
   const artistPopularity = primaryArtistPopularity(track.artists, popularityByArtist)
   const releaseYear = parseReleaseYear(track.album?.release_date)
+  const playCount = existing?.playCount ?? undefined
   return {
     id: track.id,
     title: track.name,
@@ -404,29 +323,38 @@ function patchFromTrack(
             popularity,
             artistPopularity,
             releaseYear,
+            playCount,
           }),
   }
 }
 
-function patchFromEmbed(metrics: EmbedTrackMetrics): TrackMetricsPatch {
-  const releaseYear = parseReleaseYear(metrics.releaseDate)
+/**
+ * The web player gives plays and a release date but no popularity, so difficulty
+ * is recomputed against whatever popularity D1 already holds for the track.
+ */
+function patchFromPublicStats(
+  stats: PublicTrackStats,
+  existing: TrackScoringRow | undefined,
+): TrackMetricsPatch {
+  const releaseYear = parseReleaseYear(stats.releaseDate) ?? existing?.releaseYear ?? undefined
+  const playCount = stats.playCount ?? existing?.playCount ?? undefined
+  const popularity = existing?.popularity ?? undefined
+  const artistPopularity = existing?.artistPopularity ?? undefined
+
   return {
-    id: metrics.id,
-    title: metrics.title,
-    artist: metrics.artist,
-    albumArt: metrics.albumArt,
-    popularity: metrics.popularity,
-    artistPopularity: metrics.artistPopularity,
-    releaseYear,
-    releaseDate: metrics.releaseDate,
-    durationMs: metrics.durationMs,
+    id: stats.id,
+    playCount: stats.playCount,
+    releaseYear: parseReleaseYear(stats.releaseDate),
+    releaseDate: stats.releaseDate,
+    durationMs: stats.durationMs,
     difficulty:
-      metrics.popularity == null
+      popularity == null && playCount == null
         ? undefined
         : assignDifficultyFromMetrics({
-            popularity: metrics.popularity,
-            artistPopularity: metrics.artistPopularity,
+            popularity: popularity ?? 0,
+            artistPopularity,
             releaseYear,
+            playCount,
           }),
   }
 }
@@ -455,9 +383,10 @@ export async function loadLastSpotifySync(env: Env): Promise<SpotifySyncResult |
 
 async function finishResult(
   env: Env,
-  partial: Omit<SpotifySyncResult, 'popularityFilled' | 'popularityMissing' | 'distribution' | 'at' | 'message'> & {
-    popularityFilled?: number
-    popularityMissing?: number
+  partial: Omit<
+    SpotifySyncResult,
+    'popularityFilled' | 'popularityMissing' | 'coverage' | 'distribution' | 'at' | 'message'
+  > & {
     distribution?: Record<Difficulty, number>
   },
 ): Promise<SpotifySyncResult> {
@@ -465,8 +394,16 @@ async function finishResult(
   const distribution = partial.distribution ?? (await getDifficultyDistribution(env))
   const result: SpotifySyncResult = {
     ...partial,
-    popularityFilled: partial.popularityFilled ?? stats.popularityFilled,
-    popularityMissing: partial.popularityMissing ?? stats.popularityMissing,
+    popularityFilled: stats.popularityFilled,
+    popularityMissing: stats.popularityMissing,
+    coverage: {
+      popularityFilled: stats.popularityFilled,
+      popularityMissing: stats.popularityMissing,
+      playCountFilled: stats.playCountFilled,
+      playCountMissing: stats.playCountMissing,
+      releaseDateFilled: stats.releaseDateFilled,
+      releaseDateMissing: stats.releaseDateMissing,
+    },
     distribution,
     at: new Date().toISOString(),
     message: '',
@@ -514,66 +451,62 @@ async function hydrateArtists(
   return { popularityByArtist, genresByArtist }
 }
 
-async function syncViaEmbed(
+interface PublicStatsSyncOutcome {
+  updated: number
+  used: boolean
+  rateLimited: boolean
+  playCountFilled: number
+  releaseDateFilled: number
+}
+
+async function syncViaWebPlayer(
   ids: string[],
   env: Env,
   log: (message: string) => void,
   runStartedAt: number,
   errors: string[],
-): Promise<{ updated: number; used: boolean }> {
-  if (ids.length === 0) return { updated: 0, used: false }
+): Promise<PublicStatsSyncOutcome> {
+  const outcome: PublicStatsSyncOutcome = {
+    updated: 0,
+    used: false,
+    rateLimited: false,
+    playCountFilled: 0,
+    releaseDateFilled: 0,
+  }
+  if (ids.length === 0) return outcome
 
-  const sampleIds = ids.slice(0, EMBED_SAMPLE_SIZE)
-  log(`Embed fallback sample of ${sampleIds.length} tracks`)
-  const sample: EmbedTrackMetrics[] = []
-  for (const id of sampleIds) {
-    const metrics = await fetchTrackMetricsFromEmbed(id)
-    if (metrics) sample.push(metrics)
-    await sleep(80)
+  log(`Web player stats for ${ids.length} tracks (concurrency ${PUBLIC_STATS_CONCURRENCY})`)
+  const batch = await fetchPublicTrackStatsBatch(ids, {
+    deadlineAt: runStartedAt + CRON_TIME_BUDGET_MS,
+    log,
+  })
+  outcome.rateLimited = batch.rateLimited
+  for (const message of batch.errors) {
+    if (!errors.includes(message)) errors.push(message)
+  }
+  if (batch.stats.length === 0) {
+    log('Web player returned no usable stats this run')
+    return outcome
   }
 
-  const sampleHasPopularity = sample.some((item) => item.popularity != null)
-  if (!sampleHasPopularity) {
-    const artPatches = sample
-      .filter((item) => item.albumArt || item.title)
-      .map((item) => ({
-        id: item.id,
-        title: item.title,
-        artist: item.artist,
-        albumArt: item.albumArt,
-      }))
-    if (artPatches.length > 0) {
-      await applyOembedPatches(env, artPatches)
-    }
-    log('Embed sample had no popularity; not scraping the rest of the catalog')
-    errors.push('Embed pages did not include popularity; Web API ID batch is required')
-    return { updated: 0, used: false }
+  const existing = await listTrackScoringRows(
+    env,
+    batch.stats.map((item) => item.id),
+  )
+  const patches: TrackMetricsPatch[] = []
+  for (const stats of batch.stats) {
+    if (stats.playCount == null && !stats.releaseDate) continue
+    if (stats.playCount != null) outcome.playCountFilled += 1
+    if (stats.releaseDate) outcome.releaseDateFilled += 1
+    patches.push(patchFromPublicStats(stats, existing.get(stats.id)))
   }
 
-  let updated = 0
-  const pending: TrackMetricsPatch[] = sample.filter((item) => item.popularity != null).map(patchFromEmbed)
-  const remaining = ids.slice(sampleIds.length)
-
-  for (let index = 0; index < remaining.length; index += EMBED_CONCURRENCY) {
-    if (Date.now() - runStartedAt >= CRON_TIME_BUDGET_MS) {
-      log(`Time budget reached during embed after ${sampleIds.length + index} tracks`)
-      break
-    }
-    const chunk = remaining.slice(index, index + EMBED_CONCURRENCY)
-    const rows = await Promise.all(chunk.map((id) => fetchTrackMetricsFromEmbed(id)))
-    for (const metrics of rows) {
-      if (metrics?.popularity != null) pending.push(patchFromEmbed(metrics))
-    }
-    if (pending.length >= 50) {
-      updated += await applyTrackMetricPatches(env, pending.splice(0, pending.length))
-    }
-  }
-
-  if (pending.length > 0) {
-    updated += await applyTrackMetricPatches(env, pending)
-  }
-  log(`Embed fallback wrote ${updated} popularity rows`)
-  return { updated, used: true }
+  outcome.updated = await applyTrackMetricPatches(env, patches)
+  outcome.used = patches.length > 0
+  log(
+    `Web player wrote ${outcome.updated} rows (${outcome.playCountFilled} plays, ${outcome.releaseDateFilled} release dates)`,
+  )
+  return outcome
 }
 
 export async function syncPopularityByIds(
@@ -590,11 +523,11 @@ export async function syncPopularityByIds(
       updated: 0,
       tracks: 0,
       source: 'none',
+      sources: [],
+      filled: { popularity: 0, playCount: 0, releaseDate: 0 },
       rateLimited: false,
       errors: [],
       distribution: emptyDistribution(),
-      popularityFilled: 0,
-      popularityMissing: 0,
     })
   }
 
@@ -602,8 +535,9 @@ export async function syncPopularityByIds(
   const errors: string[] = []
   const trackById = new Map<string, SpotifyTrackPayload>()
   const artistIds = new Set<string>()
+  const filled: SpotifySyncFilled = { popularity: 0, playCount: 0, releaseDate: 0 }
   let usedWebApi = false
-  let usedEmbed = false
+  let usedWebPlayer = false
   let rateLimited = false
   let updated = 0
 
@@ -636,7 +570,7 @@ export async function syncPopularityByIds(
           errors.push(message)
           if (statusOf(error) === 429) {
             rateLimited = true
-            log('Web API 429 after capped Retry-After; switching remaining IDs to embed fallback')
+            log('Web API 429 after capped Retry-After; the web player covers the rest')
             break
           }
         }
@@ -653,10 +587,15 @@ export async function syncPopularityByIds(
           log,
           errors,
         )
+        const scoring = await listTrackScoringRows(env, [...trackById.keys()])
         const patches = [...trackById.values()]
-          .map((track) => patchFromTrack(track, popularityByArtist, genresByArtist))
+          .map((track) =>
+            patchFromTrack(track, popularityByArtist, genresByArtist, scoring.get(track.id ?? '')),
+          )
           .filter((patch): patch is TrackMetricsPatch => Boolean(patch))
         updated += await applyTrackMetricPatches(env, patches)
+        filled.popularity += patches.filter((patch) => patch.popularity != null).length
+        filled.releaseDate += patches.filter((patch) => Boolean(patch.releaseDate)).length
         log(`Web API wrote ${patches.length} popularity rows`)
       }
     } catch (error) {
@@ -665,29 +604,56 @@ export async function syncPopularityByIds(
       if (statusOf(error) === 429) rateLimited = true
     }
   } else {
-    errors.push('Spotify credentials not configured; trying embed fallback')
+    errors.push('Spotify credentials not configured; using the public web player only')
   }
 
-  const remainingIds = ids.filter((id) => !trackById.has(id))
-  if (remainingIds.length > 0) {
-    const embed = await syncViaEmbed(remainingIds, env, log, runStartedAt, errors)
-    updated += embed.updated
-    usedEmbed = embed.used
+  // The web player is the only source of plays, and it also backfills release
+  // dates the Web API could not return.
+  const publicIds = trackIds
+    ? ids.slice(0, PUBLIC_STATS_RUN_LIMIT)
+    : await pickWebPlayerTargets(env)
+  if (publicIds.length > 0) {
+    const webPlayer = await syncViaWebPlayer(publicIds, env, log, runStartedAt, errors)
+    updated += webPlayer.updated
+    usedWebPlayer = webPlayer.used
+    rateLimited = rateLimited || webPlayer.rateLimited
+    filled.playCount += webPlayer.playCountFilled
+    filled.releaseDate += webPlayer.releaseDateFilled
   }
 
   const source: SpotifySyncSource =
-    usedWebApi && usedEmbed ? 'mixed' : usedWebApi ? 'web-api' : usedEmbed ? 'embed' : 'none'
+    usedWebApi && usedWebPlayer
+      ? 'mixed'
+      : usedWebApi
+        ? 'web-api'
+        : usedWebPlayer
+          ? 'web-player'
+          : 'none'
+  const sources = [
+    ...(usedWebApi ? [WEB_API_SOURCE] : []),
+    ...(usedWebPlayer ? [WEB_PLAYER_SOURCE] : []),
+  ]
 
   const result = await finishResult(env, {
     skipped: false,
     updated,
     tracks: ids.length,
     source,
+    sources,
+    filled,
     rateLimited,
     errors,
   })
   log(result.message)
   return result
+}
+
+/** Prefer tracks with gaps; once the catalog is complete, refresh the stalest. */
+async function pickWebPlayerTargets(env: Env): Promise<string[]> {
+  const missing = await listTrackIdsMissingPublicStats(env, PUBLIC_STATS_RUN_LIMIT)
+  if (missing.length >= PUBLIC_STATS_RUN_LIMIT) return missing
+  const stale = await listTrackIdsStalestStats(env, PUBLIC_STATS_RUN_LIMIT)
+  return [...new Set([...missing, ...stale])].slice(0, PUBLIC_STATS_RUN_LIMIT)
 }
 
 export async function syncSpotifyMetrics(env: Env): Promise<SpotifySyncResult> {

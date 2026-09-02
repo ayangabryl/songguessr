@@ -232,6 +232,28 @@ export async function removeTrackFromCatalog(
   return { ok: true, totalTracks: nextCatalog.tracks.length }
 }
 
+/**
+ * Keeps the legacy R2 catalog snapshot from resurrecting tracks that were bulk
+ * removed from D1. Best effort: D1 is the live source and may be ahead.
+ */
+export async function removeTracksFromR2Catalog(
+  bucket: R2Bucket,
+  trackIds: string[],
+): Promise<number> {
+  const ids = new Set(trackIds.filter(Boolean))
+  if (ids.size === 0) return 0
+
+  const catalog = await loadCatalogFromR2(bucket)
+  if (!catalog) return 0
+
+  const tracks = catalog.tracks.filter((track) => !ids.has(track.id))
+  const removed = catalog.tracks.length - tracks.length
+  if (removed === 0) return 0
+
+  await saveCatalogToR2(bucket, { updatedAt: new Date().toISOString(), tracks })
+  return removed
+}
+
 export async function applyAlbumArtPatches(
   bucket: R2Bucket,
   patches: Array<{ id: string; albumArt: string }>,

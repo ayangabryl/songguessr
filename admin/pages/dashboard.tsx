@@ -110,8 +110,9 @@ export function DashboardPage({
               D1 source of truth · Spotify {formatDate(status.spotifySyncedAt ?? null)}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              {formatNumber(status.popularityFilled ?? 0)} with popularity ·{' '}
-              {formatNumber(status.popularityMissing ?? 0)} missing
+              {formatNumber(status.popularityFilled ?? 0)} popularity ·{' '}
+              {formatNumber(status.playCountFilled ?? 0)} plays ·{' '}
+              {formatNumber(status.releaseDateFilled ?? 0)} release dates
             </p>
           </CardContent>
         </Card>
@@ -179,8 +180,9 @@ export function DashboardPage({
         <CardHeader>
           <CardTitle>Spotify metrics</CardTitle>
           <CardDescription>
-            Refresh official Spotify popularity (0–100) via GET /v1/tracks?ids= (50 per request),
-            then recompute difficulty. oEmbed has no popularity.
+            Popularity comes from GET /v1/tracks?ids= when quota allows. Play count and release date
+            come from the public open.spotify.com web player, which is unofficial — a run fills what
+            it can and resumes next time.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -190,22 +192,36 @@ export function DashboardPage({
               return (
                 <p className="text-sm text-muted-foreground">
                   No Spotify sync yet. {formatNumber(status.popularityMissing ?? 0)} tracks are still
-                  missing popularity.
+                  missing popularity and {formatNumber(status.playCountMissing ?? 0)} are missing a
+                  play count.
                 </p>
               )
             }
+            const filled = displayedSync.filled
+            const coverage = displayedSync.coverage
             return (
               <div className="flex flex-col gap-2">
                 <p className="text-sm">{displayedSync.message}</p>
+                {filled ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">
+                      Release dates filled {formatNumber(filled.releaseDate)}
+                    </Badge>
+                    <Badge variant="secondary">Plays filled {formatNumber(filled.playCount)}</Badge>
+                    <Badge variant="secondary">
+                      Popularity filled {formatNumber(filled.popularity)}
+                    </Badge>
+                  </div>
+                ) : null}
+                {coverage ? (
+                  <p className="text-sm text-muted-foreground">
+                    Catalog coverage: {formatNumber(coverage.releaseDateFilled)} release dates,{' '}
+                    {formatNumber(coverage.playCountFilled)} plays,{' '}
+                    {formatNumber(coverage.popularityFilled)} popularity
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">
-                    Popularity {formatNumber(displayedSync.popularityFilled ?? 0)} /{' '}
-                    {formatNumber(displayedSync.tracks)}
-                  </Badge>
                   <Badge variant="outline">Updated {formatNumber(displayedSync.updated)}</Badge>
-                  {displayedSync.source ? (
-                    <Badge variant="outline">{displayedSync.source}</Badge>
-                  ) : null}
                   <Badge variant={(displayedSync.errors?.length ?? 0) > 0 ? 'destructive' : 'outline'}>
                     Errors {formatNumber(displayedSync.errors?.length ?? 0)}
                   </Badge>
@@ -213,6 +229,11 @@ export function DashboardPage({
                     {displayedSync.rateLimited ? 'Rate limited' : 'Not rate limited'}
                   </Badge>
                 </div>
+                {displayedSync.sources?.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    Source: {displayedSync.sources.join(' + ')}
+                  </p>
+                ) : null}
                 {displayedSync.at ? (
                   <p className="text-sm text-muted-foreground">{formatDate(displayedSync.at)}</p>
                 ) : null}

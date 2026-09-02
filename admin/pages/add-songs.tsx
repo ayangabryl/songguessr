@@ -4,6 +4,7 @@ import {
   fetchCatalogs,
   fetchJob,
   previewPlaylist,
+  removeTracksBulk,
   searchSpotify,
   startPlaylistImport,
   type AdminCatalog,
@@ -13,6 +14,16 @@ import {
   type SpotifySearchResult,
 } from '@/api'
 import { NotoEmoji } from '../../shared/noto-emoji'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -40,7 +51,7 @@ import { CountryCombobox } from '@/components/country-combobox'
 import { Switch } from '@/components/ui/switch'
 import { countryDisplayName, formatNumber } from '@/lib/format'
 import { pushAdminPath } from '@/lib/routes'
-import { ListMusicIcon, SearchIcon } from 'lucide-react'
+import { ListMusicIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 const PHASE_LABELS: Record<JobPhase, string> = {
@@ -521,6 +532,8 @@ export function AddSongsPage() {
         </CardContent>
       </Card>
 
+      <RemoveByPlaylistCard />
+
       <Card>
         <CardHeader>
           <CardTitle>Spotify search</CardTitle>
@@ -596,5 +609,234 @@ export function AddSongsPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+interface RemoveResultSummary {
+  removed: number
+  notFound: number
+  totalTracks: number
+}
+
+/**
+ * Bulk cleanup for a bad import: fetch a playlist, see which of its tracks are
+ * in D1, and delete the ones you pick.
+ */
+function RemoveByPlaylistCard() {
+  const [playlistUrl, setPlaylistUrl] = useState('')
+  const [preview, setPreview] = useState<PlaylistPreview | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [fetching, setFetching] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [result, setResult] = useState<RemoveResultSummary | null>(null)
+
+  const inCatalogIds = useMemo(
+    () => (preview?.tracks ?? []).filter((track) => track.alreadyInCatalog).map((track) => track.id),
+    [preview],
+  )
+
+  const handleFetch = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!playlistUrl.trim() || fetching) return
+    setFetching(true)
+    setPreview(null)
+    setSelected(new Set())
+    setResult(null)
+    try {
+      const next = await previewPlaylist(playlistUrl.trim())
+      setPreview(next)
+      setSelected(
+        new Set(next.tracks.filter((track) => track.alreadyInCatalog).map((track) => track.id)),
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Playlist fetch failed')
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const toggle = (id: string) => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleRemove = async () => {
+    if (selected.size === 0) return
+    setRemoving(true)
+    try {
+      const response = await removeTracksBulk([...selected])
+      setResult({
+        removed: response.removed,
+        notFound: response.notFound,
+        totalTracks: response.totalTracks,
+      })
+      const removedIds = new Set(selected)
+      setPreview((current) =>
+        current
+          ? {
+              ...current,
+              tracks: current.tracks.map((track) =>
+                removedIds.has(track.id) ? { ...track, alreadyInCatalog: false } : track,
+              ),
+            }
+          : current,
+      )
+      setSelected(new Set())
+      setConfirming(false)
+      toast.success(`Removed ${formatNumber(response.removed)} tracks`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Bulk remove failed')
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Remove by playlist</CardTitle>
+        <CardDescription>
+          Paste the playlist you imported from to pull its tracks back up, then delete the ones that
+          are in the catalog. Deletes from D1 immediately.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <form onSubmit={(event) => void handleFetch(event)}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="remove-playlist-url">Playlist URL</FieldLabel>
+              <Input
+                id="remove-playlist-url"
+                value={playlistUrl}
+                onChange={(event) => {
+                  setPlaylistUrl(event.target.value)
+                  setPreview(null)
+                  setSelected(new Set())
+                  setResult(null)
+                }}
+                placeholder="https://open.spotify.com/playlist/…"
+                disabled={fetching || removing}
+              />
+            </Field>
+            <Button type="submit" variant="outline" disabled={fetching || removing || !playlistUrl.trim()}>
+              {fetching ? <Spinner data-icon="inline-start" /> : null}
+              {fetching ? 'Fetching…' : 'Fetch songs'}
+            </Button>
+          </FieldGroup>
+        </form>
+
+        {preview ? (
+          <div className="flex flex-col gap-3 rounded-xl border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{preview.playlistName}</p>
+                <p className="text-sm text-muted-foreground">
+                  {formatNumber(selected.size)} selected · {formatNumber(inCatalogIds.length)} in
+                  catalog · {formatNumber(preview.tracks.length)} in playlist
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelected(new Set(preview.tracks.map((track) => track.id)))}
+                >
+                  Select all
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelected(new Set())}
+                >
+                  Select none
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelected(new Set(inCatalogIds))}
+                >
+                  Only in catalog ({formatNumber(inCatalogIds.length)})
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex max-h-96 flex-col gap-2 overflow-auto">
+              {preview.tracks.map((track) => (
+                <div
+                  key={`${track.id}-${track.title}`}
+                  className={`flex items-center gap-3 rounded-lg border p-3 ${
+                    track.alreadyInCatalog ? '' : 'opacity-60'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-destructive"
+                    checked={selected.has(track.id)}
+                    disabled={removing}
+                    onChange={() => toggle(track.id)}
+                  />
+                  {track.albumArt ? (
+                    <img src={track.albumArt} alt="" className="size-10 rounded-md object-cover" />
+                  ) : (
+                    <div className="size-10 rounded-md bg-muted" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{track.title}</p>
+                    <p className="truncate text-sm text-muted-foreground">{track.artist}</p>
+                  </div>
+                  <Badge variant={track.alreadyInCatalog ? 'secondary' : 'outline'}>
+                    {track.alreadyInCatalog ? 'In catalog' : 'Not in catalog'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={removing || selected.size === 0}
+              onClick={() => setConfirming(true)}
+            >
+              {removing ? <Spinner data-icon="inline-start" /> : <Trash2Icon data-icon="inline-start" />}
+              {removing ? 'Removing…' : `Remove selected (${formatNumber(selected.size)})`}
+            </Button>
+          </div>
+        ) : null}
+
+        {result ? (
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">Removed {formatNumber(result.removed)}</Badge>
+            <Badge variant="outline">Not in catalog {formatNumber(result.notFound)}</Badge>
+            <Badge variant="outline">Catalog now {formatNumber(result.totalTracks)}</Badge>
+          </div>
+        ) : null}
+      </CardContent>
+
+      <AlertDialog open={confirming} onOpenChange={(open) => !open && setConfirming(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {formatNumber(selected.size)} tracks?</AlertDialogTitle>
+            <AlertDialogDescription>
+              These tracks are deleted from the live D1 catalog and stop appearing in the game. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={removing} onClick={() => void handleRemove()}>
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   )
 }

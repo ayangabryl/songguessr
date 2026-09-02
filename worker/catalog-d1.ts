@@ -67,6 +67,8 @@ export interface CatalogStats {
   popularityMissing: number
   playCountFilled: number
   playCountMissing: number
+  releaseDateFilled: number
+  releaseDateMissing: number
 }
 
 export interface CatalogMutationResult {
@@ -338,7 +340,9 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
          SUM(CASE WHEN popularity IS NOT NULL AND popularity > 0 THEN 1 ELSE 0 END) AS popularity_filled,
          SUM(CASE WHEN popularity IS NULL OR popularity = 0 THEN 1 ELSE 0 END) AS popularity_missing,
          SUM(CASE WHEN play_count IS NOT NULL THEN 1 ELSE 0 END) AS play_count_filled,
-         SUM(CASE WHEN play_count IS NULL THEN 1 ELSE 0 END) AS play_count_missing
+         SUM(CASE WHEN play_count IS NULL THEN 1 ELSE 0 END) AS play_count_missing,
+         SUM(CASE WHEN release_date IS NOT NULL AND release_date != '' THEN 1 ELSE 0 END) AS release_date_filled,
+         SUM(CASE WHEN release_date IS NULL OR release_date = '' THEN 1 ELSE 0 END) AS release_date_missing
        FROM tracks`,
     )
     .first<{
@@ -349,6 +353,8 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
       popularity_missing: number | null
       play_count_filled: number | null
       play_count_missing: number | null
+      release_date_filled: number | null
+      release_date_missing: number | null
     }>()
 
   return {
@@ -359,6 +365,8 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
     popularityMissing: row?.popularity_missing ?? 0,
     playCountFilled: row?.play_count_filled ?? 0,
     playCountMissing: row?.play_count_missing ?? 0,
+    releaseDateFilled: row?.release_date_filled ?? 0,
+    releaseDateMissing: row?.release_date_missing ?? 0,
   }
 }
 
@@ -373,12 +381,27 @@ export async function listTrackIds(env: Env): Promise<string[]> {
   return (result.results ?? []).map((row) => row.id)
 }
 
-export async function listTrackIdsMissingPlayCount(env: Env, limit = 40): Promise<string[]> {
+/** Tracks still missing a play count or a release date, oldest sync first. */
+export async function listTrackIdsMissingPublicStats(env: Env, limit = 250): Promise<string[]> {
   const db = requireDb(env)
   const result = await db
     .prepare(
       `SELECT id FROM tracks
-       WHERE play_count IS NULL
+       WHERE play_count IS NULL OR release_date IS NULL OR release_date = ''
+       ORDER BY (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
+       LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ id: string }>()
+  return (result.results ?? []).map((row) => row.id)
+}
+
+/** Refresh targets once every track has stats: least recently synced first. */
+export async function listTrackIdsStalestStats(env: Env, limit = 250): Promise<string[]> {
+  const db = requireDb(env)
+  const result = await db
+    .prepare(
+      `SELECT id FROM tracks
        ORDER BY (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
        LIMIT ?`,
     )
@@ -579,8 +602,28 @@ export async function findTrackById(env: Env, id: string): Promise<Track | undef
   return row ? rowToTrack(row) : undefined
 }
 
+/**
+ * Play count on the same 0–100 scale as popularity. Bucketed rather than
+ * log-scaled because D1's SQLite build has no log10(); the steps mirror
+ * `playCountScore` in difficulty.ts.
+ */
+const PLAY_COUNT_SCORE_SQL = `CASE
+      WHEN play_count >= 300000000 THEN 100
+      WHEN play_count >= 100000000 THEN 89
+      WHEN play_count >= 30000000 THEN 77
+      WHEN play_count >= 10000000 THEN 67
+      WHEN play_count >= 3000000 THEN 55
+      WHEN play_count >= 1000000 THEN 44
+      WHEN play_count >= 300000 THEN 33
+      WHEN play_count >= 100000 THEN 22
+      WHEN play_count >= 30000 THEN 11
+      ELSE 0
+    END`
+
+// Popularity stays the primary term; plays stand in for it only when the Web
+// API quota left it empty, so tuned thresholds keep their original meaning.
 const FAME_SQL = `(
-  0.62 * COALESCE(popularity, 0)
+  0.62 * (CASE WHEN COALESCE(popularity, 0) > 0 THEN popularity ELSE ${PLAY_COUNT_SCORE_SQL} END)
   + 0.22 * COALESCE(artist_popularity, 0)
   + CASE WHEN COALESCE(chart_boost, 0) = 1 THEN 16 ELSE 0 END
   + CASE WHEN force_tier = 'easy' THEN 10 ELSE 0 END
@@ -593,6 +636,7 @@ const FAME_SQL = `(
   - CASE
       WHEN COALESCE(popularity, 0) < 40
         AND COALESCE(chart_boost, 0) = 0
+        AND COALESCE(play_count, 0) < 5000000
         AND release_year IS NOT NULL
         AND release_year >= CAST(strftime('%Y', 'now') AS INTEGER) - 1
       THEN 22
@@ -904,6 +948,90 @@ export async function removeTrackFromCatalog(
   return { ok: true, totalTracks: await countTracks(env) }
 }
 
+export interface BulkRemoveResult {
+  removed: number
+  notFound: number
+  requested: number
+  removedIds: string[]
+  totalTracks: number
+}
+
+export async function removeTracksFromCatalog(
+  env: Env,
+  trackIds: string[],
+): Promise<BulkRemoveResult> {
+  const db = requireDb(env)
+  const ids = [...new Set(trackIds.map((id) => id.trim()).filter(Boolean))]
+  if (ids.length === 0) {
+    return { removed: 0, notFound: 0, requested: 0, removedIds: [], totalTracks: await countTracks(env) }
+  }
+
+  const present = await findExistingTrackIds(env, ids)
+  const removable = ids.filter((id) => present.has(id))
+
+  for (let index = 0; index < removable.length; index += MAX_IN_PARAMS) {
+    const batch = removable.slice(index, index + MAX_IN_PARAMS)
+    await db
+      .prepare(`DELETE FROM tracks WHERE id IN (${batch.map(() => '?').join(', ')})`)
+      .bind(...batch)
+      .run()
+  }
+
+  return {
+    removed: removable.length,
+    notFound: ids.length - removable.length,
+    requested: ids.length,
+    removedIds: removable,
+    totalTracks: await countTracks(env),
+  }
+}
+
+export interface TrackScoringRow {
+  id: string
+  popularity: number | null
+  artistPopularity: number | null
+  releaseYear: number | null
+  playCount: number | null
+}
+
+/** Current scoring inputs, so a partial sync can recompute difficulty correctly. */
+export async function listTrackScoringRows(
+  env: Env,
+  ids: string[],
+): Promise<Map<string, TrackScoringRow>> {
+  const rows = new Map<string, TrackScoringRow>()
+  if (ids.length === 0) return rows
+  const db = requireDb(env)
+
+  for (let index = 0; index < ids.length; index += MAX_IN_PARAMS) {
+    const batch = ids.slice(index, index + MAX_IN_PARAMS)
+    const result = await db
+      .prepare(
+        `SELECT id, popularity, artist_popularity, release_year, play_count
+         FROM tracks WHERE id IN (${batch.map(() => '?').join(', ')})`,
+      )
+      .bind(...batch)
+      .all<{
+        id: string
+        popularity: number | null
+        artist_popularity: number | null
+        release_year: number | null
+        play_count: number | null
+      }>()
+    for (const row of result.results ?? []) {
+      rows.set(row.id, {
+        id: row.id,
+        popularity: row.popularity,
+        artistPopularity: row.artist_popularity,
+        releaseYear: row.release_year,
+        playCount: row.play_count,
+      })
+    }
+  }
+
+  return rows
+}
+
 export interface TrackMetricsPatch {
   id: string
   title?: string
@@ -1009,7 +1137,7 @@ export async function applyTrackMetricPatches(
              ELSE ?
            END,
            updated_at = ?,
-           spotify_synced_at = CASE WHEN COALESCE(?, ?) IS NOT NULL THEN ? ELSE spotify_synced_at END
+           spotify_synced_at = CASE WHEN COALESCE(?, ?, ?) IS NOT NULL THEN ? ELSE spotify_synced_at END
          WHERE id = ?`,
       )
       .bind(
@@ -1030,6 +1158,7 @@ export async function applyTrackMetricPatches(
         now,
         patch.popularity ?? null,
         patch.playCount ?? null,
+        patch.releaseDate ?? null,
         now,
         patch.id,
       ),

@@ -51,6 +51,10 @@ export interface StatusResponse {
   spotifySyncedAt?: string | null
   popularityFilled?: number
   popularityMissing?: number
+  playCountFilled?: number
+  playCountMissing?: number
+  releaseDateFilled?: number
+  releaseDateMissing?: number
   lastSpotifySync?: SpotifySyncResponse | null
 }
 
@@ -215,11 +219,42 @@ export async function removeTrack(trackId: string): Promise<void> {
   await request(`/catalog/${trackId}`, { method: 'DELETE' })
 }
 
+export interface BulkRemoveResponse {
+  ok: boolean
+  removed: number
+  notFound: number
+  requested: number
+  totalTracks: number
+  r2Removed: number
+}
+
+export async function removeTracksBulk(trackIds: string[]): Promise<BulkRemoveResponse> {
+  return request<BulkRemoveResponse>('/catalog/remove-bulk', {
+    method: 'POST',
+    body: JSON.stringify({ trackIds }),
+  })
+}
+
 export async function triggerCron(): Promise<CronTriggerResponse> {
   return request<CronTriggerResponse>('/cron/trigger', {
     method: 'POST',
     body: JSON.stringify({}),
   })
+}
+
+export interface SpotifySyncFilled {
+  popularity: number
+  playCount: number
+  releaseDate: number
+}
+
+export interface SpotifySyncCoverage {
+  popularityFilled: number
+  popularityMissing: number
+  playCountFilled: number
+  playCountMissing: number
+  releaseDateFilled: number
+  releaseDateMissing: number
 }
 
 export interface SpotifySyncResponse {
@@ -231,7 +266,10 @@ export interface SpotifySyncResponse {
   tracks: number
   popularityFilled?: number
   popularityMissing?: number
-  source?: 'web-api' | 'embed' | 'mixed' | 'none'
+  filled?: SpotifySyncFilled
+  coverage?: SpotifySyncCoverage
+  source?: 'web-api' | 'web-player' | 'mixed' | 'none'
+  sources?: string[]
   distribution?: Record<string, number>
   rateLimited: boolean
   errors: string[]

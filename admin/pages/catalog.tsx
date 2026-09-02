@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
-import { fetchCatalog, removeTrack, type CatalogCounts, type CatalogTrack } from '@/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  fetchCatalog,
+  removeTrack,
+  removeTracksBulk,
+  type CatalogCounts,
+  type CatalogTrack,
+} from '@/api'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,7 +67,7 @@ import {
   formatNumber,
   formatPlayCount,
 } from '@/lib/format'
-import { MusicIcon, SearchIcon } from 'lucide-react'
+import { MusicIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 const EMPTY_COUNTS: CatalogCounts = {
@@ -88,6 +94,8 @@ export function CatalogPage() {
   const [loading, setLoading] = useState(true)
   const [pendingRemove, setPendingRemove] = useState<CatalogTrack | null>(null)
   const [removing, setRemoving] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmingBulk, setConfirmingBulk] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -103,12 +111,18 @@ export function CatalogPage() {
       setTotal(data.total)
       setTotalPages(data.totalPages)
       setCounts(data.counts)
+      setSelected(new Set())
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load catalog')
     } finally {
       setLoading(false)
     }
   }, [page, query, difficulty, genre, era, country, missingPreview])
+
+  const allOnPageSelected = useMemo(
+    () => tracks.length > 0 && tracks.every((track) => selected.has(track.id)),
+    [tracks, selected],
+  )
 
   useEffect(() => {
     void load()
@@ -130,6 +144,42 @@ export function CatalogPage() {
       await load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to remove track')
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  const toggleTrack = (id: string) => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAllOnPage = () => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (allOnPageSelected) {
+        for (const track of tracks) next.delete(track.id)
+      } else {
+        for (const track of tracks) next.add(track.id)
+      }
+      return next
+    })
+  }
+
+  const handleRemoveSelected = async () => {
+    if (selected.size === 0) return
+    setRemoving(true)
+    try {
+      const response = await removeTracksBulk([...selected])
+      toast.success(`Removed ${formatNumber(response.removed)} tracks`)
+      setConfirmingBulk(false)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove tracks')
     } finally {
       setRemoving(false)
     }
@@ -262,6 +312,27 @@ export function CatalogPage() {
       </Card>
 
       <Card>
+        {selected.size > 0 ? (
+          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 border-b pb-4">
+            <p className="text-sm font-medium">
+              {formatNumber(selected.size)} selected
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={removing}
+                onClick={() => setConfirmingBulk(true)}
+              >
+                <Trash2Icon data-icon="inline-start" />
+                Remove selected
+              </Button>
+            </div>
+          </CardHeader>
+        ) : null}
         <CardContent className="px-0">
           {loading ? (
             <div className="flex flex-col gap-3 px-6 py-4">
@@ -283,6 +354,15 @@ export function CatalogPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      aria-label="Select all tracks on this page"
+                      checked={allOnPageSelected}
+                      onChange={toggleAllOnPage}
+                    />
+                  </TableHead>
                   <TableHead>Track</TableHead>
                   <TableHead>Artist</TableHead>
                   <TableHead>Difficulty</TableHead>
@@ -297,7 +377,16 @@ export function CatalogPage() {
               </TableHeader>
               <TableBody>
                 {tracks.map((track) => (
-                  <TableRow key={track.id}>
+                  <TableRow key={track.id} data-state={selected.has(track.id) ? 'selected' : undefined}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        aria-label={`Select ${track.title}`}
+                        checked={selected.has(track.id)}
+                        onChange={() => toggleTrack(track.id)}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         {track.albumArt ? (
@@ -400,6 +489,24 @@ export function CatalogPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction disabled={removing} onClick={() => void handleRemove()}>
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmingBulk} onOpenChange={(open) => !open && setConfirmingBulk(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {formatNumber(selected.size)} tracks?</AlertDialogTitle>
+            <AlertDialogDescription>
+              These tracks are deleted from the live D1 catalog and stop appearing in the game. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={removing} onClick={() => void handleRemoveSelected()}>
               Remove
             </AlertDialogAction>
           </AlertDialogFooter>

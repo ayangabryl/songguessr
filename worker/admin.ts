@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import {
   CATALOG_R2_KEY,
   loadCheckpointFromR2,
+  removeTracksFromR2Catalog,
 } from './catalog-r2'
 import { CatalogUnavailableError, searchCatalog } from './catalog'
 import {
@@ -12,6 +13,7 @@ import {
   MAX_CATALOG_TRACKS,
   removeDuplicateTracks,
   removeTrackFromCatalog,
+  removeTracksFromCatalog,
 } from './catalog-d1'
 import {
   createCatalog,
@@ -62,6 +64,8 @@ const CRON_SCHEDULE = '0 */6 * * *'
 const ADMIN_HOSTNAME = 'admin.songguessr.lol'
 const APEX_HOSTS = new Set(['songguessr.lol', 'www.songguessr.lol'])
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
+/** Guards against a runaway paste wiping the catalog in one call. */
+const MAX_BULK_REMOVE = 1000
 
 export function isAdminHost(hostname: string): boolean {
   return ADMIN_HOSTS.has(hostname) || hostname.startsWith('admin.')
@@ -375,6 +379,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     let spotifySyncedAt: string | null = null
     let popularityFilled = 0
     let popularityMissing = 0
+    let playCountFilled = 0
+    let playCountMissing = 0
+    let releaseDateFilled = 0
+    let releaseDateMissing = 0
     let catalogError: string | null = null
     const lastSpotifySync = await loadLastSpotifySync(c.env)
 
@@ -386,6 +394,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       spotifySyncedAt = stats.spotifySyncedAt
       popularityFilled = stats.popularityFilled
       popularityMissing = stats.popularityMissing
+      playCountFilled = stats.playCountFilled
+      playCountMissing = stats.playCountMissing
+      releaseDateFilled = stats.releaseDateFilled
+      releaseDateMissing = stats.releaseDateMissing
       if (!catalogOk) catalogError = 'Catalog not found in D1'
     } catch (error) {
       catalogError = error instanceof Error ? error.message : 'Catalog unavailable'
@@ -400,6 +412,10 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       spotifySyncedAt,
       popularityFilled,
       popularityMissing,
+      playCountFilled,
+      playCountMissing,
+      releaseDateFilled,
+      releaseDateMissing,
       lastSpotifySync,
       source: 'd1',
       r2UpdatedAt: catalogObject?.uploaded?.toISOString() ?? null,
@@ -785,6 +801,50 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       return c.json({ error: 'Job not found' }, 404)
     }
     return c.json(job)
+  })
+
+  admin.post('/admin/api/catalog/remove-bulk', async (c) => {
+    const body = await c.req.json<{ trackIds?: unknown }>().catch(() => ({ trackIds: undefined }))
+    const trackIds = Array.isArray(body.trackIds)
+      ? body.trackIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : []
+
+    if (trackIds.length === 0) {
+      return c.json({ error: 'trackIds must be a non-empty array of Spotify track IDs' }, 400)
+    }
+    if (trackIds.length > MAX_BULK_REMOVE) {
+      return c.json({ error: `Remove at most ${MAX_BULK_REMOVE} tracks per request` }, 400)
+    }
+
+    try {
+      const result = await removeTracksFromCatalog(c.env, trackIds)
+
+      let r2Removed = 0
+      try {
+        r2Removed = await removeTracksFromR2Catalog(c.env.AUDIO_BUCKET, result.removedIds)
+      } catch (error) {
+        console.warn(
+          `[admin] R2 catalog mirror delete failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+
+      return c.json({
+        ok: true,
+        removed: result.removed,
+        notFound: result.notFound,
+        requested: result.requested,
+        totalTracks: result.totalTracks,
+        r2Removed,
+      })
+    } catch (error) {
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not remove tracks' },
+        500,
+      )
+    }
   })
 
   admin.delete('/admin/api/catalog/:trackId', async (c) => {

@@ -22,6 +22,14 @@ catalog-build.log
 data/audio/.upload-state.json
 data/audio/manifest.json
 
+# Ad-hoc probe output and session cookies — never commit these
+tmp-*
+cookies.txt
+
+# Scratch files from admin/Spotify probing; tmp-cookies.txt holds a live session cookie.
+tmp-*.json
+tmp-*.txt
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
