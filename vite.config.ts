@@ -32,8 +32,7 @@ function inlineGameCss(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), cloudflare(), inlineGameCss()],
-  resolve: {
+  plugins: [react(), cloudflare({ tunnel: true }), inlineGameCss()],  resolve: {
     alias: {
       '@': resolve(import.meta.dirname, 'admin'),
     },
