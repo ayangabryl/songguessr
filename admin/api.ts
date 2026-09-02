@@ -93,6 +93,7 @@ export interface CatalogFilters {
   genre?: string
   era?: string
   country?: string
+  collection?: string
   missingPreview?: boolean
 }
 
@@ -198,6 +199,9 @@ export async function fetchCatalog(
   if (filters.country && filters.country !== 'all') {
     params.set('country', filters.country)
   }
+  if (filters.collection && filters.collection !== 'all') {
+    params.set('collection', filters.collection)
+  }
   if (filters.missingPreview) params.set('missingPreview', '1')
   return request<CatalogResponse>(`/catalog?${params}`)
 }
@@ -270,6 +274,7 @@ export interface PlayCountRefreshResponse {
 export async function refreshPlayCounts(options: {
   limit?: number
   trackIds?: string[]
+  collection?: string
 } = {}): Promise<PlayCountRefreshResponse> {
   return request<PlayCountRefreshResponse>('/catalog/playcounts', {
     method: 'POST',

@@ -116,7 +116,24 @@ function describeSync(result: Omit<SpotifySyncResult, 'message'>): string {
  * Builds a patch from the public signals, falling back to whatever D1 already
  * holds for anything this run could not read. A signal that is missing stays
  * missing — it is never written as 0, because 0 is a meaningful popularity.
+ *
+ * Difficulty is only rewritten when there is a real fame signal (plays, or a
+ * popularity above 0). Popularity 0 with no play count is "never filled or a
+ * true zero with no listens", not proof the song is the hardest tier.
  */
+function hasDifficultySignal(
+  playCount: number | undefined,
+  popularity: number | undefined,
+  artistPopularity: number | undefined,
+): boolean {
+  if (playCount != null && Number.isFinite(playCount) && playCount > 0) return true
+  if (popularity != null && Number.isFinite(popularity) && popularity > 0) return true
+  if (artistPopularity != null && Number.isFinite(artistPopularity) && artistPopularity > 0) {
+    return true
+  }
+  return false
+}
+
 function patchFromPublicStats(
   stats: PublicTrackStats,
   existing: TrackScoringRow | undefined,
@@ -126,8 +143,6 @@ function patchFromPublicStats(
   const popularity = stats.popularity ?? existing?.popularity ?? undefined
   const artistPopularity = stats.artistPopularity ?? existing?.artistPopularity ?? undefined
 
-  const hasSignal = playCount != null || popularity != null || artistPopularity != null
-
   return {
     id: stats.id,
     playCount: stats.playCount,
@@ -136,10 +151,11 @@ function patchFromPublicStats(
     releaseYear: parseReleaseYear(stats.releaseDate),
     releaseDate: stats.releaseDate,
     durationMs: stats.durationMs,
-    difficulty: hasSignal
+    difficulty: hasDifficultySignal(playCount, popularity, artistPopularity)
       ? assignDifficultyFromMetrics({
-          popularity,
-          artistPopularity,
+          popularity: popularity != null && popularity > 0 ? popularity : undefined,
+          artistPopularity:
+            artistPopularity != null && artistPopularity > 0 ? artistPopularity : undefined,
           releaseYear,
           playCount,
         })
@@ -322,10 +338,14 @@ export async function syncPopularityByIds(
 }
 
 /** Prefer tracks with gaps; once the catalog is complete, refresh the stalest. */
-async function pickWebPlayerTargets(env: Env, limit = PUBLIC_STATS_RUN_LIMIT): Promise<string[]> {
-  const missing = await listTrackIdsMissingPublicStats(env, limit)
+async function pickWebPlayerTargets(
+  env: Env,
+  limit = PUBLIC_STATS_RUN_LIMIT,
+  collection?: string,
+): Promise<string[]> {
+  const missing = await listTrackIdsMissingPublicStats(env, limit, collection)
   if (missing.length >= limit) return missing
-  const stale = await listTrackIdsStalestStats(env, limit)
+  const stale = await listTrackIdsStalestStats(env, limit, collection)
   return [...new Set([...missing, ...stale])].slice(0, limit)
 }
 
@@ -351,12 +371,13 @@ export async function refreshPublicStats(
   env: Env,
   limit = PUBLIC_STATS_RUN_LIMIT,
   trackIds?: string[],
+  collection?: string,
 ): Promise<PublicStatsRefreshResult> {
   const log = (message: string) => console.log(`[public-stats] ${message}`)
   const errors: string[] = []
   const ids = trackIds?.length
     ? [...new Set(trackIds.filter(Boolean))].slice(0, limit)
-    : await pickWebPlayerTargets(env, limit)
+    : await pickWebPlayerTargets(env, limit, collection)
 
   const outcome = await syncViaWebPlayer(ids, env, log, Date.now(), errors)
   const stats = await getCatalogStats(env)

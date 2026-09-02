@@ -4,6 +4,7 @@ import {
   COUNTRY_CODES,
   COUNTRY_LABELS,
   countryDisplayName,
+  isCatalogKind,
 } from '../../shared/catalog-meta'
 import { ISO_COUNTRIES, ISO_COUNTRY_CODES } from '../../shared/iso-countries'
 
@@ -36,6 +37,7 @@ export {
   ISO_COUNTRIES,
   ISO_COUNTRY_CODES,
   countryDisplayName,
+  isCatalogKind,
 }
 
 export const ERA_LABELS: Record<(typeof ERA_OPTIONS)[number] | 'all', string> = {

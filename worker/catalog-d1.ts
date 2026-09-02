@@ -97,6 +97,7 @@ export interface CatalogListFilters {
   genre?: GenreFilter
   era?: EraFilter
   country?: CountryCode
+  collection?: CatalogKind
   missingPreview: boolean
 }
 
@@ -577,36 +578,49 @@ export async function listTrackIds(env: Env): Promise<string[]> {
  * concert-album cuts that way. Only NULL means "never fetched", so zeros are
  * left alone instead of being re-requested on every sweep.
  */
-export async function listTrackIdsMissingPublicStats(env: Env, limit = 250): Promise<string[]> {
+export async function listTrackIdsMissingPublicStats(
+  env: Env,
+  limit = 250,
+  collection?: CatalogKind,
+): Promise<string[]> {
   const db = requireDb(env)
+  const scoped = adminCollectionWhere(collection)
   const result = await db
     .prepare(
       `SELECT id FROM tracks
-       WHERE play_count_updated_at IS NULL
-          OR play_count IS NULL
-          OR popularity IS NULL
-          OR artist_popularity IS NULL
-          OR release_date IS NULL
-          OR release_date = ''
+       WHERE (
+            play_count_updated_at IS NULL
+         OR play_count IS NULL
+         OR popularity IS NULL
+         OR artist_popularity IS NULL
+         OR release_date IS NULL
+         OR release_date = ''
+       )${scoped.sql}
        ORDER BY (play_count_updated_at IS NOT NULL), play_count_updated_at ASC,
          (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
        LIMIT ?`,
     )
-    .bind(limit)
+    .bind(...scoped.params, limit)
     .all<{ id: string }>()
   return (result.results ?? []).map((row) => row.id)
 }
 
 /** Refresh targets once every track has stats: least recently synced first. */
-export async function listTrackIdsStalestStats(env: Env, limit = 250): Promise<string[]> {
+export async function listTrackIdsStalestStats(
+  env: Env,
+  limit = 250,
+  collection?: CatalogKind,
+): Promise<string[]> {
   const db = requireDb(env)
+  const scoped = adminCollectionWhere(collection)
   const result = await db
     .prepare(
       `SELECT id FROM tracks
+       WHERE 1 = 1${scoped.sql}
        ORDER BY (play_count_updated_at IS NOT NULL), play_count_updated_at ASC
        LIMIT ?`,
     )
-    .bind(limit)
+    .bind(...scoped.params, limit)
     .all<{ id: string }>()
   return (result.results ?? []).map((row) => row.id)
 }
@@ -1510,6 +1524,26 @@ function searchWhere(query: string): { sql: string; params: SqlValue[] } {
   }
 }
 
+function adminCollectionSql(collection?: CatalogKind): { sql: string; params: SqlValue[] } {
+  if (!collection) return { sql: '', params: [] }
+  return {
+    sql: `(
+      catalog = ?
+      OR EXISTS (
+        SELECT 1 FROM track_collections tc
+        WHERE tc.track_id = tracks.id AND tc.collection_id = ?
+      )
+    )`,
+    params: [collection, collection],
+  }
+}
+
+function adminCollectionWhere(collection?: CatalogKind): { sql: string; params: SqlValue[] } {
+  const inner = adminCollectionSql(collection)
+  if (!inner.sql) return inner
+  return { sql: ` AND ${inner.sql}`, params: inner.params }
+}
+
 function listFilterSql(filters: CatalogListFilters): { sql: string; params: SqlValue[] } {
   const clauses: string[] = []
   const params: SqlValue[] = []
@@ -1531,6 +1565,11 @@ function listFilterSql(filters: CatalogListFilters): { sql: string; params: SqlV
   }
   if (filters.missingPreview) {
     clauses.push("(preview_url IS NULL OR preview_url = '')")
+  }
+  const collection = adminCollectionSql(filters.collection)
+  if (collection.sql) {
+    clauses.push(collection.sql)
+    params.push(...collection.params)
   }
 
   return {

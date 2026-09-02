@@ -35,6 +35,8 @@ import {
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Progress } from '@/components/ui/progress'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Pagination,
   PaginationContent,
@@ -64,6 +66,7 @@ import { CountryCombobox } from '@/components/country-combobox'
 import { CollectionPickerDialog, collectionsAfterAssign } from '@/components/collection-picker'
 import { FixMissingPreviewsButton } from '@/components/fix-missing-previews'
 import { CountryFlag } from '../../shared/country-flag'
+import { NotoEmoji } from '../../shared/noto-emoji'
 import {
   DIFFICULTY_LABELS,
   DIFFICULTY_OPTIONS,
@@ -75,6 +78,7 @@ import {
   formatDate,
   formatNumber,
   formatPlayCount,
+  isCatalogKind,
 } from '@/lib/format'
 import { MusicIcon, PencilIcon, RefreshCwIcon, SearchIcon, TagsIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -87,6 +91,22 @@ const EMPTY_COUNTS: CatalogCounts = {
   missingPreview: 0,
 }
 
+const REFETCH_BATCH_SIZE = 40
+
+function collectionFromLocation(): string {
+  const value = new URLSearchParams(window.location.search).get('collection')?.trim().toLowerCase()
+  return value && isCatalogKind(value) ? value : 'all'
+}
+
+function writeCollectionParam(collection: string): void {
+  const url = new URL(window.location.href)
+  if (!collection || collection === 'all') url.searchParams.delete('collection')
+  else url.searchParams.set('collection', collection)
+  const next = `${url.pathname}${url.search}${url.hash}`
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  if (next !== current) window.history.replaceState({}, '', next)
+}
+
 export function CatalogPage() {
   const [input, setInput] = useState('')
   const [query, setQuery] = useState('')
@@ -94,6 +114,7 @@ export function CatalogPage() {
   const [genre, setGenre] = useState('all')
   const [era, setEra] = useState('all')
   const [country, setCountry] = useState('all')
+  const [collection, setCollection] = useState(collectionFromLocation)
   const [missingPreview, setMissingPreview] = useState(false)
   const [page, setPage] = useState(1)
   const [tracks, setTracks] = useState<CatalogTrack[]>([])
@@ -106,6 +127,10 @@ export function CatalogPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmingBulk, setConfirmingBulk] = useState(false)
   const [refreshingPlays, setRefreshingPlays] = useState(false)
+  const [refetchingId, setRefetchingId] = useState<string | null>(null)
+  const [refetchProgress, setRefetchProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  )
   const [collections, setCollections] = useState<AdminCatalog[]>([])
   const [editingCollections, setEditingCollections] = useState<CatalogTrack | null>(null)
   const [pickerCollections, setPickerCollections] = useState<string[]>([])
@@ -124,6 +149,7 @@ export function CatalogPage() {
         genre,
         era,
         country,
+        collection,
         missingPreview,
       })
       setTracks(data.tracks)
@@ -136,7 +162,7 @@ export function CatalogPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, query, difficulty, genre, era, country, missingPreview])
+  }, [page, query, difficulty, genre, era, country, collection, missingPreview])
 
   const allOnPageSelected = useMemo(
     () => tracks.length > 0 && tracks.every((track) => selected.has(track.id)),
@@ -151,6 +177,19 @@ export function CatalogPage() {
     void fetchCatalogs()
       .then(setCollections)
       .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    writeCollectionParam(collection)
+  }, [collection])
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = collectionFromLocation()
+      setCollection((current) => (current === next ? current : next))
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
   const collectionLabel = (id: string) => collections.find((item) => item.id === id)?.name ?? id
@@ -264,19 +303,64 @@ export function CatalogPage() {
     })
   }
 
-  const handleRefreshPlayCounts = async () => {
+  const handleRefreshPlayCounts = async (trackIds?: string[]) => {
+    const ids = trackIds?.length ? [...new Set(trackIds.filter(Boolean))] : undefined
     setRefreshingPlays(true)
+    setRefetchingId(ids?.length === 1 ? (ids[0] ?? null) : null)
+    setRefetchProgress(ids && ids.length > 1 ? { done: 0, total: ids.length } : null)
     try {
-      const response = await refreshPlayCounts(
-        selected.size > 0 ? { trackIds: [...selected] } : { limit: 250 },
+      if (!ids) {
+        const response = await refreshPlayCounts({
+          limit: 250,
+          collection: collection !== 'all' ? collection : undefined,
+        })
+        toast.success(response.message)
+        if (response.errors.length > 0) toast.warning(response.errors[0])
+        await load()
+        return
+      }
+
+      let updated = 0
+      let playCountFilled = 0
+      let popularityFilled = 0
+      let releaseDateFilled = 0
+      const errors: string[] = []
+      let rateLimited = false
+      let lastMessage = ''
+
+      for (let index = 0; index < ids.length; index += REFETCH_BATCH_SIZE) {
+        const batch = ids.slice(index, index + REFETCH_BATCH_SIZE)
+        const response = await refreshPlayCounts({
+          trackIds: batch,
+          limit: batch.length,
+        })
+        updated += response.updated
+        playCountFilled += response.playCountFilled
+        popularityFilled += response.popularityFilled
+        releaseDateFilled += response.releaseDateFilled
+        rateLimited = rateLimited || response.rateLimited
+        lastMessage = response.message
+        for (const error of response.errors) {
+          if (!errors.includes(error)) errors.push(error)
+        }
+        setRefetchProgress({ done: Math.min(index + batch.length, ids.length), total: ids.length })
+      }
+
+      toast.success(
+        ids.length === 1
+          ? lastMessage
+          : `Refetched ${playCountFilled} play counts, ${popularityFilled} popularity values, and ${releaseDateFilled} release dates across ${ids.length} songs (${updated} rows updated).`,
       )
-      toast.success(response.message)
-      if (response.errors.length > 0) toast.warning(response.errors[0])
+      if (errors.length > 0) toast.warning(errors[0])
+      if (rateLimited) toast.warning('Spotify throttled part of this run; retry the rest later.')
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to refresh play counts')
+      toast.error(err instanceof Error ? err.message : 'Failed to refetch Spotify stats')
+      await load()
     } finally {
       setRefreshingPlays(false)
+      setRefetchingId(null)
+      setRefetchProgress(null)
     }
   }
 
@@ -301,8 +385,10 @@ export function CatalogPage() {
         <CardHeader>
           <CardTitle>{formatNumber(total)} tracks</CardTitle>
           <CardDescription>
-            Search and filter the live song library. Use Edit on a row to change collections, or
-            select several and click Set collections.
+            Search and filter the live song library. Collection matches the game buckets. Refetch
+            fills play count, popularity, and release date from Spotify's public web player,
+            then recomputes the stored difficulty column (catalog-wide ingest tier; the game ranks
+            within the filtered pool at play time).
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -364,6 +450,36 @@ export function CatalogPage() {
                     {GENRE_OPTIONS.map((option) => (
                       <SelectItem key={option} value={option}>
                         {GENRE_LABELS[option]} ({formatNumber(counts.genre[option] ?? 0)})
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field className="w-56">
+              <FieldLabel>Collection</FieldLabel>
+              <Select
+                value={collection}
+                onValueChange={(value) => {
+                  setCollection(value)
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">All collections</SelectItem>
+                    {collections.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        <span className="inline-flex items-center gap-2">
+                          <NotoEmoji emoji={item.emoji} className="size-4" />
+                          {item.name}
+                          {item.trackCount != null
+                            ? ` (${formatNumber(item.trackCount)})`
+                            : ''}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -436,19 +552,42 @@ export function CatalogPage() {
               missingCount={counts.missingPreview}
               onDone={() => void load()}
             />
+            {refetchProgress ? (
+              <div className="flex min-w-40 flex-col gap-1">
+                <Progress
+                  value={Math.round((refetchProgress.done / refetchProgress.total) * 100)}
+                  className="w-40"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {formatNumber(refetchProgress.done)} / {formatNumber(refetchProgress.total)}
+                </p>
+              </div>
+            ) : null}
             <Button
               variant="outline"
               size="sm"
               disabled={refreshingPlays}
-              onClick={() => void handleRefreshPlayCounts()}
-              title="Fetch play counts and release dates from Spotify's public web player"
+              onClick={() =>
+                void handleRefreshPlayCounts(selected.size > 0 ? [...selected] : undefined)
+              }
+              title={
+                selected.size > 0
+                  ? 'Refetch play count, popularity, and release date for the selected songs'
+                  : collection !== 'all'
+                    ? 'Refetch missing public stats in this collection'
+                    : 'Refetch missing public stats from Spotify public APIs'
+              }
             >
-              <RefreshCwIcon data-icon="inline-start" />
+              {refreshingPlays && !refetchingId ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <RefreshCwIcon data-icon="inline-start" />
+              )}
               {refreshingPlays
-                ? 'Refreshing…'
+                ? 'Refetching…'
                 : selected.size > 0
-                  ? 'Refresh plays for selected'
-                  : 'Refresh play counts'}
+                  ? `Refetch stats (${formatNumber(selected.size)})`
+                  : 'Refetch missing'}
             </Button>
             <Button
               variant="outline"
@@ -516,7 +655,11 @@ export function CatalogPage() {
                   </TableHead>
                   <TableHead>Track</TableHead>
                   <TableHead>Artist</TableHead>
-                  <TableHead>Difficulty</TableHead>
+                  <TableHead
+                    title="Catalog-wide ingest tier. The game ranks songs within the filtered pool at play time."
+                  >
+                    Difficulty
+                  </TableHead>
                   <TableHead>Popularity</TableHead>
                   <TableHead>Plays</TableHead>
                   <TableHead>Released</TableHead>
@@ -632,6 +775,20 @@ export function CatalogPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={refreshingPlays}
+                          onClick={() => void handleRefreshPlayCounts([track.id])}
+                          title="Refetch play count, popularity, and release date from Spotify public APIs"
+                        >
+                          {refetchingId === track.id ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : (
+                            <RefreshCwIcon data-icon="inline-start" />
+                          )}
+                          {refetchingId === track.id ? 'Refetching…' : 'Refetch'}
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"

@@ -508,10 +508,15 @@ function applySeoHeaders(request: Request, response: Response): Response {
   const isWorkersDev = host.endsWith('.workers.dev')
   const isPrivatePath =
     path.startsWith('/api/') || path === '/api' || path === '/admin' || path.startsWith('/admin/')
-  if (isAdminHost || isWorkersDev || isPrivatePath) {
-    response.headers.set('X-Robots-Tag', 'noindex, nofollow')
-  }
-  return response
+  if (!isAdminHost && !isWorkersDev && !isPrivatePath) return response
+
+  const headers = new Headers(response.headers)
+  headers.set('X-Robots-Tag', 'noindex, nofollow')
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 }
 
 export default {

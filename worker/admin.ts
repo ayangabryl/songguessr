@@ -34,7 +34,7 @@ import {
   listArtistsPage,
   updateArtist,
 } from './artists-d1'
-import { isCountryCode, type CountryCode } from '../shared/catalog-meta'
+import { isCatalogKind, isCountryCode, type CountryCode } from '../shared/catalog-meta'
 import { loadLastSpotifySync, refreshPublicStats, syncSpotifyMetrics } from './spotify-sync'
 import {
   ERA_OPTIONS,
@@ -263,6 +263,12 @@ function parseListCountry(value: string | undefined): CountryCode | undefined {
   return undefined
 }
 
+function parseListCollection(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized && isCatalogKind(normalized)) return normalized
+  return undefined
+}
+
 export function createAdminApp(): Hono<{ Bindings: Env }> {
   const admin = new Hono<{ Bindings: Env }>()
 
@@ -475,6 +481,9 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         genre: parseListGenre(c.req.query('genre')),
         era: parseListEra(c.req.query('era')),
         country: parseListCountry(c.req.query('country')),
+        collection: parseListCollection(
+          c.req.query('collection') ?? c.req.query('catalog'),
+        ),
         missingPreview:
           c.req.query('missingPreview') === '1' || c.req.query('missingPreview') === 'true',
       }
@@ -1109,15 +1118,21 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
 
   admin.post('/admin/api/catalog/playcounts', async (c) => {
     const body = await c.req
-      .json<{ limit?: number; trackIds?: unknown }>()
-      .catch(() => ({ limit: undefined, trackIds: undefined }))
-    const limit = Number.isFinite(body.limit) ? Math.min(Math.max(Number(body.limit), 1), 500) : 250
+      .json<{ limit?: number; trackIds?: unknown; collection?: unknown }>()
+      .catch(() => ({ limit: undefined, trackIds: undefined, collection: undefined }))
     const trackIds = Array.isArray(body.trackIds)
       ? body.trackIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : undefined
+    const defaultLimit = trackIds?.length ? Math.min(trackIds.length, 500) : 250
+    const limit = Number.isFinite(body.limit)
+      ? Math.min(Math.max(Number(body.limit), 1), 500)
+      : defaultLimit
+    const collection = parseListCollection(
+      typeof body.collection === 'string' ? body.collection : undefined,
+    )
 
     try {
-      const result = await refreshPublicStats(c.env, limit, trackIds)
+      const result = await refreshPublicStats(c.env, limit, trackIds, collection)
       return c.json({ ok: true, ...result })
     } catch (error) {
       if (error instanceof CatalogUnavailableError) {

@@ -46,6 +46,7 @@ export function isWellKnownArtistName(name: string | undefined): boolean {
  * game ignores that column and buckets against the active filter pool instead
  * (see `poolTierFromRank`): easy is the top slice of *this* collection/country,
  * so 1M plays can be a smash in a niche catalog and a deep cut in OPM.
+ * Admin Songs still shows this stored catalog-wide ingest tier after a refetch.
  *
  * Ingest still blends:
  *   - track.popularity (0–100) — skipped when missing, never treated as 0
