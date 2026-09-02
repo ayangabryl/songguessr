@@ -1,5 +1,5 @@
 import { CountryFlag } from '../../shared/country-flag'
-import { countryDisplayName, filterIsoCountries } from '../../shared/iso-countries'
+import { countryDisplayName, filterOriginCountries } from '../../shared/iso-countries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -12,6 +12,7 @@ interface CountryComboboxProps {
   onChange: (code: string) => void
   disabled?: boolean
   includeAllOption?: boolean
+  includeGlobal?: boolean
   allLabel?: string
   counts?: Record<string, number>
   id?: string
@@ -22,6 +23,7 @@ export function CountryCombobox({
   onChange,
   disabled,
   includeAllOption = false,
+  includeGlobal = true,
   allLabel = 'All countries',
   counts,
   id,
@@ -29,7 +31,10 @@ export function CountryCombobox({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
 
-  const options = useMemo(() => filterIsoCountries(query), [query])
+  const options = useMemo(
+    () => filterOriginCountries(query, { includeGlobal }),
+    [query, includeGlobal],
+  )
   const selectedLabel = value === 'all' ? allLabel : countryDisplayName(value)
 
   return (
@@ -64,8 +69,8 @@ export function CountryCombobox({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search countries"
-            aria-label="Search countries"
+            placeholder="Search"
+            aria-label="Search origin"
           />
         </div>
         <ul role="listbox" className="p-1">

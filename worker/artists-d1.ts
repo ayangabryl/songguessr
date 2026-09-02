@@ -175,6 +175,7 @@ export function isAllowedTrack(
   if (artists.length === 0) return false
 
   if (options.assumeAllLocal) return true
+  if (country === 'GLOBAL') return true
 
   if (artists.some((artist) => isBlockedNonOpmArtist(artist.name))) {
     return false

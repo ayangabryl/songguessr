@@ -101,7 +101,6 @@ function pushError(errors: string[], message: string): void {
 
 export function parseImportCountry(value: string | undefined): CountryCode {
   const normalized = value?.trim().toUpperCase()
-  if (normalized === 'GLOBAL') return DEFAULT_COUNTRY
   return normalized && isCountryCode(normalized) ? normalized : DEFAULT_COUNTRY
 }
 
@@ -471,7 +470,7 @@ export async function importPlaylistToCatalog(
 
     const trackCountry = countryForTrack(track.id, country, trackCountryMap)
 
-    if (requireKnownArtists) {
+    if (requireKnownArtists && trackCountry !== 'GLOBAL') {
       const allowlist = await allowlistFor(trackCountry)
       if (!isAllowedTrack(track, trackCountry, allowlist, { assumeAllLocal: false })) {
         skippedNonOpm += 1

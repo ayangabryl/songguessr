@@ -14,7 +14,13 @@ export interface CountryFlagProps {
  */
 export function CountryFlag({ code, className = 'country-flag', title }: CountryFlagProps) {
   const normalized = code.trim().toUpperCase()
-  if (normalized === 'GLOBAL') return null
+  if (normalized === 'GLOBAL') {
+    return (
+      <span className="country-flag-wrap">
+        <NotoEmoji emoji="🌍" className={className} title={title ?? 'Global'} />
+      </span>
+    )
+  }
   const emoji = isoCountryToFlagEmoji(normalized)
   if (!emoji) return null
   return (

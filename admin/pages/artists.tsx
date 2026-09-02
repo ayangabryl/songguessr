@@ -203,6 +203,7 @@ export function ArtistsPage() {
                     <TableCell>
                       <CountryCombobox
                         value={artist.country}
+                        includeGlobal={false}
                         disabled={savingId === artist.id}
                         onChange={(value) => void handleCountry(artist, value)}
                       />

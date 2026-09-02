@@ -75,6 +75,7 @@ export function AddSongsPage() {
   const [pickerCollections, setPickerCollections] = useState<string[]>(['opm'])
   const [trustArtists, setTrustArtists] = useState(false)
   const [requireKnownArtists, setRequireKnownArtists] = useState(true)
+  const [showMoreOptions, setShowMoreOptions] = useState(false)
   const [preview, setPreview] = useState<PlaylistPreview | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [trackCountries, setTrackCountries] = useState<Record<string, string>>({})
@@ -137,6 +138,7 @@ export function AddSongsPage() {
       .filter((track) => !track.alreadyInCatalog && !track.isDuplicate)
       .map((track) => track.id)
   }, [preview])
+  const globalOrigin = country === 'GLOBAL'
 
   const handleSearch = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -248,8 +250,8 @@ export function AddSongsPage() {
       const id = await startPlaylistImport(playlistUrl.trim(), {
         country,
         collections: selectedCollections,
-        trustArtists,
-        requireKnownArtists: trustArtists ? false : requireKnownArtists,
+        trustArtists: globalOrigin ? false : trustArtists,
+        requireKnownArtists: globalOrigin || trustArtists ? false : requireKnownArtists,
         trackIds: [...selected],
         trackCountries: Object.fromEntries(
           [...selected].map((trackId) => [trackId, trackCountries[trackId] ?? country]),
@@ -281,9 +283,7 @@ export function AddSongsPage() {
         <CardHeader>
           <CardTitle>Spotify playlist</CardTitle>
           <CardDescription>
-            Collections are tags a song can have several of (K-pop, a custom “OPM hits”
-            list, K-drama OSTs). Country is where that song or artist is from. Known artists are
-            an import guard per country — not OPM-only, and not a game filter.
+            Paste a Spotify playlist. Set origin for the songs, then which collections to tag.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -305,15 +305,14 @@ export function AddSongsPage() {
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field>
-                  <FieldLabel>Default country</FieldLabel>
+                  <FieldLabel>Default origin</FieldLabel>
                   <CountryCombobox
                     value={country}
                     onChange={setDefaultCountry}
                     disabled={jobRunning || starting}
                   />
                   <FieldDescription>
-                    Used for each song unless you override it on the checklist. Global is a game
-                    mix, not a country here.
+                    Use Global for mixed-region playlists.
                   </FieldDescription>
                 </Field>
                 <Field>
@@ -326,44 +325,50 @@ export function AddSongsPage() {
                   />
                 </Field>
               </div>
-              <Field orientation="horizontal" className="items-start">
-                <Switch
-                  id="trust-artists"
-                  checked={trustArtists}
-                  onCheckedChange={(checked) => {
-                    setTrustArtists(checked)
-                    if (checked) setRequireKnownArtists(false)
-                  }}
-                  disabled={jobRunning || starting}
-                />
-                <div className="flex flex-col gap-1">
-                  <FieldLabel htmlFor="trust-artists">
-                    Add selected artists to this country’s known-artist list
-                  </FieldLabel>
-                  <FieldDescription>
-                    Writes each row’s artists as known for that row’s country (KR, US, PH, …).
-                  </FieldDescription>
-                </div>
-              </Field>
-              <Field orientation="horizontal" className="items-start">
-                <Switch
-                  id="require-known"
-                  checked={requireKnownArtists && !trustArtists}
-                  onCheckedChange={(checked) => {
-                    setRequireKnownArtists(checked)
-                    if (checked) setTrustArtists(false)
-                  }}
-                  disabled={jobRunning || starting}
-                />
-                <div className="flex flex-col gap-1">
-                  <FieldLabel htmlFor="require-known">
-                    Only add artists already known for their row’s country
-                  </FieldLabel>
-                  <FieldDescription>
-                    Stops international chart noise. Game Filters → Region is separate.
-                  </FieldDescription>
-                </div>
-              </Field>
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  className="w-fit text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  onClick={() => setShowMoreOptions((open) => !open)}
+                >
+                  {showMoreOptions ? 'Fewer options' : 'More options'}
+                </button>
+                {showMoreOptions ? (
+                  <div className="flex flex-col gap-3">
+                    <Field orientation="horizontal" className="items-start">
+                      <Switch
+                        id="trust-artists"
+                        checked={trustArtists && !globalOrigin}
+                        onCheckedChange={(checked) => {
+                          setTrustArtists(checked)
+                          if (checked) setRequireKnownArtists(false)
+                        }}
+                        disabled={jobRunning || starting || globalOrigin}
+                      />
+                      <FieldLabel htmlFor="trust-artists">
+                        Add these artists to the origin’s list
+                      </FieldLabel>
+                    </Field>
+                    <Field orientation="horizontal" className="items-start">
+                      <Switch
+                        id="require-known"
+                        checked={requireKnownArtists && !trustArtists && !globalOrigin}
+                        onCheckedChange={(checked) => {
+                          setRequireKnownArtists(checked)
+                          if (checked) setTrustArtists(false)
+                        }}
+                        disabled={jobRunning || starting || globalOrigin}
+                      />
+                      <FieldLabel htmlFor="require-known">
+                        Only songs by artists already on this origin’s list
+                      </FieldLabel>
+                    </Field>
+                    {globalOrigin ? (
+                      <FieldDescription>Artist lists are per country, so they don’t apply to Global.</FieldDescription>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               <Button type="submit" disabled={jobRunning || starting || previewing || !playlistUrl.trim()}>
                 {previewing ? <Spinner data-icon="inline-start" /> : null}
                 {previewing ? 'Fetching…' : 'Fetch songs'}
@@ -389,7 +394,7 @@ export function AddSongsPage() {
                     Select none
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={applyCountryToAllRows}>
-                    Set all countries to {countryDisplayName(country)}
+                    Set all origins to {countryDisplayName(country)}
                   </Button>
                 </div>
               </div>
@@ -511,10 +516,7 @@ export function AddSongsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Spotify search</CardTitle>
-          <CardDescription>
-            Adds with the default country above. You’ll pick collections in the next step. Known-artist
-            rules apply only to playlist import, not this one-off search.
-          </CardDescription>
+          <CardDescription>Search Spotify. You’ll pick collections when you add.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form onSubmit={(event) => void handleSearch(event)}>
@@ -586,7 +588,7 @@ export function AddSongsPage() {
       <CollectionPickerDialog
         open={pendingAdd !== null}
         title={pendingAdd ? `Add “${pendingAdd.title}”` : 'Add song'}
-        description="Choose every collection this song belongs to. Country origin is the default above and is separate from collections."
+        description="Pick collections for this song."
         collections={catalogs}
         selected={pickerCollections}
         onSelectedChange={setPickerCollections}
@@ -605,10 +607,6 @@ interface RemoveResultSummary {
   totalTracks: number
 }
 
-/**
- * Bulk cleanup for a bad import: fetch a playlist, see which of its tracks are
- * in D1, and delete the ones you pick.
- */
 function RemoveByPlaylistCard() {
   const [playlistUrl, setPlaylistUrl] = useState('')
   const [preview, setPreview] = useState<PlaylistPreview | null>(null)
@@ -688,8 +686,7 @@ function RemoveByPlaylistCard() {
       <CardHeader>
         <CardTitle>Remove by playlist</CardTitle>
         <CardDescription>
-          Paste the playlist you imported from to pull its tracks back up, then delete the ones that
-          are already in the library. Deletes from D1 immediately.
+          Fetch a playlist to remove matching songs from the library.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

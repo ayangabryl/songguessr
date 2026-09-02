@@ -189,6 +189,7 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
                 <span className="text-sm text-muted-foreground">Country</span>
                 <CountryCombobox
                   value={artist.country}
+                  includeGlobal={false}
                   disabled={saving}
                   onChange={(value) => void handleCountry(value)}
                 />

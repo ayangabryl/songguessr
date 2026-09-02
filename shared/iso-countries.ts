@@ -270,6 +270,8 @@ export function countryDisplayName(code: string): string {
   return ISO_NAME_BY_CODE.get(code) ?? code
 }
 
+export const GLOBAL_ORIGIN = { code: 'GLOBAL' as const, name: 'Global' }
+
 export function filterIsoCountries(query: string): Array<{ code: IsoCountryCode; name: string }> {
   const normalized = query.trim().toLowerCase()
   const rows: Array<{ code: IsoCountryCode; name: string }> = ISO_COUNTRIES.map((country) => ({
@@ -287,4 +289,23 @@ export function filterIsoCountries(query: string): Array<{ code: IsoCountryCode;
       country.name.toLowerCase().includes(normalized) ||
       country.code.toLowerCase().includes(normalized),
   )
+}
+
+/** Origin picker: ISO countries plus Global for mixed-region rows. */
+export function filterOriginCountries(
+  query: string,
+  options: { includeGlobal?: boolean } = {},
+): Array<{ code: IsoCountryCode | 'GLOBAL'; name: string }> {
+  const iso = filterIsoCountries(query)
+  if (!options.includeGlobal) return iso
+
+  const normalized = query.trim().toLowerCase()
+  const matchesGlobal =
+    !normalized ||
+    GLOBAL_ORIGIN.name.toLowerCase().includes(normalized) ||
+    GLOBAL_ORIGIN.code.toLowerCase().includes(normalized) ||
+    'mixed'.startsWith(normalized) ||
+    'worldwide'.startsWith(normalized)
+  if (!matchesGlobal) return iso
+  return [GLOBAL_ORIGIN, ...iso]
 }

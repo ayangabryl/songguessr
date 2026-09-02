@@ -56,7 +56,7 @@ export function CollectionChecklist({
       </div>
       <FieldDescription>
         {selected.length === 0
-          ? 'None selected — the song stays uncategorized. Country origin is separate.'
+          ? 'None selected — the song stays untagged.'
           : `${selected.length} collection${selected.length === 1 ? '' : 's'} selected.`}{' '}
         <button
           type="button"
