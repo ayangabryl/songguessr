@@ -103,51 +103,22 @@ import {
   SkipIcon,
   StopwatchIcon,
   SunIcon,
-  SupportIcon,
   VolumeIcon,
   WaveformIcon,
 } from './Icons'
 import { SpotifyConnect } from './SpotifyConnect'
 import { Mascot } from './Mascot'
 import { SettingsSheet } from './SettingsSheet'
+import { StreakBadge } from './StreakBadge'
 
 const FilterModal = lazy(() =>
   import('./FilterModal').then((mod) => ({ default: mod.FilterModal })),
-)
-
-const StreakBadge = lazy(() =>
-  import('./StreakBadge').then((mod) => ({ default: mod.StreakBadge })),
 )
 
 type PlaybackMode = 'idle' | 'clip' | 'reveal'
 
 const REVEAL_PLAYBACK_MS = 45_000
 
-function FlameMark() {
-  return (
-    <svg className="streak-flame-mark" viewBox="0 0 64 64" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M32 4c4 10-6 14-2 24 8-8 18-2 18 12 0 14-12 22-22 22S8 50 8 36c0-10 6-16 10-20-2 8 6 10 8 4 2-8-2-16 6-16Z"
-      />
-      <path fill="#ffe08a" d="M32 28c2 6-4 8-1 14 4-4 10 0 10 8 0 8-6 12-11 12s-11-5-11-12c0-6 3-9 5-11 0 5 4 6 5 2 1-4 0-8 3-13Z" />
-    </svg>
-  )
-}
-function StreakFallback({ count }: { count: number }) {
-  const label = count === 1 ? '1 song streak' : `${count} song streak`
-  return (
-    <div className={`streak-badge${count <= 0 ? ' cold' : ''}`} title={label} aria-label={label}>
-      <div className="streak-flame" aria-hidden="true">
-        <FlameMark />
-      </div>
-      <div className="streak-copy">
-        <span className="streak-count">{count}</span>
-        <span className="streak-label">streak</span>
-      </div>
-    </div>
-  )
-}
 
 function resolveMascotMood(input: {
   switching: boolean
@@ -1049,7 +1020,7 @@ export function Game() {
     streakBumpTimeoutRef.current = window.setTimeout(() => {
       setStreakBump(false)
       streakBumpTimeoutRef.current = null
-    }, 900)
+    }, 1400)
   }
 
   function noteStreakFail() {
@@ -1427,13 +1398,9 @@ export function Game() {
   return (
     <div className="app-shell" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
       <div className="game-layout">
-        <div className="game-card">
           <header className="game-topbar">
             <h1 className="wordmark">SongGuessr</h1>
             <div className="topbar-actions">
-              <Suspense fallback={<StreakFallback count={streak} />}>
-                <StreakBadge count={streak} bump={streakBump} />
-              </Suspense>
               <button
                 type="button"
                 className="icon-btn"
@@ -1452,9 +1419,44 @@ export function Game() {
               </button>
             </div>
           </header>
+
+          <aside className="rail rail-left">
+            <button
+              type="button"
+              className={`mode-action filter-button${activeFilterTotal > 0 ? ' active-filter' : ''}`}
+              onClick={() => openFilterModal()}
+            >
+              <FilterIcon /> Filters{activeFilterTotal > 0 ? ` (${activeFilterTotal})` : ''}
+            </button>
+            <button
+              type="button"
+              className="mode-action"
+              onClick={() => {
+                clearRecentTrackIds()
+                void loadAllRounds(catalogFilters)
+              }}
+            >
+              <ReplayIcon /> Reroll all
+            </button>
+            <button type="button" className="mode-action" disabled>
+              <FeedbackIcon /> Feedback
+            </button>
+          </aside>
+
+          <div className="game-center">
           <div className={`game-content ${showResult ? 'result-state' : ''}`}>
-            <Mascot difficulty={difficulty} mood={mascotMood} />
-            {!showResult ? <p className="play-kicker">Hear a clip. Name the track.</p> : null}
+            <div className="game-stage">
+              <Mascot difficulty={difficulty} mood={mascotMood} />
+              {!showResult ? (
+                <>
+                  <div className="stage-streak">
+                    <StreakBadge count={streak} bump={streakBump} />
+                  </div>
+                  <p className="play-kicker">Hear a clip. Name the track.</p>
+                </>
+              ) : null}
+            </div>
+            <div className="game-board">
             {catalogLoading && !activeState.round && (
               <div className="empty-state">
                 <h2>Loading songs...</h2>
@@ -1736,8 +1738,130 @@ export function Game() {
                 )}
               </div>
             )}
+            </div>
           </div>
-        </div>
+          </div>
+
+          <aside className="rail rail-right">
+                <SpotifyConnect
+                  isConnected={spotify.isConnected}
+                  isPremium={spotify.isPremium}
+                  displayName={spotify.session?.displayName}
+                  connecting={spotify.connecting}
+                  authError={spotify.authError}
+                  onConnect={() => void spotify.connect()}
+                  onDisconnect={spotify.disconnect}
+                />
+
+                <div>
+                  <p className="eyebrow">
+                    <WaveformIcon /> Song start
+                  </p>
+                  <div className="start-modes">
+                    <button
+                      type="button"
+                      className={`setting-value ${startMode === 'intro' ? 'active-setting' : ''}`}
+                      disabled={controlsDisabled || !spotify.canUseStartModes}
+                      onClick={() => handleStartMode('intro')}
+                    >
+                      From the start
+                    </button>
+                    <button
+                      type="button"
+                      className={`setting-value ${startMode === 'hook' ? 'active-setting' : ''}`}
+                      disabled={controlsDisabled || !spotify.canUseStartModes}
+                      onClick={() => handleStartMode('hook')}
+                    >
+                      Main hook
+                    </button>
+                  </div>
+                  <p className="setting-note">
+                    {spotify.canUseStartModes
+                      ? 'Play from the intro or chorus.'
+                      : 'Connect Spotify above to unlock.'}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="eyebrow">
+                    <StopwatchIcon /> Stages
+                  </p>
+                  <div className="stage-pills">
+                    {ALL_STAGES.map((stage) => {
+                      const enabled = enabledStages.includes(stage)
+                      const isCurrent = enabled && activeStages[activeState.stageIndex] === stage
+                      return (
+                        <button
+                          key={stage}
+                          type="button"
+                          className={[
+                            'stage-pill',
+                            enabled ? 'enabled' : '',
+                            isCurrent ? 'current' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          disabled={controlsDisabled}
+                          aria-pressed={enabled}
+                          aria-label={
+                            enabled ? `Remove ${stage} second stage` : `Add ${stage} second stage`
+                          }
+                          onClick={() => toggleStage(stage)}
+                        >
+                          {formatStageLabel(stage)}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="eyebrow">
+                    <AutoRerollIcon /> Auto reroll
+                  </p>
+                  <button
+                    type="button"
+                    className={`setting-value auto-reroll-toggle ${autoReroll ? 'active-setting' : ''}`}
+                    disabled={controlsDisabled}
+                    onClick={() => setAutoReroll((value) => !value)}
+                  >
+                    Auto reroll
+                    <span className="auto-reroll-state">{autoReroll ? 'On' : 'Off'}</span>
+                    <span className="toggle-track">
+                      <span />
+                    </span>
+                  </button>
+                </div>
+
+                <div className="volume-control">
+                  <div className="volume-header">
+                    <p className="eyebrow">
+                      <VolumeIcon /> Volume
+                    </p>
+                    <span className="volume-value">{Math.round(volume * 100)}%</span>
+                  </div>
+                  <div className="volume-slider-row">
+                    <button
+                      type="button"
+                      className="volume-reset"
+                      aria-label="Reset volume to 100%"
+                      onClick={() => setVolume(1)}
+                    >
+                      <ResetIcon />
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={volume}
+                      aria-label="Volume"
+                      style={{ '--volume-percent': `${volume * 100}%` } as CSSProperties}
+                      onChange={(event) => setVolume(Number(event.target.value))}
+                    />
+                  </div>
+                </div>
+          </aside>
       </div>
 
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}>
@@ -1767,163 +1891,6 @@ export function Game() {
                 Dark
               </button>
             </div>
-          </div>
-
-          <SpotifyConnect
-            isConnected={spotify.isConnected}
-            isPremium={spotify.isPremium}
-            displayName={spotify.session?.displayName}
-            connecting={spotify.connecting}
-            authError={spotify.authError}
-            onConnect={() => void spotify.connect()}
-            onDisconnect={spotify.disconnect}
-          />
-
-          <div>
-            <p className="eyebrow">
-              <WaveformIcon /> Song start
-            </p>
-            <button
-              type="button"
-              className={`setting-value ${startMode === 'intro' ? 'active-setting' : ''}`}
-              disabled={controlsDisabled || !spotify.canUseStartModes}
-              onClick={() => handleStartMode('intro')}
-            >
-              From the start
-            </button>
-            <button
-              type="button"
-              className={`setting-value ${startMode === 'hook' ? 'active-setting' : ''}`}
-              disabled={controlsDisabled || !spotify.canUseStartModes}
-              onClick={() => handleStartMode('hook')}
-            >
-              Main hook
-            </button>
-            <p className="setting-note">
-              {spotify.canUseStartModes
-                ? 'Play from the intro or chorus.'
-                : 'Connect Spotify above to unlock.'}
-            </p>
-          </div>
-
-          <div>
-            <p className="eyebrow">
-              <StopwatchIcon /> Stages
-            </p>
-            <div className="stage-pills">
-              {ALL_STAGES.map((stage) => {
-                const enabled = enabledStages.includes(stage)
-                const isCurrent = enabled && activeStages[activeState.stageIndex] === stage
-                return (
-                  <button
-                    key={stage}
-                    type="button"
-                    className={[
-                      'stage-pill',
-                      enabled ? 'enabled' : '',
-                      isCurrent ? 'current' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    disabled={controlsDisabled}
-                    aria-pressed={enabled}
-                    aria-label={
-                      enabled ? `Remove ${stage} second stage` : `Add ${stage} second stage`
-                    }
-                    onClick={() => toggleStage(stage)}
-                  >
-                    {formatStageLabel(stage)}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div>
-            <p className="eyebrow">
-              <AutoRerollIcon /> Auto reroll
-            </p>
-            <button
-              type="button"
-              className={`setting-value auto-reroll-toggle ${autoReroll ? 'active-setting' : ''}`}
-              disabled={controlsDisabled}
-              onClick={() => setAutoReroll((value) => !value)}
-            >
-              Auto reroll
-              <span className="auto-reroll-state">{autoReroll ? 'On' : 'Off'}</span>
-              <span className="toggle-track">
-                <span />
-              </span>
-            </button>
-          </div>
-
-          <div className="volume-control">
-            <div className="volume-header">
-              <p className="eyebrow">
-                <VolumeIcon /> Volume
-              </p>
-              <span className="volume-value">{Math.round(volume * 100)}%</span>
-            </div>
-            <div className="volume-slider-row">
-              <button
-                type="button"
-                className="volume-reset"
-                aria-label="Reset volume to 100%"
-                onClick={() => setVolume(1)}
-              >
-                <ResetIcon />
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={volume}
-                aria-label="Volume"
-                style={{ '--volume-percent': `${volume * 100}%` } as CSSProperties}
-                onChange={(event) => setVolume(Number(event.target.value))}
-              />
-            </div>
-          </div>
-
-          <div className="sheet-actions">
-            <button
-              type="button"
-              className="mode-action"
-              onClick={() => {
-                clearRecentTrackIds()
-                void loadAllRounds(catalogFilters)
-              }}
-            >
-              <ReplayIcon /> Reroll all
-            </button>
-            {activeState.status === 'lost' && (
-              <button type="button" className="mode-action" onClick={() => retryRound()}>
-                <RetryIcon /> Play again
-              </button>
-            )}
-            <button
-              type="button"
-              className={`mode-action filter-button${activeFilterTotal > 0 ? ' active-filter' : ''}`}
-              onClick={() => {
-                setSettingsOpen(false)
-                openFilterModal()
-              }}
-            >
-              <FilterIcon /> Filters{activeFilterTotal > 0 ? ` (${activeFilterTotal})` : ''}
-            </button>
-            <button type="button" className="mode-action" disabled>
-              <FeedbackIcon /> Feedback
-            </button>
-            <a
-              className="mode-action support-button"
-              href="https://buymeacoffee.com/songlessrecreation"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Support this project on Buy Me A Coffee"
-            >
-              <SupportIcon /> Support
-            </a>
           </div>
         </div>
       </SettingsSheet>

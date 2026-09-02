@@ -4,7 +4,6 @@ import { ChatCircle } from '@phosphor-icons/react/ChatCircle'
 import { DiceFive } from '@phosphor-icons/react/DiceFive'
 import { Faders } from '@phosphor-icons/react/Faders'
 import { GearSix } from '@phosphor-icons/react/GearSix'
-import { Heart } from '@phosphor-icons/react/Heart'
 import { Moon } from '@phosphor-icons/react/Moon'
 import { Repeat } from '@phosphor-icons/react/Repeat'
 import { SkipForward } from '@phosphor-icons/react/SkipForward'
@@ -33,10 +32,6 @@ export function FilterIcon() {
 
 export function FeedbackIcon() {
   return renderIcon(ChatCircle, { className: 'action-icon' })
-}
-
-export function SupportIcon() {
-  return renderIcon(Heart, { className: 'action-icon' })
 }
 
 export function WaveformIcon() {

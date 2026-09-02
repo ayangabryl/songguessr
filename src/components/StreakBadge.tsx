@@ -15,6 +15,7 @@ interface StreakBadgeProps {
 export function StreakBadge({ count, bump }: StreakBadgeProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const animRef = useRef<AnimationItem | null>(null)
+  const pendingBumpRef = useRef(false)
 
   useEffect(() => {
     const host = hostRef.current
@@ -41,6 +42,11 @@ export function StreakBadge({ count, bump }: StreakBadgeProps) {
         animRef.current = animation
         if (reduceMotion) {
           animation.goToAndStop(animation.totalFrames * 0.72, true)
+          return
+        }
+        if (pendingBumpRef.current) {
+          pendingBumpRef.current = false
+          celebrate(animation)
         }
       })
       .catch(() => {
@@ -57,18 +63,12 @@ export function StreakBadge({ count, bump }: StreakBadgeProps) {
   useEffect(() => {
     if (!bump) return
     const animation = animRef.current
-    if (!animation) return
+    if (!animation) {
+      pendingBumpRef.current = true
+      return
+    }
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    animation.loop = false
-    animation.goToAndPlay(0, true)
-    const onComplete = () => {
-      animation.loop = true
-      animation.play()
-    }
-    animation.addEventListener('complete', onComplete)
-    return () => {
-      animation.removeEventListener('complete', onComplete)
-    }
+    celebrate(animation)
   }, [bump])
 
   const label = count === 1 ? '1 song streak' : `${count} song streak`
@@ -95,4 +95,15 @@ export function StreakBadge({ count, bump }: StreakBadgeProps) {
       </div>
     </div>
   )
+}
+
+function celebrate(animation: AnimationItem) {
+  animation.loop = false
+  animation.goToAndPlay(0, true)
+  const onComplete = () => {
+    animation.removeEventListener('complete', onComplete)
+    animation.loop = true
+    animation.play()
+  }
+  animation.addEventListener('complete', onComplete)
 }

@@ -11,12 +11,12 @@ const outDir = join(root, 'public', 'mascot')
 const FR = 60
 const OP = 560
 
-const BODY = [0.345, 0.8, 0.008, 1]
-const BELLY = [0.537, 0.886, 0.098, 1]
-const OUTLINE = [0.239, 0.549, 0.008, 1]
+const BODY = [0.133, 0.847, 0.459, 1]
+const BELLY = [0.42, 0.91, 0.62, 1]
+const OUTLINE = [0.078, 0.604, 0.322, 1]
 const CHEEK = [1, 0.553, 0.667, 1]
-const ACCENT = [0.345, 0.8, 0.008, 1]
-const INK = [0.122, 0.145, 0.11, 1]
+const ACCENT = [0.133, 0.847, 0.459, 1]
+const INK = [0.141, 0.118, 0.094, 1]
 const WHITE = [1, 1, 1, 1]
 const CUP = [0.145, 0.165, 0.145, 1]
 const CUP_INNER = [0.22, 0.24, 0.22, 1]
@@ -484,27 +484,31 @@ const body = group(
 const leftCup = group(
   'leftCup',
   [
-    ellipse([38, 42]),
-    fill('outlineFill', OUTLINE),
-    ellipse([32, 36]),
+    ellipse([34, 38]),
+    fill('ink', INK),
+    ellipse([28, 32]),
     fill('cup', CUP),
-    ellipse([18, 20]),
+    ellipse([16, 18]),
     fill('cupInner', CUP_INNER),
+    ellipse([8, 6], [-3, -6]),
+    fill('eye', [1, 1, 1, 0.2]),
   ],
-  tr({ p: [58, 118] }),
+  tr({ p: [50, 116] }),
 )
 
 const rightCup = group(
   'rightCup',
   [
-    ellipse([38, 42]),
-    fill('outlineFill', OUTLINE),
-    ellipse([32, 36]),
+    ellipse([34, 38]),
+    fill('ink', INK),
+    ellipse([28, 32]),
     fill('cup', CUP),
-    ellipse([18, 20]),
+    ellipse([16, 18]),
     fill('cupInner', CUP_INNER),
+    ellipse([8, 6], [-3, -6]),
+    fill('eye', [1, 1, 1, 0.2]),
   ],
-  tr({ p: [182, 118] }),
+  tr({ p: [190, 116] }),
 )
 
 const band = group(
@@ -533,7 +537,17 @@ const band = group(
   tr({ p: [120, 86] }),
 )
 
-const stem = group('stem', [rect([12, 58], [0, 0], 6), fill('ink', INK)], tr({ p: [156, 58], r: 12 }))
+const stem = group('stem', [rect([10, 54], [0, 0], 5), fill('ink', INK)], tr({ p: [172, 44], r: 18 }))
+const noteHead = group('noteHead', [ellipse([20, 15]), fill('ink', INK)], tr({ p: [160, 70], r: -24 }))
+
+const browL = group('browL', [rect([18, 4], [0, 0], 3), fill('ink', INK)], tr({ p: [96, 98], r: -12 }))
+const browR = group('browR', [rect([18, 4], [0, 0], 3), fill('ink', INK)], tr({ p: [144, 98], r: 12 }))
+
+const shade = group(
+  'shade',
+  [ellipse([22, 48], [0, 0]), fill('shade', [0.12, 0.1, 0.08, 0.1])],
+  tr({ p: [142, 128] }),
+)
 
 const noteFlag = animatedGroup(
   'flag',
@@ -560,7 +574,7 @@ const noteFlag = animatedGroup(
     ),
     fill('ink', FLAG),
   ],
-  { pos: [164, 42], r: flagRot },
+  { pos: [178, 28], r: flagRot },
 )
 
 const leftEyeWhite = animatedGroup(
@@ -672,16 +686,20 @@ const characterLayer = layer(
     grin,
     smile,
     lids,
+    browL,
+    browR,
     leftEyeWhite,
     rightEyeWhite,
     leftCheek,
     rightCheek,
     noteFlag,
+    noteHead,
     stem,
     leftCup,
     rightCup,
     band,
     shine,
+    shade,
     body,
     leftArm,
     rightArm,

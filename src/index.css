@@ -25,7 +25,7 @@ body {
 .spotify-connect-button {
   background: #1ed760;
   color: #041308;
-  box-shadow: 0 5px 0 #129b44;
+  box-shadow: none;
 }
 
 .spotify-status {

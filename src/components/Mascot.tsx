@@ -24,7 +24,7 @@ let cachedPromise: Promise<unknown> | null = null
 function loadTemplate() {
   if (cachedTemplate) return Promise.resolve(cachedTemplate)
   if (!cachedPromise) {
-    cachedPromise = fetch('/mascot/noot.json')
+    cachedPromise = fetch('/mascot/noot.json?v=4')
       .then((response) => {
         if (!response.ok) throw new Error('Mascot animation missing.')
         return response.json() as Promise<unknown>
@@ -135,19 +135,25 @@ function NootFallback({ mood }: { mood: MascotMood }) {
         <ellipse className="mascot-outline" cx="120" cy="132" rx="64" ry="73" />
         <ellipse className="mascot-fill" cx="120" cy="132" rx="58" ry="67" />
         <ellipse className="mascot-belly" cx="120" cy="156" rx="29" ry="20" />
+        <ellipse cx="142" cy="128" rx="11" ry="24" fill="rgba(20,16,12,0.1)" />
         <path
           className="mascot-ink"
           d="M68 92c24-28 80-28 104 0"
           fill="none"
-          strokeWidth="10"
+          strokeWidth="11"
           strokeLinecap="round"
         />
-        <ellipse className="mascot-outline" cx="58" cy="118" rx="19" ry="21" />
-        <ellipse className="mascot-cup" cx="58" cy="118" rx="16" ry="18" />
-        <ellipse className="mascot-outline" cx="182" cy="118" rx="19" ry="21" />
-        <ellipse className="mascot-cup" cx="182" cy="118" rx="16" ry="18" />
-        <rect className="mascot-ink" x="150" y="32" width="12" height="56" rx="6" transform="rotate(12 156 60)" />
-        <path className="mascot-ink" d="M160 34c18-8 36-4 40 14-14-4-26 0-38 8z" />
+        <ellipse className="mascot-ink" cx="50" cy="116" rx="17" ry="19" />
+        <ellipse className="mascot-cup" cx="50" cy="116" rx="13" ry="15" />
+        <ellipse className="mascot-cup-pad" cx="50" cy="116" rx="8" ry="9" />
+        <ellipse className="mascot-ink" cx="190" cy="116" rx="17" ry="19" />
+        <ellipse className="mascot-cup" cx="190" cy="116" rx="13" ry="15" />
+        <ellipse className="mascot-cup-pad" cx="190" cy="116" rx="8" ry="9" />
+        <ellipse className="mascot-ink" cx="160" cy="70" rx="10" ry="7.5" transform="rotate(-24 160 70)" />
+        <rect className="mascot-ink" x="167" y="18" width="10" height="54" rx="5" transform="rotate(18 172 44)" />
+        <path className="mascot-ink" d="M176 18c18-8 34-2 38 14-14-4-24 0-36 8z" />
+        <rect className="mascot-ink" x="86" y="96" width="20" height="5" rx="3" transform="rotate(-14 96 98)" />
+        <rect className="mascot-ink" x="134" y="96" width="20" height="5" rx="3" transform="rotate(14 144 98)" />
         <ellipse className="mascot-cheek" cx="80" cy="144" rx="10" ry="6" />
         <ellipse className="mascot-cheek" cx="160" cy="144" rx="10" ry="6" />
         <ellipse cx="98" cy="118" rx="18" ry="20" fill="#fff" />

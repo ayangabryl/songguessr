@@ -39,6 +39,6 @@ export function applyResolvedTheme(theme: ResolvedTheme) {
   root.style.colorScheme = theme
   const meta = document.querySelector('meta[name="theme-color"]')
   if (meta) {
-    meta.setAttribute('content', theme === 'dark' ? '#0b1209' : '#eef6e8')
+    meta.setAttribute('content', theme === 'dark' ? '#050806' : '#eef1ea')
   }
 }
