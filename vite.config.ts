@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [react(), cloudflare()],
+  plugins: [react(), cloudflare({ tunnel: true })],
   resolve: {
     alias: {
       '@': resolve(import.meta.dirname, 'admin'),

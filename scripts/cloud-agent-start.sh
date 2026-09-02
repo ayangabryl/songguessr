@@ -17,4 +17,9 @@ ensure_cloudflare_auth() {
 
 ensure_cloudflare_auth
 
+echo ""
+echo "Starting dev server with public tunnel (for phone preview)..."
+echo "Look for: Tunnel: https://....trycloudflare.com/"
+echo ""
+
 exec npm run dev
