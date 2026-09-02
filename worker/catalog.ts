@@ -50,6 +50,7 @@ export async function pickRandomTrack(
   excludeIds: ReadonlySet<string> = new Set(),
   excludeSongKeys: ReadonlySet<string> = new Set(),
 ): Promise<Track | null> {
+  // `seed` is a client cache-buster only. The D1 pick uses crypto entropy per request.
   return pickRandomTrackFromD1(env, difficulty, filters, excludeIds, excludeSongKeys)
 }
 

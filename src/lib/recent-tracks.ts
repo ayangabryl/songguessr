@@ -1,8 +1,8 @@
-import { readMigratedItem, removeMigratedItem } from './storage'
+import { removeMigratedItem } from './storage'
 
 const RECENT_TRACKS_KEY = 'songguessr-recent-tracks-v2'
 const LEGACY_RECENT_TRACKS_KEYS = ['songgussr-recent-tracks-v2', 'songless-recent-track-ids']
-const MAX_RECENT_TRACKS = 40
+const MAX_RECENT_TRACKS = 20
 
 interface RecentTrack {
   trackId: string
@@ -41,13 +41,18 @@ function parseStoredRecentTracks(raw: string | null): RecentTrack[] {
   }
 }
 
+function dropDurableRecentTracks() {
+  removeMigratedItem(localStorage, RECENT_TRACKS_KEY, LEGACY_RECENT_TRACKS_KEYS)
+}
+
 function readStoredRecentTracks(): RecentTrack[] {
-  const raw = readMigratedItem(localStorage, RECENT_TRACKS_KEY, LEGACY_RECENT_TRACKS_KEYS)
-  return parseStoredRecentTracks(raw)
+  dropDurableRecentTracks()
+  return parseStoredRecentTracks(sessionStorage.getItem(RECENT_TRACKS_KEY))
 }
 
 function writeStoredRecentTracks(entries: RecentTrack[]) {
-  localStorage.setItem(RECENT_TRACKS_KEY, JSON.stringify(entries))
+  dropDurableRecentTracks()
+  sessionStorage.setItem(RECENT_TRACKS_KEY, JSON.stringify(entries))
 }
 
 export function loadRecentExcludes(): RecentExcludes {
@@ -83,5 +88,6 @@ export function rememberTrackId(trackId: string, songKey = ''): string[] {
 }
 
 export function clearRecentTrackIds() {
-  removeMigratedItem(localStorage, RECENT_TRACKS_KEY, LEGACY_RECENT_TRACKS_KEYS)
+  dropDurableRecentTracks()
+  sessionStorage.removeItem(RECENT_TRACKS_KEY)
 }

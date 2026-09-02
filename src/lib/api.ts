@@ -123,9 +123,16 @@ export async function fetchRandomRound(
   const excludeSongsParam =
     excludeSongs.length > 0 ? `&excludeSongs=${encodeURIComponent(excludeSongs.join(','))}` : ''
   const seed = crypto.randomUUID()
+  const bust = Date.now().toString(36)
   const response = await fetch(
-    `/api/random?difficulty=${difficulty}&seed=${encodeURIComponent(seed)}${filtersToSearchParams(filters)}${excludeParam}${excludeSongsParam}`,
-    { cache: 'no-store' },
+    `/api/random?difficulty=${difficulty}&seed=${encodeURIComponent(seed)}&_=${bust}${filtersToSearchParams(filters)}${excludeParam}${excludeSongsParam}`,
+    {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-store',
+        Pragma: 'no-cache',
+      },
+    },
   )
   const round = await parseJson<Omit<GameRound, 'filters'>>(response)
   return { ...round, filters }
@@ -144,7 +151,11 @@ export async function submitGuess(
 ): Promise<GuessResult> {
   const response = await fetch('/api/guess', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
     body: JSON.stringify({
       trackId: round.trackId,
       guessedTrackId: options.guessedTrackId,

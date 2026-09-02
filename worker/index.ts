@@ -288,7 +288,16 @@ function parseExcludeList(value: string | undefined): Set<string> {
   )
 }
 
+function setUncacheable(c: { header: (name: string, value: string) => void }) {
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+  c.header('CDN-Cache-Control', 'no-store')
+  c.header('Cloudflare-CDN-Cache-Control', 'no-store')
+  c.header('Pragma', 'no-cache')
+  c.header('Expires', '0')
+}
+
 app.get('/api/random', async (c) => {
+  setUncacheable(c)
   try {
     const difficulty = parseDifficulty(c.req.query('difficulty'))
     const filters = parseCatalogFilters(c)
@@ -316,8 +325,6 @@ app.get('/api/random', async (c) => {
         404,
       )
     }
-
-    c.header('Cache-Control', 'no-store')
 
     return c.json({
       seed,
@@ -381,6 +388,7 @@ async function resolveRoundTrack(
 }
 
 app.post('/api/guess', async (c) => {
+  setUncacheable(c)
   try {
     const body = await c.req.json<{
       trackId?: string

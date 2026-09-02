@@ -365,18 +365,60 @@ function buildFilterSqlWithFallback(
   }
 }
 
+/** How many tier rows to shuffle in SQL before the crypto weighted pick. */
+const RANDOM_CANDIDATE_LIMIT = 48
+
 function preferGlobalMix(filters: CatalogFilters): boolean {
   return filters.countries.length === 0 && filters.collections.length === 0
 }
 
-function pickWeightSql(filters: CatalogFilters): string {
-  const jitter = `((ABS(RANDOM()) % 80) + 20)`
-  if (!preferGlobalMix(filters)) return jitter
-  return `(CASE
-      WHEN country = 'GLOBAL' THEN 4
-      WHEN catalog = 'global' THEN 3
-      ELSE 1
-    END) * ${jitter}`
+function requestSalt(): number {
+  const values = new Uint32Array(1)
+  crypto.getRandomValues(values)
+  return (values[0] || 1) >>> 0
+}
+
+function cryptoRandomUnit(): number {
+  const values = new Uint32Array(1)
+  crypto.getRandomValues(values)
+  return (values[0] ?? 0) / 0x1_0000_0000
+}
+
+function globalMixWeight(row: TrackRow, filters: CatalogFilters): number {
+  if (!preferGlobalMix(filters)) return 1
+  if (row.country === 'GLOBAL' || row.catalog === 'global') return 2
+  return 1
+}
+
+function pickWeightedRowIndex(rows: TrackRow[], filters: CatalogFilters): number {
+  if (rows.length <= 1) return 0
+  let total = 0
+  const weights = rows.map((row) => {
+    const weight = globalMixWeight(row, filters)
+    total += weight
+    return weight
+  })
+  let ticket = cryptoRandomUnit() * total
+  for (let index = 0; index < weights.length; index += 1) {
+    ticket -= weights[index] ?? 1
+    if (ticket <= 0) return index
+  }
+  return rows.length - 1
+}
+
+/**
+ * Permute candidates with a per-request salt mixed into each track id.
+ * Independent of SQLite RANDOM(), which some builds evaluate once per statement
+ * and which a 4× weight × tiny jitter range had collapsed onto the same Global hits.
+ */
+function candidateShuffleSql(): string {
+  return `((
+    unicode(substr(id, 1, 1)) * 131
+    + unicode(substr(id, 2, 1)) * 137
+    + unicode(substr(id, 3, 1)) * 139
+    + unicode(substr(id, length(id), 1)) * 149
+    + length(id)
+  ) * ? % 2000000011)`
 }
 
 /**
@@ -847,7 +889,7 @@ async function pickOneFromPool(
   extraSql: string,
   extraParams: SqlValue[],
 ): Promise<Track | null> {
-  const weight = pickWeightSql(filters)
+  const salt = requestSalt()
   const attempts: Array<{ sql: string; params: SqlValue[] }> = [
     buildFilterSqlWithFallback(filters, true),
   ]
@@ -858,17 +900,19 @@ async function pickOneFromPool(
   let lastError: unknown
   for (const attempt of attempts) {
     try {
-      const row = await db
+      const result = await db
         .prepare(
           `${poolTieredCte(attempt.sql)}
            SELECT * FROM tiered
            WHERE pool_tier = ?${extraSql}
-           ORDER BY ${weight} DESC
-           LIMIT 1`,
+           ORDER BY ${candidateShuffleSql()}
+           LIMIT ${RANDOM_CANDIDATE_LIMIT}`,
         )
-        .bind(...attempt.params, difficulty, ...extraParams)
-        .first<TrackRow>()
-      return row ? rowToTrack(row) : null
+        .bind(...attempt.params, difficulty, ...extraParams, salt)
+        .all<TrackRow>()
+      const rows = result.results ?? []
+      if (rows.length === 0) return null
+      return rowToTrack(rows[pickWeightedRowIndex(rows, filters)]!)
     } catch (error) {
       lastError = error
     }
