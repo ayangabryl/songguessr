@@ -1020,7 +1020,7 @@ export function Game() {
     streakBumpTimeoutRef.current = window.setTimeout(() => {
       setStreakBump(false)
       streakBumpTimeoutRef.current = null
-    }, 1400)
+    }, 1500)
   }
 
   function noteStreakFail() {
@@ -1242,7 +1242,7 @@ export function Game() {
     mascotSkipTimeoutRef.current = window.setTimeout(() => {
       setMascotSkip(false)
       mascotSkipTimeoutRef.current = null
-    }, 700)
+    }, 1100)
     void stopClip({ preserveProgress: true }).then(() => {
       advanceStageAfterSkip()
     })
@@ -1369,7 +1369,7 @@ export function Game() {
     mascotSwitchTimeoutRef.current = window.setTimeout(() => {
       setMascotSwitch(false)
       mascotSwitchTimeoutRef.current = null
-    }, 700)
+    }, 1300)
   }
 
   function handleThemePreference(next: ThemePreference) {

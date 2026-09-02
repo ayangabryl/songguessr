@@ -1,0 +1,8 @@
+wrangler.json
+.dev.vars
+mascot/video-kit/**
+mascot/concepts/**
+mascot/archive/**
+mascot/streak-evolution/**
+mascot/streak-fire-note.png
+mascot/streak-fire-note.prompt.txt

@@ -168,7 +168,7 @@ body,
 }
 
 .game-content.result-state .mascot,
-.game-content.result-state .mascot-art {
+.game-content.result-state .mascot-sprite {
   width: 120px;
   height: 120px;
 }
@@ -313,44 +313,24 @@ body,
   position: relative;
 }
 
-.mascot-art {
+.mascot-sprite {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  display: block;
   pointer-events: none;
-  background: transparent;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: auto 100%;
+  animation-name: nootFlip;
+  animation-duration: var(--noot-duration);
+  animation-timing-function: steps(var(--noot-frames));
+  animation-iteration-count: var(--noot-iter);
+  animation-fill-mode: forwards;
 }
 
-.mascot-play .mascot-art {
-  animation: mascotPlay 0.5s ease-in-out infinite;
-}
-
-.mascot-win .mascot-art,
-.mascot-streak .mascot-art {
-  animation: mascotWin 0.66s var(--ease-spring) infinite;
-}
-
-.mascot-lose .mascot-art,
-.mascot-skip .mascot-art {
-  animation: mascotLose 1.4s ease-in-out infinite;
-}
-
-@keyframes mascotPlay {
-  50% {
-    transform: translateY(-8px) rotate(-5deg) scale(0.98, 1.04);
-  }
-}
-
-@keyframes mascotWin {
-  50% {
-    transform: translateY(-12px) scale(1.04);
-  }
-}
-
-@keyframes mascotLose {
-  50% {
-    transform: translateY(3px) rotate(3deg);
+@keyframes nootFlip {
+  to {
+    background-position: calc(-1 * var(--noot-frames) * 100%) 0;
   }
 }
 
@@ -1102,7 +1082,7 @@ body,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mascot-art {
+  .mascot-sprite {
     animation: none !important;
   }
 

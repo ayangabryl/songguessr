@@ -1,18 +1,34 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { Difficulty } from '../lib/api'
 import type { MascotMood } from '../lib/mascot'
 
 /**
- * Noot mascot: painted idle loop from the vector flipbook SVG
- * (public/mascot/noot.svg). Background keyed out. Not affiliated with Duolingo.
+ * Noot mascot: keyed PNG flipbooks from the video-kit sequences.
+ * Not affiliated with Duolingo.
  */
 interface MascotProps {
   difficulty: Difficulty
   mood: MascotMood
 }
 
-const NOOT_LOOP = '/mascot/noot.svg?v=5'
-const NOOT_STILL = '/mascot/noot-still.svg?v=5'
+interface NootClip {
+  src: string
+  duration: string
+  frames: number
+  loop: boolean
+}
+
+const STILL = '/mascot/noot-still.png?v=6'
+
+const NOOT_CLIPS: Record<MascotMood, NootClip> = {
+  idle: { src: '/mascot/noot-idle.png?v=6', duration: '3s', frames: 24, loop: true },
+  play: { src: '/mascot/noot-play.png?v=6', duration: '2s', frames: 24, loop: true },
+  win: { src: '/mascot/noot-win.png?v=6', duration: '1.3s', frames: 24, loop: false },
+  lose: { src: '/mascot/noot-lose.png?v=6', duration: '1.2s', frames: 24, loop: false },
+  skip: { src: '/mascot/noot-skip.png?v=6', duration: '1.1s', frames: 24, loop: false },
+  streak: { src: '/mascot/noot-streak.png?v=6', duration: '1.5s', frames: 24, loop: false },
+  switch: { src: '/mascot/noot-switch.png?v=6', duration: '1.2s', frames: 24, loop: false },
+}
 
 export function Mascot({ difficulty, mood }: MascotProps) {
   const [reduceMotion, setReduceMotion] = useState(false)
@@ -25,16 +41,18 @@ export function Mascot({ difficulty, mood }: MascotProps) {
     return () => media.removeEventListener('change', apply)
   }, [])
 
+  const clip = NOOT_CLIPS[mood]
+  const src = reduceMotion ? STILL : clip.src
+  const style = {
+    backgroundImage: `url("${src}")`,
+    '--noot-frames': reduceMotion ? 1 : clip.frames,
+    '--noot-duration': reduceMotion ? '0s' : clip.duration,
+    '--noot-iter': reduceMotion || !clip.loop ? '1' : 'infinite',
+  } as CSSProperties
+
   return (
     <div className={`mascot mascot-${mood} mascot-${difficulty}`} aria-hidden="true">
-      <img
-        className="mascot-art"
-        src={reduceMotion ? NOOT_STILL : NOOT_LOOP}
-        alt=""
-        width={640}
-        height={640}
-        decoding="async"
-      />
+      <div key={src} className="mascot-sprite" style={style} />
     </div>
   )
 }

@@ -1,5 +1,5 @@
-Noot mascot (public/mascot/noot.svg, public/mascot/noot-still.svg)
-Original character and vector flipbook idle loop authored for SongGuessr.
+Noot mascot (public/mascot/noot-idle.png and related reaction sprites)
+Original character authored for SongGuessr.
 Background keyed out for compositing on dark and light UI.
 Not affiliated with Duolingo. Do not copy Duo the owl.
 License: CC0 1.0 Universal for this mascot art in this repository.
