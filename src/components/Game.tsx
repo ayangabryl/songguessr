@@ -288,7 +288,7 @@ export function Game() {
         >,
       )
     } catch (error) {
-      setCatalogError(error instanceof Error ? error.message : 'Could not load the catalogue.')
+      setCatalogError(error instanceof Error ? error.message : 'Could not load songs.')
     } finally {
       setCatalogLoading(false)
     }
@@ -322,7 +322,7 @@ export function Game() {
       }))
       setCatalogError(null)
     } catch (error) {
-      setCatalogError(error instanceof Error ? error.message : 'Could not load the catalogue.')
+      setCatalogError(error instanceof Error ? error.message : 'Could not load songs.')
     }
   }, [catalogFilters])
 
@@ -1086,7 +1086,7 @@ export function Game() {
             {catalogLoading && !activeState.round && (
               <div className="empty-state">
                 <div className="empty-icon">♫</div>
-                <h1>Loading catalogue...</h1>
+                <h1>Loading songs...</h1>
                 <p>The song library is loading.</p>
               </div>
             )}
@@ -1094,7 +1094,7 @@ export function Game() {
             {catalogError && !activeState.round && (
               <div className="empty-state">
                 <div className="empty-icon">{catalogLoading ? '♫' : '!'}</div>
-                <h1>{catalogLoading ? 'Loading catalogue...' : 'No songs match'}</h1>
+                <h1>{catalogLoading ? 'Loading songs...' : 'No songs match'}</h1>
                 <p>
                   {catalogLoading
                     ? 'The song library is loading.'

@@ -36,7 +36,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Songguessr Admin</CardTitle>
-          <CardDescription>Sign in to manage the catalog.</CardDescription>
+          <CardDescription>Sign in to manage songs and collections.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={(event) => void handleSubmit(event)}>

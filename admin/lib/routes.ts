@@ -56,11 +56,11 @@ export function titleForPage(page: AdminPage): string {
     case 'dashboard':
       return 'Dashboard'
     case 'catalog':
-      return 'Catalog'
+      return 'Songs'
     case 'artists':
       return 'Artists'
     case 'catalogs':
-      return 'Catalogs'
+      return 'Collections'
     case 'add':
       return 'Add songs'
     case 'settings':

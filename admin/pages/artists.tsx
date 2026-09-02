@@ -139,7 +139,7 @@ export function ArtistsPage() {
           <CardTitle>{formatNumber(total)} artists</CardTitle>
           <CardDescription>
             Country is the artist’s origin for import. Known artists are allowed when importing that
-            country — not a game filter, and not catalog-specific.
+            country — not a game filter, and not collection-specific.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -288,7 +288,7 @@ export function ArtistsPage() {
               onCheckedChange={setRemoveSongs}
             />
             <FieldLabel htmlFor="remove-artist-songs">
-              Also remove their songs from the catalog
+              Also remove their songs from the library
             </FieldLabel>
           </Field>
           <AlertDialogFooter>

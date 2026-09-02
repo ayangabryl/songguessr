@@ -62,7 +62,7 @@ export function CatalogsPage() {
     try {
       setCatalogs(await fetchCatalogs())
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load catalogs')
+      toast.error(err instanceof Error ? err.message : 'Failed to load collections')
     } finally {
       setLoading(false)
     }
@@ -82,13 +82,13 @@ export function CatalogsPage() {
         emoji: emoji.trim() || '🎵',
         country: country === 'all' ? null : country,
       })
-      toast.success(`Created catalog “${name.trim()}”`)
+      toast.success(`Created collection “${name.trim()}”`)
       setName('')
       setEmoji('🎵')
       setCountry('all')
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create catalog')
+      toast.error(err instanceof Error ? err.message : 'Failed to create collection')
     } finally {
       setCreating(false)
     }
@@ -109,11 +109,11 @@ export function CatalogsPage() {
         emoji: editEmoji.trim() || '🎵',
         country: editCountry === 'all' ? null : editCountry,
       })
-      toast.success('Catalog updated')
+      toast.success('Collection updated')
       setEditingId(null)
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update catalog')
+      toast.error(err instanceof Error ? err.message : 'Failed to update collection')
     } finally {
       setSavingId(null)
     }
@@ -128,7 +128,7 @@ export function CatalogsPage() {
       setPendingDelete(null)
       await load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete catalog')
+      toast.error(err instanceof Error ? err.message : 'Failed to delete collection')
     } finally {
       setDeleting(false)
     }
@@ -138,10 +138,10 @@ export function CatalogsPage() {
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>Add catalog</CardTitle>
+          <CardTitle>Add collection</CardTitle>
           <CardDescription>
-            Add a catalog (name + emoji) then pick it when importing. Catalog is the collection —
-            not the country. K-drama can mix Korean songs and English OSTs.
+            Add a collection (name + emoji) then assign songs to one or more when importing. Country
+            origin is separate — K-drama can mix Korean songs and English OSTs.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -171,7 +171,7 @@ export function CatalogsPage() {
                 />
               </Field>
               <Button type="submit" disabled={creating || !name.trim()}>
-                {creating ? 'Creating…' : 'Add catalog'}
+                {creating ? 'Creating…' : 'Add collection'}
               </Button>
             </FieldGroup>
           </form>
@@ -180,8 +180,8 @@ export function CatalogsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Catalogs</CardTitle>
-          <CardDescription>Delete only works when no songs use the catalog.</CardDescription>
+          <CardTitle>Collections</CardTitle>
+          <CardDescription>Delete only works when no songs use the collection.</CardDescription>
         </CardHeader>
         <CardContent className="px-0">
           {loading ? (
@@ -292,7 +292,7 @@ export function CatalogsPage() {
       <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this catalog?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this collection?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete ? `“${pendingDelete.name}” (${pendingDelete.id}) will be removed.` : ''}
             </AlertDialogDescription>

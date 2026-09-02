@@ -12,7 +12,7 @@ import {
   seedOpmArtists,
   upsertArtists,
 } from './artists-d1'
-import { resolveCatalogId } from './catalogs-d1'
+import { resolveCatalogIds, addTracksToCollections } from './catalogs-d1'
 import {
   applyChartImportPatches,
   findExistingIdentities,
@@ -49,6 +49,8 @@ export type PlaylistImportPhase = 'fetching' | 'filtering' | 'resolving' | 'savi
 export interface PlaylistImportOptions {
   country?: string
   catalog?: string
+  catalogs?: string[]
+  collections?: string[]
   assumeAllLocal?: boolean
   /** Add selected artists to each row's country known-artist list. */
   trustArtists?: boolean
@@ -257,7 +259,17 @@ export async function importPlaylistToCatalog(
   }
 
   const country = parseImportCountry(options.country)
-  const catalog = await resolveCatalogId(env, options.catalog)
+  const collectionIds = await resolveCatalogIds(
+    env,
+    options.collections?.length
+      ? options.collections
+      : options.catalogs?.length
+        ? options.catalogs
+        : options.catalog
+          ? [options.catalog]
+          : [],
+  )
+  const catalog = collectionIds[0] ?? ''
   const trustArtists = options.trustArtists === true || options.assumeAllLocal === true
   const requireKnownArtists =
     options.requireKnownArtists === true
@@ -372,12 +384,18 @@ export async function importPlaylistToCatalog(
   const persistPending = async (): Promise<boolean> => {
     if (pending.length === 0) return false
     report('saving', currentProcessed)
-    for (const track of pending) idsToHydrate.add(track.id)
+    const ids = pending.map((track) => track.id)
+    for (const id of ids) idsToHydrate.add(id)
     const saved = chartBoost
       ? await upsertTracks(env, pending)
       : await insertTracks(env, pending)
     added += saved.added
     updated += 'updated' in saved ? saved.updated : 0
+    try {
+      await addTracksToCollections(env, ids, collectionIds)
+    } catch (error) {
+      pushError(errors, error instanceof Error ? error.message : 'Could not assign collections')
+    }
     pending.length = 0
     if (saved.skippedCap > 0) {
       pushError(errors, `Catalog at ${MAX_CATALOG_TRACKS.toLocaleString()} track cap`)
@@ -566,6 +584,15 @@ export async function importPlaylistToCatalog(
     report('saving', total)
     for (const patch of chartPatches) idsToHydrate.add(patch.id)
     updated = await applyChartImportPatches(env, chartPatches)
+    try {
+      await addTracksToCollections(
+        env,
+        chartPatches.map((patch) => patch.id),
+        collectionIds,
+      )
+    } catch (error) {
+      pushError(errors, error instanceof Error ? error.message : 'Could not assign collections')
+    }
   }
   if (idsToHydrate.size > 0) {
     try {

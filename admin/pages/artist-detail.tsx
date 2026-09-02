@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   fetchArtist,
+  fetchCatalogs,
   removeTrack,
+  setTrackCollections,
   updateArtist,
   type AdminArtist,
+  type AdminCatalog,
   type CatalogTrack,
 } from '@/api'
 import {
@@ -46,6 +49,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { CountryCombobox } from '@/components/country-combobox'
+import { CollectionPickerDialog } from '@/components/collection-picker'
 import { CountryFlag } from '../../shared/country-flag'
 import { countryDisplayName, formatNumber, formatPlayCount } from '@/lib/format'
 import { pathForPage, pushAdminPath } from '@/lib/routes'
@@ -64,6 +68,10 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
   const [saving, setSaving] = useState(false)
   const [pendingRemove, setPendingRemove] = useState<CatalogTrack | null>(null)
   const [removing, setRemoving] = useState(false)
+  const [collections, setCollections] = useState<AdminCatalog[]>([])
+  const [editingCollections, setEditingCollections] = useState<CatalogTrack | null>(null)
+  const [pickerCollections, setPickerCollections] = useState<string[]>([])
+  const [savingCollections, setSavingCollections] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -83,6 +91,14 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void fetchCatalogs()
+      .then(setCollections)
+      .catch(() => undefined)
+  }, [])
+
+  const collectionLabel = (id: string) => collections.find((item) => item.id === id)?.name ?? id
 
   const handleCountry = async (country: string) => {
     if (!artist) return
@@ -124,6 +140,27 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
     }
   }
 
+  const saveCollections = async () => {
+    if (!editingCollections) return
+    setSavingCollections(true)
+    try {
+      const next = await setTrackCollections(editingCollections.id, pickerCollections)
+      setTracks((current) =>
+        current.map((track) =>
+          track.id === editingCollections.id
+            ? { ...track, collections: next, catalog: next[0] }
+            : track,
+        ),
+      )
+      setEditingCollections(null)
+      toast.success('Collections updated')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update collections')
+    } finally {
+      setSavingCollections(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -140,7 +177,7 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
           <CardTitle>{artist?.name ?? 'Artist'}</CardTitle>
           <CardDescription>
             Country is origin for import. Known means this artist is allowed when importing that
-            country. Catalog on each song is separate.
+            country. Collections on each song are separate.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -216,7 +253,7 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
                   <TableHead>Plays</TableHead>
                   <TableHead>Released</TableHead>
                   <TableHead>Country</TableHead>
-                  <TableHead>Catalog</TableHead>
+                  <TableHead>Collections</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -233,7 +270,40 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{track.catalog ?? '—'}</Badge>
+                      <button
+                        type="button"
+                        className="flex max-w-48 flex-wrap items-center gap-1 text-left"
+                        onClick={() => {
+                          setEditingCollections(track)
+                          setPickerCollections(
+                            track.collections?.length
+                              ? track.collections
+                              : track.catalog
+                                ? [track.catalog]
+                                : [],
+                          )
+                        }}
+                      >
+                        {(track.collections?.length
+                          ? track.collections
+                          : track.catalog
+                            ? [track.catalog]
+                            : []
+                        ).length === 0 ? (
+                          <span className="text-muted-foreground">Uncategorized</span>
+                        ) : (
+                          (track.collections?.length
+                            ? track.collections
+                            : track.catalog
+                              ? [track.catalog]
+                              : []
+                          ).map((id) => (
+                            <Badge key={id} variant="outline">
+                              {collectionLabel(id)}
+                            </Badge>
+                          ))
+                        )}
+                      </button>
                     </TableCell>
                     <TableCell>
                       <Button variant="destructive" size="sm" onClick={() => setPendingRemove(track)}>
@@ -281,7 +351,7 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
             <AlertDialogTitle>Remove this song?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingRemove
-                ? `“${pendingRemove.title}” will be removed from the catalog.`
+                ? `“${pendingRemove.title}” will be removed from the library.`
                 : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -293,6 +363,18 @@ export function ArtistDetailPage({ artistId }: { artistId: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CollectionPickerDialog
+        open={editingCollections !== null}
+        title={editingCollections ? `Collections for “${editingCollections.title}”` : 'Collections'}
+        collections={collections}
+        selected={pickerCollections}
+        onSelectedChange={setPickerCollections}
+        onCancel={() => setEditingCollections(null)}
+        onConfirm={() => void saveCollections()}
+        confirming={savingCollections}
+        confirmLabel={savingCollections ? 'Saving…' : 'Save'}
+      />
     </div>
   )
 }

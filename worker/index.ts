@@ -210,14 +210,16 @@ app.get('/api/health', async (c) => {
 app.get('/api/catalog/catalogs', async (c) => {
   try {
     const catalogs = await listCatalogs(c.env)
+    const collections = catalogs.map((catalog) => ({
+      id: catalog.id,
+      name: catalog.name,
+      emoji: catalog.emoji,
+      country: catalog.country,
+      trackCount: catalog.trackCount ?? 0,
+    }))
     return c.json({
-      catalogs: catalogs.map((catalog) => ({
-        id: catalog.id,
-        name: catalog.name,
-        emoji: catalog.emoji,
-        country: catalog.country,
-        trackCount: catalog.trackCount ?? 0,
-      })),
+      catalogs: collections,
+      collections,
     })
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {
@@ -394,7 +396,14 @@ app.post('/api/guess', async (c) => {
     let correct = false
 
     if (body.guessedTrackId) {
-      correct = body.guessedTrackId === track.id
+      // Picking a different recording of the right song still counts: the
+      // studio cut and the live/First Take cut share one identity key.
+      if (body.guessedTrackId === track.id) {
+        correct = true
+      } else {
+        const guessed = await findTrackById(c.env, body.guessedTrackId)
+        correct = guessed !== undefined && songIdentityKey(guessed) === songIdentityKey(track)
+      }
     } else {
       const guess = body.guess?.trim() ?? ''
       correct = checkGuess(guess, track.title, track.artist).correct

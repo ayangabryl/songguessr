@@ -87,7 +87,7 @@ export async function buildTrackFromSpotify(
         artistName: artist,
       })
     : assignDifficultyFromMetrics({
-        popularity: popularity ?? 0,
+        popularity,
         artistPopularity,
         releaseYear,
       })
@@ -115,4 +115,71 @@ export async function buildTrackFromSpotify(
   }
 
   return { track }
+}
+
+export interface PublicAddInput {
+  id: string
+  title: string
+  artist: string
+  albumArt?: string
+  durationMs?: number
+  previewUrl?: string | null
+  country?: CountryCode
+  /** First collection slug, or empty when uncategorized. */
+  catalog?: CatalogKind
+  popularity?: number
+  playCount?: number
+  artistPopularity?: number
+  releaseDate?: string
+}
+
+/**
+ * Builds a D1 row from public Spotify metadata (search/oembed/pathfinder)
+ * without calling quota'd `GET /v1/tracks`. Popularity and play count are
+ * optional — missing signals stay unset so a later sweep can fill them.
+ */
+export async function buildTrackFromPublicAdd(
+  input: PublicAddInput,
+): Promise<{ track: Track; previewMissing: boolean }> {
+  const previews = await resolvePreviewSourcesForTrack({
+    title: input.title,
+    artist: input.artist,
+    spotifyPreviewUrl: input.previewUrl ?? null,
+  })
+
+  const albumArt =
+    input.albumArt?.trim() ||
+    (await fetchSpotifyOembedArtwork(input.id)) ||
+    (await fetchItunesArtwork(input.title, input.artist)) ||
+    ''
+
+  const releaseYear = parseReleaseYear(input.releaseDate)
+  const difficulty = assignDifficultyFromMetrics({
+    popularity: input.popularity,
+    artistPopularity: input.artistPopularity,
+    releaseYear,
+    playCount: input.playCount,
+  })
+
+  const track: Track = {
+    id: input.id,
+    title: input.title,
+    artist: input.artist,
+    previewUrl: previews.previewUrl ?? '',
+    ...(previews.hookPreviewUrl ? { hookPreviewUrl: previews.hookPreviewUrl } : {}),
+    hookStartSeconds: previews.hookStartSeconds,
+    albumArt,
+    difficulty,
+    releaseYear,
+    releaseDate: input.releaseDate || undefined,
+    genreGroups: inferGenreGroups(input.artist, input.title),
+    popularity: input.popularity,
+    playCount: input.playCount,
+    artistPopularity: input.artistPopularity,
+    durationMs: input.durationMs,
+    country: input.country ?? DEFAULT_COUNTRY,
+    catalog: input.catalog ?? '',
+  }
+
+  return { track, previewMissing: !previews.previewUrl }
 }

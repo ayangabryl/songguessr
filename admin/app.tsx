@@ -45,9 +45,9 @@ import {
 
 const NAV_ITEMS: { page: AdminPage; title: string; icon: typeof LayoutDashboardIcon }[] = [
   { page: 'dashboard', title: 'Dashboard', icon: LayoutDashboardIcon },
-  { page: 'catalog', title: 'Catalog', icon: LibraryIcon },
+  { page: 'catalog', title: 'Songs', icon: LibraryIcon },
   { page: 'artists', title: 'Artists', icon: UsersIcon },
-  { page: 'catalogs', title: 'Catalogs', icon: LayersIcon },
+  { page: 'catalogs', title: 'Collections', icon: LayersIcon },
   { page: 'add', title: 'Add songs', icon: ListPlusIcon },
   { page: 'settings', title: 'Settings', icon: SettingsIcon },
 ]
@@ -130,7 +130,7 @@ export function AdminApp() {
           <SidebarHeader>
             <div className="flex flex-col gap-0.5 px-2 py-1">
               <span className="text-sm font-semibold">Songguessr</span>
-              <span className="text-xs text-muted-foreground">Catalog admin</span>
+              <span className="text-xs text-muted-foreground">Admin</span>
             </div>
           </SidebarHeader>
           <SidebarContent>

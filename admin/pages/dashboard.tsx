@@ -80,7 +80,7 @@ export function DashboardPage({
       onStatusRefresh()
       toast.success(result.message)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Catalog update failed')
+      toast.error(err instanceof Error ? err.message : 'Library update failed')
     } finally {
       setRunning(false)
     }
@@ -91,7 +91,7 @@ export function DashboardPage({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader>
-            <CardDescription>Catalog tracks</CardDescription>
+            <CardDescription>Songs in library</CardDescription>
             <CardTitle className="text-3xl tabular-nums">{formatNumber(status.tracks)}</CardTitle>
           </CardHeader>
           <CardContent>
@@ -142,7 +142,7 @@ export function DashboardPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Catalog update</CardTitle>
+          <CardTitle>Library update</CardTitle>
           <CardDescription>
             Next scheduled run {formatDate(status.nextCronEstimate)} · {status.cronSchedule}
           </CardDescription>
@@ -150,7 +150,7 @@ export function DashboardPage({
         <CardContent className="flex flex-col gap-4">
           {status.catalogError ? (
             <Alert>
-              <AlertTitle>Catalog error</AlertTitle>
+              <AlertTitle>Library error</AlertTitle>
               <AlertDescription>{status.catalogError}</AlertDescription>
             </Alert>
           ) : null}
@@ -171,7 +171,7 @@ export function DashboardPage({
         <CardFooter>
           <Button disabled={disabled} onClick={() => void handleRunCron()}>
             {running ? <Spinner data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
-            {running ? 'Running…' : cooldownLeft > 0 ? `Wait ${cooldownLeft}s` : 'Run catalog update'}
+            {running ? 'Running…' : cooldownLeft > 0 ? `Wait ${cooldownLeft}s` : 'Run library update'}
           </Button>
         </CardFooter>
       </Card>
@@ -180,9 +180,9 @@ export function DashboardPage({
         <CardHeader>
           <CardTitle>Spotify metrics</CardTitle>
           <CardDescription>
-            Popularity comes from GET /v1/tracks?ids= when quota allows. Play count and release date
-            come from the public open.spotify.com web player, which is unofficial — a run fills what
-            it can and resumes next time.
+            Play count, popularity, release date, and artist popularity all come from the public
+            open.spotify.com web player — no Web API quota involved. It is unofficial, so a run
+            fills what it can and resumes from where it stopped next time.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -204,30 +204,34 @@ export function DashboardPage({
                 <p className="text-sm">{displayedSync.message}</p>
                 {filled ? (
                   <div className="flex flex-wrap gap-2">
-                    <Badge variant="secondary">
-                      Release dates filled {formatNumber(filled.releaseDate)}
-                    </Badge>
                     <Badge variant="secondary">Plays filled {formatNumber(filled.playCount)}</Badge>
                     <Badge variant="secondary">
                       Popularity filled {formatNumber(filled.popularity)}
+                    </Badge>
+                    <Badge variant="secondary">
+                      Release dates filled {formatNumber(filled.releaseDate)}
                     </Badge>
                   </div>
                 ) : null}
                 {coverage ? (
                   <p className="text-sm text-muted-foreground">
-                    Catalog coverage: {formatNumber(coverage.releaseDateFilled)} release dates,{' '}
+                    Coverage: {formatNumber(coverage.releaseDateFilled)} release dates,{' '}
                     {formatNumber(coverage.playCountFilled)} plays,{' '}
                     {formatNumber(coverage.popularityFilled)} popularity
                   </p>
                 ) : null}
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline">Updated {formatNumber(displayedSync.updated)}</Badge>
-                  <Badge variant={(displayedSync.errors?.length ?? 0) > 0 ? 'destructive' : 'outline'}>
-                    Errors {formatNumber(displayedSync.errors?.length ?? 0)}
-                  </Badge>
-                  <Badge variant={displayedSync.rateLimited ? 'destructive' : 'outline'}>
-                    {displayedSync.rateLimited ? 'Rate limited' : 'Not rate limited'}
-                  </Badge>
+                  {(displayedSync.errors?.length ?? 0) > 0 ? (
+                    <Badge variant="destructive">
+                      Errors {formatNumber(displayedSync.errors?.length ?? 0)}
+                    </Badge>
+                  ) : null}
+                  {displayedSync.rateLimited ? (
+                    <Badge variant="destructive">Throttled</Badge>
+                  ) : (
+                    <Badge variant="secondary">Clean run</Badge>
+                  )}
                 </div>
                 {displayedSync.sources?.length ? (
                   <p className="text-sm text-muted-foreground">

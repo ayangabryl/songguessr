@@ -53,6 +53,7 @@ export interface StatusResponse {
   popularityMissing?: number
   playCountFilled?: number
   playCountMissing?: number
+  playCountStale?: number
   releaseDateFilled?: number
   releaseDateMissing?: number
   lastSpotifySync?: SpotifySyncResponse | null
@@ -72,8 +73,10 @@ export interface CatalogTrack {
   hasPreview: boolean
   popularity?: number
   playCount?: number
+  playCountUpdatedAt?: string
   country?: string
   catalog?: string
+  collections?: string[]
 }
 
 export interface CatalogCounts {
@@ -203,14 +206,25 @@ export async function searchSpotify(query: string): Promise<SpotifySearchResult[
 
 export async function addTrack(
   trackId: string,
-  options: { country?: string; catalog?: string } = {},
+  options: {
+    country?: string
+    collections?: string[]
+    catalog?: string
+    title?: string
+    artist?: string
+    albumArt?: string
+  } = {},
 ): Promise<void> {
   await request('/catalog/add', {
     method: 'POST',
     body: JSON.stringify({
       trackId,
       country: options.country,
+      collections: options.collections,
       catalog: options.catalog,
+      title: options.title,
+      artist: options.artist,
+      albumArt: options.albumArt,
     }),
   })
 }
@@ -235,6 +249,30 @@ export async function removeTracksBulk(trackIds: string[]): Promise<BulkRemoveRe
   })
 }
 
+export interface PlayCountRefreshResponse {
+  ok: boolean
+  scanned: number
+  updated: number
+  playCountFilled: number
+  popularityFilled: number
+  releaseDateFilled: number
+  rateLimited: boolean
+  errors: string[]
+  message: string
+  coverage?: SpotifySyncCoverage
+  distribution?: Record<string, number>
+}
+
+export async function refreshPlayCounts(options: {
+  limit?: number
+  trackIds?: string[]
+} = {}): Promise<PlayCountRefreshResponse> {
+  return request<PlayCountRefreshResponse>('/catalog/playcounts', {
+    method: 'POST',
+    body: JSON.stringify(options),
+  })
+}
+
 export async function triggerCron(): Promise<CronTriggerResponse> {
   return request<CronTriggerResponse>('/cron/trigger', {
     method: 'POST',
@@ -253,6 +291,7 @@ export interface SpotifySyncCoverage {
   popularityMissing: number
   playCountFilled: number
   playCountMissing: number
+  playCountStale?: number
   releaseDateFilled: number
   releaseDateMissing: number
 }
@@ -311,6 +350,7 @@ export async function startPlaylistImport(
   options: {
     country?: string
     catalog?: string
+    collections?: string[]
     assumeAllLocal?: boolean
     trustArtists?: boolean
     requireKnownArtists?: boolean
@@ -324,6 +364,7 @@ export async function startPlaylistImport(
       playlistUrl,
       country: options.country,
       catalog: options.catalog,
+      collections: options.collections,
       assumeAllLocal: options.assumeAllLocal === true,
       trustArtists: options.trustArtists === true,
       requireKnownArtists: options.requireKnownArtists,
@@ -414,8 +455,22 @@ export interface AdminCatalog {
 }
 
 export async function fetchCatalogs(): Promise<AdminCatalog[]> {
-  const data = await request<{ catalogs: AdminCatalog[] }>('/catalogs')
-  return data.catalogs
+  const data = await request<{ catalogs?: AdminCatalog[]; collections?: AdminCatalog[] }>('/catalogs')
+  return data.collections ?? data.catalogs ?? []
+}
+
+export async function setTrackCollections(
+  trackId: string,
+  collections: string[],
+): Promise<string[]> {
+  const data = await request<{ collections: string[] }>(
+    `/catalog/${encodeURIComponent(trackId)}/collections`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ collections }),
+    },
+  )
+  return data.collections
 }
 
 export async function createCatalog(input: {

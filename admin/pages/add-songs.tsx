@@ -13,7 +13,6 @@ import {
   type PlaylistPreview,
   type SpotifySearchResult,
 } from '@/api'
-import { NotoEmoji } from '../../shared/noto-emoji'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,19 +37,11 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { CountryCombobox } from '@/components/country-combobox'
+import { CollectionChecklist, CollectionPickerDialog } from '@/components/collection-picker'
 import { Switch } from '@/components/ui/switch'
 import { countryDisplayName, formatNumber } from '@/lib/format'
-import { pushAdminPath } from '@/lib/routes'
 import { ListMusicIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -59,7 +50,7 @@ const PHASE_LABELS: Record<JobPhase, string> = {
   fetching: 'Fetching playlist',
   filtering: 'Filtering tracks',
   resolving: 'Resolving previews',
-  saving: 'Saving to catalog',
+  saving: 'Saving songs',
   done: 'Done',
   error: 'Failed',
 }
@@ -78,8 +69,10 @@ export function AddSongsPage() {
   const [addingId, setAddingId] = useState<string | null>(null)
   const [playlistUrl, setPlaylistUrl] = useState('')
   const [country, setCountry] = useState('PH')
-  const [catalog, setCatalog] = useState('opm')
+  const [selectedCollections, setSelectedCollections] = useState<string[]>(['opm'])
   const [catalogs, setCatalogs] = useState<AdminCatalog[]>([])
+  const [pendingAdd, setPendingAdd] = useState<SpotifySearchResult | null>(null)
+  const [pickerCollections, setPickerCollections] = useState<string[]>(['opm'])
   const [trustArtists, setTrustArtists] = useState(false)
   const [requireKnownArtists, setRequireKnownArtists] = useState(true)
   const [preview, setPreview] = useState<PlaylistPreview | null>(null)
@@ -94,9 +87,10 @@ export function AddSongsPage() {
     void fetchCatalogs()
       .then((rows) => {
         setCatalogs(rows)
-        setCatalog((current) =>
-          rows.some((row) => row.id === current) ? current : (rows[0]?.id ?? 'opm'),
-        )
+        setSelectedCollections((current) => {
+          const valid = current.filter((id) => rows.some((row) => row.id === id))
+          return valid.length > 0 ? valid : rows[0] ? [rows[0].id] : []
+        })
       })
       .catch(() => undefined)
   }, [])
@@ -157,15 +151,30 @@ export function AddSongsPage() {
     }
   }
 
-  const handleAdd = async (track: SpotifySearchResult) => {
+  const handleAdd = (track: SpotifySearchResult) => {
     if (!track.id) return
+    setPendingAdd(track)
+    setPickerCollections(selectedCollections)
+  }
+
+  const confirmAdd = async () => {
+    const track = pendingAdd
+    if (!track?.id) return
     setAddingId(track.id)
     try {
-      await addTrack(track.id, { country, catalog })
+      await addTrack(track.id, {
+        country,
+        collections: pickerCollections,
+        title: track.title,
+        artist: track.artist,
+        albumArt: track.albumArt,
+      })
       toast.success(`Added “${track.title}”`)
       setResults((current) =>
         current.map((item) => (item.id === track.id ? { ...item, inCatalog: true } : item)),
       )
+      setSelectedCollections(pickerCollections)
+      setPendingAdd(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add track')
     } finally {
@@ -238,7 +247,7 @@ export function AddSongsPage() {
     try {
       const id = await startPlaylistImport(playlistUrl.trim(), {
         country,
-        catalog,
+        collections: selectedCollections,
         trustArtists,
         requireKnownArtists: trustArtists ? false : requireKnownArtists,
         trackIds: [...selected],
@@ -265,8 +274,6 @@ export function AddSongsPage() {
   const jobRunning = job?.status === 'queued' || job?.status === 'running'
   const progressValue =
     job && job.total > 0 ? Math.round((job.processed / job.total) * 100) : jobRunning ? 8 : 0
-  const selectedCatalog = catalogs.find((item) => item.id === catalog)
-  const catalogOptions = catalogs.length > 0 ? catalogs : [{ id: 'opm', name: 'OPM', emoji: '🇵🇭' }]
 
   return (
     <div className="flex flex-col gap-6">
@@ -274,9 +281,9 @@ export function AddSongsPage() {
         <CardHeader>
           <CardTitle>Spotify playlist</CardTitle>
           <CardDescription>
-            Catalog is the collection (K-drama can mix Korean songs and English OSTs). Country is
-            where that song or artist is from. Known artists are an import guard per country — not
-            OPM-only, and not a game filter.
+            Collections are tags a song can have several of (K-pop, a custom “OPM hits”
+            list, K-drama OSTs). Country is where that song or artist is from. Known artists are
+            an import guard per country — not OPM-only, and not a game filter.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -310,46 +317,13 @@ export function AddSongsPage() {
                   </FieldDescription>
                 </Field>
                 <Field>
-                  <div className="flex items-center justify-between gap-2">
-                    <FieldLabel>Catalog</FieldLabel>
-                    <button
-                      type="button"
-                      className="text-xs text-primary underline-offset-4 hover:underline"
-                      onClick={() => pushAdminPath('/catalogs')}
-                    >
-                      Manage catalogs
-                    </button>
-                  </div>
-                  <Select
-                    value={catalog}
-                    onValueChange={(value) => {
-                      setCatalog(value)
-                      const next = catalogs.find((item) => item.id === value)
-                      if (next?.country && next.country !== 'GLOBAL') {
-                        setDefaultCountry(next.country)
-                      }
-                    }}
+                  <FieldLabel>Collections</FieldLabel>
+                  <CollectionChecklist
+                    collections={catalogs}
+                    selected={selectedCollections}
+                    onChange={setSelectedCollections}
                     disabled={jobRunning || starting}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={selectedCatalog?.name ?? 'Catalog'} />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      <SelectGroup>
-                        {catalogOptions.map((option) => (
-                          <SelectItem key={option.id} value={option.id}>
-                            <span className="inline-flex items-center gap-2">
-                              <NotoEmoji emoji={option.emoji} className="size-4" />
-                              {option.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FieldDescription>
-                    Collection only. K-drama can include KR tracks and English OSTs together.
-                  </FieldDescription>
+                  />
                 </Field>
               </div>
               <Field orientation="horizontal" className="items-start">
@@ -455,7 +429,7 @@ export function AddSongsPage() {
                         />
                       </div>
                       {track.alreadyInCatalog ? (
-                        <Badge variant="outline">In catalog</Badge>
+                        <Badge variant="outline">Already added</Badge>
                       ) : null}
                       {track.isDuplicate ? <Badge variant="outline">Duplicate</Badge> : null}
                     </div>
@@ -538,8 +512,8 @@ export function AddSongsPage() {
         <CardHeader>
           <CardTitle>Spotify search</CardTitle>
           <CardDescription>
-            Adds into the catalog and default country selected above. Known-artist rules apply only
-            to playlist import, not this one-off search.
+            Adds with the default country above. You’ll pick collections in the next step. Known-artist
+            rules apply only to playlist import, not this one-off search.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -590,7 +564,7 @@ export function AddSongsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {track.inCatalog ? (
-                      <Badge variant="outline">In catalog</Badge>
+                      <Badge variant="outline">Already added</Badge>
                     ) : (
                       <Button
                         size="sm"
@@ -608,6 +582,19 @@ export function AddSongsPage() {
           )}
         </CardContent>
       </Card>
+
+      <CollectionPickerDialog
+        open={pendingAdd !== null}
+        title={pendingAdd ? `Add “${pendingAdd.title}”` : 'Add song'}
+        description="Choose every collection this song belongs to. Country origin is the default above and is separate from collections."
+        collections={catalogs}
+        selected={pickerCollections}
+        onSelectedChange={setPickerCollections}
+        onCancel={() => setPendingAdd(null)}
+        onConfirm={() => void confirmAdd()}
+        confirming={addingId === pendingAdd?.id}
+        confirmLabel={addingId === pendingAdd?.id ? 'Adding…' : 'Add to library'}
+      />
     </div>
   )
 }
@@ -702,7 +689,7 @@ function RemoveByPlaylistCard() {
         <CardTitle>Remove by playlist</CardTitle>
         <CardDescription>
           Paste the playlist you imported from to pull its tracks back up, then delete the ones that
-          are in the catalog. Deletes from D1 immediately.
+          are already in the library. Deletes from D1 immediately.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -737,7 +724,7 @@ function RemoveByPlaylistCard() {
                 <p className="text-sm font-medium">{preview.playlistName}</p>
                 <p className="text-sm text-muted-foreground">
                   {formatNumber(selected.size)} selected · {formatNumber(inCatalogIds.length)} in
-                  catalog · {formatNumber(preview.tracks.length)} in playlist
+                  library · {formatNumber(preview.tracks.length)} in playlist
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -763,7 +750,7 @@ function RemoveByPlaylistCard() {
                   size="sm"
                   onClick={() => setSelected(new Set(inCatalogIds))}
                 >
-                  Only in catalog ({formatNumber(inCatalogIds.length)})
+                  Only in library ({formatNumber(inCatalogIds.length)})
                 </Button>
               </div>
             </div>
@@ -793,7 +780,7 @@ function RemoveByPlaylistCard() {
                     <p className="truncate text-sm text-muted-foreground">{track.artist}</p>
                   </div>
                   <Badge variant={track.alreadyInCatalog ? 'secondary' : 'outline'}>
-                    {track.alreadyInCatalog ? 'In catalog' : 'Not in catalog'}
+                    {track.alreadyInCatalog ? 'In library' : 'Not in library'}
                   </Badge>
                 </div>
               ))}
@@ -814,8 +801,8 @@ function RemoveByPlaylistCard() {
         {result ? (
           <div className="flex flex-wrap gap-2">
             <Badge variant="secondary">Removed {formatNumber(result.removed)}</Badge>
-            <Badge variant="outline">Not in catalog {formatNumber(result.notFound)}</Badge>
-            <Badge variant="outline">Catalog now {formatNumber(result.totalTracks)}</Badge>
+            <Badge variant="outline">Not in library {formatNumber(result.notFound)}</Badge>
+            <Badge variant="outline">Library now {formatNumber(result.totalTracks)}</Badge>
           </div>
         ) : null}
       </CardContent>
@@ -825,7 +812,7 @@ function RemoveByPlaylistCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {formatNumber(selected.size)} tracks?</AlertDialogTitle>
             <AlertDialogDescription>
-              These tracks are deleted from the live D1 catalog and stop appearing in the game. This
+              These tracks are deleted from the live library and stop appearing in the game. This
               cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

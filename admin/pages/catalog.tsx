@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   fetchCatalog,
+  fetchCatalogs,
+  refreshPlayCounts,
   removeTrack,
   removeTracksBulk,
+  setTrackCollections,
+  type AdminCatalog,
   type CatalogCounts,
   type CatalogTrack,
 } from '@/api'
@@ -55,6 +59,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { CountryCombobox } from '@/components/country-combobox'
+import { CollectionPickerDialog } from '@/components/collection-picker'
 import { CountryFlag } from '../../shared/country-flag'
 import {
   DIFFICULTY_LABELS,
@@ -64,10 +69,11 @@ import {
   GENRE_LABELS,
   GENRE_OPTIONS,
   countryDisplayName,
+  formatDate,
   formatNumber,
   formatPlayCount,
 } from '@/lib/format'
-import { MusicIcon, SearchIcon, Trash2Icon } from 'lucide-react'
+import { MusicIcon, RefreshCwIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 const EMPTY_COUNTS: CatalogCounts = {
@@ -96,6 +102,11 @@ export function CatalogPage() {
   const [removing, setRemoving] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmingBulk, setConfirmingBulk] = useState(false)
+  const [refreshingPlays, setRefreshingPlays] = useState(false)
+  const [collections, setCollections] = useState<AdminCatalog[]>([])
+  const [editingCollections, setEditingCollections] = useState<CatalogTrack | null>(null)
+  const [pickerCollections, setPickerCollections] = useState<string[]>([])
+  const [savingCollections, setSavingCollections] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -113,7 +124,7 @@ export function CatalogPage() {
       setCounts(data.counts)
       setSelected(new Set())
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load catalog')
+      toast.error(err instanceof Error ? err.message : 'Failed to load songs')
     } finally {
       setLoading(false)
     }
@@ -127,6 +138,42 @@ export function CatalogPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void fetchCatalogs()
+      .then(setCollections)
+      .catch(() => undefined)
+  }, [])
+
+  const collectionLabel = (id: string) => collections.find((item) => item.id === id)?.name ?? id
+
+  const openCollections = (track: CatalogTrack) => {
+    setEditingCollections(track)
+    setPickerCollections(
+      track.collections?.length ? track.collections : track.catalog ? [track.catalog] : [],
+    )
+  }
+
+  const saveCollections = async () => {
+    if (!editingCollections) return
+    setSavingCollections(true)
+    try {
+      const next = await setTrackCollections(editingCollections.id, pickerCollections)
+      setTracks((current) =>
+        current.map((track) =>
+          track.id === editingCollections.id
+            ? { ...track, collections: next, catalog: next[0] }
+            : track,
+        ),
+      )
+      setEditingCollections(null)
+      toast.success('Collections updated')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update collections')
+    } finally {
+      setSavingCollections(false)
+    }
+  }
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault()
@@ -170,6 +217,22 @@ export function CatalogPage() {
     })
   }
 
+  const handleRefreshPlayCounts = async () => {
+    setRefreshingPlays(true)
+    try {
+      const response = await refreshPlayCounts(
+        selected.size > 0 ? { trackIds: [...selected] } : { limit: 250 },
+      )
+      toast.success(response.message)
+      if (response.errors.length > 0) toast.warning(response.errors[0])
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to refresh play counts')
+    } finally {
+      setRefreshingPlays(false)
+    }
+  }
+
   const handleRemoveSelected = async () => {
     if (selected.size === 0) return
     setRemoving(true)
@@ -190,7 +253,7 @@ export function CatalogPage() {
       <Card>
         <CardHeader>
           <CardTitle>{formatNumber(total)} tracks</CardTitle>
-          <CardDescription>Search and filter the live D1 catalog.</CardDescription>
+          <CardDescription>Search and filter the live song library.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form onSubmit={handleSearch}>
@@ -312,27 +375,45 @@ export function CatalogPage() {
       </Card>
 
       <Card>
-        {selected.size > 0 ? (
-          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 border-b pb-4">
-            <p className="text-sm font-medium">
-              {formatNumber(selected.size)} selected
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setSelected(new Set())}>
-                Clear
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={removing}
-                onClick={() => setConfirmingBulk(true)}
-              >
-                <Trash2Icon data-icon="inline-start" />
-                Remove selected
-              </Button>
-            </div>
-          </CardHeader>
-        ) : null}
+        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 border-b pb-4">
+          <p className="text-sm font-medium">
+            {selected.size > 0
+              ? `${formatNumber(selected.size)} selected`
+              : `${formatNumber(total)} tracks`}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={refreshingPlays}
+              onClick={() => void handleRefreshPlayCounts()}
+              title="Fetch play counts and release dates from Spotify's public web player"
+            >
+              <RefreshCwIcon data-icon="inline-start" />
+              {refreshingPlays
+                ? 'Refreshing…'
+                : selected.size > 0
+                  ? 'Refresh plays for selected'
+                  : 'Refresh play counts'}
+            </Button>
+            {selected.size > 0 ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => setSelected(new Set())}>
+                  Clear
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={removing}
+                  onClick={() => setConfirmingBulk(true)}
+                >
+                  <Trash2Icon data-icon="inline-start" />
+                  Remove selected
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </CardHeader>
         <CardContent className="px-0">
           {loading ? (
             <div className="flex flex-col gap-3 px-6 py-4">
@@ -371,6 +452,7 @@ export function CatalogPage() {
                   <TableHead>Released</TableHead>
                   <TableHead>Genre</TableHead>
                   <TableHead>Country</TableHead>
+                  <TableHead>Collections</TableHead>
                   <TableHead>Preview</TableHead>
                   <TableHead />
                 </TableRow>
@@ -414,7 +496,20 @@ export function CatalogPage() {
                         '—'
                       )}
                     </TableCell>
-                    <TableCell>{formatPlayCount(track.playCount)}</TableCell>
+                    <TableCell>
+                      <span
+                        title={
+                          track.playCountUpdatedAt
+                            ? `${formatNumber(track.playCount ?? 0)} plays · updated ${formatDate(track.playCountUpdatedAt)}`
+                            : 'Never fetched from the public web player'
+                        }
+                      >
+                        {formatPlayCount(track.playCount)}
+                      </span>
+                      {track.playCountUpdatedAt ? null : (
+                        <span className="ml-1 text-xs text-muted-foreground">·&nbsp;stale</span>
+                      )}
+                    </TableCell>
                     <TableCell>{track.releaseDate ?? track.releaseYear ?? '—'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -430,6 +525,33 @@ export function CatalogPage() {
                         <CountryFlag code={track.country ?? 'PH'} className="size-4" />
                         {track.country ? countryDisplayName(track.country) : 'Philippines'}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        className="flex max-w-48 flex-wrap items-center gap-1 text-left"
+                        onClick={() => openCollections(track)}
+                      >
+                        {(track.collections?.length
+                          ? track.collections
+                          : track.catalog
+                            ? [track.catalog]
+                            : []
+                        ).length === 0 ? (
+                          <span className="text-muted-foreground">Uncategorized</span>
+                        ) : (
+                          (track.collections?.length
+                            ? track.collections
+                            : track.catalog
+                              ? [track.catalog]
+                              : []
+                          ).map((id) => (
+                            <Badge key={id} variant="outline">
+                              {collectionLabel(id)}
+                            </Badge>
+                          ))
+                        )}
+                      </button>
                     </TableCell>
                     <TableCell>
                       <Badge variant={track.hasPreview ? 'secondary' : 'destructive'}>
@@ -482,7 +604,7 @@ export function CatalogPage() {
             <AlertDialogTitle>Remove this track?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingRemove
-                ? `“${pendingRemove.title}” by ${pendingRemove.artist} will be removed from the catalog.`
+                ? `“${pendingRemove.title}” by ${pendingRemove.artist} will be removed from the library.`
                 : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -500,7 +622,7 @@ export function CatalogPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {formatNumber(selected.size)} tracks?</AlertDialogTitle>
             <AlertDialogDescription>
-              These tracks are deleted from the live D1 catalog and stop appearing in the game. This
+              These tracks are deleted from the live library and stop appearing in the game. This
               cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -512,6 +634,18 @@ export function CatalogPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CollectionPickerDialog
+        open={editingCollections !== null}
+        title={editingCollections ? `Collections for “${editingCollections.title}”` : 'Collections'}
+        collections={collections}
+        selected={pickerCollections}
+        onSelectedChange={setPickerCollections}
+        onCancel={() => setEditingCollections(null)}
+        onConfirm={() => void saveCollections()}
+        confirming={savingCollections}
+        confirmLabel={savingCollections ? 'Saving…' : 'Save'}
+      />
     </div>
   )
 }

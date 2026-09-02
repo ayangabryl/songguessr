@@ -19,7 +19,11 @@ import {
   createCatalog,
   deleteCatalog,
   listCatalogs,
-  resolveCatalogId,
+  listCollectionsForTracks,
+  parseRequestedCollectionIds,
+  removeCollectionsForTracks,
+  resolveCatalogIds,
+  setTrackCollections,
   updateCatalog,
 } from './catalogs-d1'
 import {
@@ -29,7 +33,7 @@ import {
   updateArtist,
 } from './artists-d1'
 import { isCountryCode, type CountryCode } from '../shared/catalog-meta'
-import { loadLastSpotifySync, syncPopularityByIds, syncSpotifyMetrics } from './spotify-sync'
+import { loadLastSpotifySync, refreshPublicStats, syncSpotifyMetrics } from './spotify-sync'
 import {
   ERA_OPTIONS,
   GENRE_OPTIONS,
@@ -46,9 +50,15 @@ import {
 } from './playlist-import'
 import { parseSpotifyPlaylistId } from './playlist-source'
 import { backfillMissingAlbumArt } from './album-art-backfill'
-import { fetchSpotifyTrack, getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
+import { fetchSpotifyOembed } from './album-art'
+import { getSpotifyClientCredentialsToken, searchSpotifyTracks } from './spotify-api'
+import {
+  fetchPublicTrackStats,
+  openWebPlayerSession,
+  searchPublicTracks,
+} from './spotify-public-stats'
 import { runCatalogBuild } from './catalog-builder'
-import { buildTrackFromSpotify } from './track-builder'
+import { buildTrackFromPublicAdd } from './track-builder'
 import type { Difficulty, Env } from './types'
 
 const ADMIN_HOSTS = new Set([
@@ -66,6 +76,20 @@ const APEX_HOSTS = new Set(['songguessr.lol', 'www.songguessr.lol'])
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
 /** Guards against a runaway paste wiping the catalog in one call. */
 const MAX_BULK_REMOVE = 1000
+
+async function attachCollections<T extends { id: string; catalog?: string }>(
+  env: Env,
+  tracks: T[],
+): Promise<Array<T & { collections: string[] }>> {
+  const map = await listCollectionsForTracks(
+    env,
+    tracks.map((track) => track.id),
+  )
+  return tracks.map((track) => ({
+    ...track,
+    collections: map.get(track.id) ?? (track.catalog ? [track.catalog] : []),
+  }))
+}
 
 export function isAdminHost(hostname: string): boolean {
   return ADMIN_HOSTS.has(hostname) || hostname.startsWith('admin.')
@@ -381,6 +405,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     let popularityMissing = 0
     let playCountFilled = 0
     let playCountMissing = 0
+    let playCountStale = 0
     let releaseDateFilled = 0
     let releaseDateMissing = 0
     let catalogError: string | null = null
@@ -396,11 +421,12 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       popularityMissing = stats.popularityMissing
       playCountFilled = stats.playCountFilled
       playCountMissing = stats.playCountMissing
+      playCountStale = stats.playCountStale
       releaseDateFilled = stats.releaseDateFilled
       releaseDateMissing = stats.releaseDateMissing
-      if (!catalogOk) catalogError = 'Catalog not found in D1'
+      if (!catalogOk) catalogError = 'No songs found in D1'
     } catch (error) {
-      catalogError = error instanceof Error ? error.message : 'Catalog unavailable'
+      catalogError = error instanceof Error ? error.message : 'Library unavailable'
     }
 
     return c.json({
@@ -414,6 +440,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       popularityMissing,
       playCountFilled,
       playCountMissing,
+      playCountStale,
       releaseDateFilled,
       releaseDateMissing,
       lastSpotifySync,
@@ -446,7 +473,11 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
           c.req.query('missingPreview') === '1' || c.req.query('missingPreview') === 'true',
       }
 
-      return c.json(await listCatalogPage(c.env, page, pageSize, query, filters))
+      const listing = await listCatalogPage(c.env, page, pageSize, query, filters)
+      return c.json({
+        ...listing,
+        tracks: await attachCollections(c.env, listing.tracks),
+      })
     } catch (error) {
       if (error instanceof CatalogUnavailableError) {
         return c.json({ error: error.message }, 503)
@@ -474,7 +505,11 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
       const page = Number(c.req.query('page') ?? '1')
       const pageSize = Number(c.req.query('pageSize') ?? '50')
       const query = c.req.query('q') ?? ''
-      return c.json(await getArtistDetail(c.env, c.req.param('id'), page, pageSize, query))
+      const detail = await getArtistDetail(c.env, c.req.param('id'), page, pageSize, query)
+      return c.json({
+        ...detail,
+        tracks: await attachCollections(c.env, detail.tracks),
+      })
     } catch (error) {
       const status = (error as { status?: number }).status
       if (error instanceof CatalogUnavailableError) {
@@ -524,7 +559,8 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
 
   admin.get('/admin/api/catalogs', async (c) => {
     try {
-      return c.json({ catalogs: await listCatalogs(c.env) })
+      const rows = await listCatalogs(c.env)
+      return c.json({ catalogs: rows, collections: rows })
     } catch (error) {
       if (error instanceof CatalogUnavailableError) {
         return c.json({ error: error.message }, 503)
@@ -548,7 +584,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     } catch (error) {
       const status = (error as { status?: number }).status
       return c.json(
-        { error: error instanceof Error ? error.message : 'Could not create catalog' },
+        { error: error instanceof Error ? error.message : 'Could not create collection' },
         status === 409 ? 409 : 400,
       )
     }
@@ -564,7 +600,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     } catch (error) {
       const status = (error as { status?: number }).status
       return c.json(
-        { error: error instanceof Error ? error.message : 'Could not update catalog' },
+        { error: error instanceof Error ? error.message : 'Could not update collection' },
         status === 404 ? 404 : 400,
       )
     }
@@ -577,7 +613,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     } catch (error) {
       const status = (error as { status?: number }).status
       return c.json(
-        { error: error instanceof Error ? error.message : 'Could not delete catalog' },
+        { error: error instanceof Error ? error.message : 'Could not delete collection' },
         status === 409 ? 409 : status === 404 ? 404 : 400,
       )
     }
@@ -604,89 +640,227 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     }
   })
 
+  /**
+   * Search goes through the public web player first: it is the same
+   * unthrottled gateway the play counts come from, so it does not spend the
+   * Web API's quota. The Web API stays as a fallback for when Spotify changes
+   * the persisted-query hash out from under us.
+   */
   admin.get('/admin/api/spotify/search', async (c) => {
-    const clientId = c.env.SPOTIFY_CLIENT_ID
-    const clientSecret = c.env.SPOTIFY_CLIENT_SECRET
-    if (!clientId || !clientSecret) {
-      return c.json({ error: 'Spotify is not configured' }, 503)
-    }
-
     const query = c.req.query('q')?.trim() ?? ''
     if (!query) {
       return c.json({ results: [] })
     }
 
-    const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
-    const tracks = await searchSpotifyTracks(token, query)
+    interface SearchRow {
+      id: string
+      title: string
+      artist: string
+      albumArt: string
+      previewUrl: string | null
+      isOpm: boolean
+    }
+
+    let rows: SearchRow[] = []
+    let source: 'web-player' | 'web-api' = 'web-player'
+    const warnings: string[] = []
+
+    try {
+      const session = await openWebPlayerSession()
+      if (!session) throw new Error('no anonymous web-player token')
+      const found = await searchPublicTracks(query, session)
+      rows = found.map((track) => ({
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        albumArt: track.albumArt,
+        // The public search payload carries no preview URL.
+        previewUrl: null,
+        isOpm: isOpmSpotifyTrack({
+          id: track.id,
+          name: track.title,
+          artists: track.artistIds.map((id, index) => ({
+            id,
+            name: track.artist.split(', ')[index] ?? track.artist,
+          })),
+        }),
+      }))
+    } catch (error) {
+      warnings.push(
+        `Public search failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+
+    if (rows.length === 0) {
+      const clientId = c.env.SPOTIFY_CLIENT_ID
+      const clientSecret = c.env.SPOTIFY_CLIENT_SECRET
+      if (!clientId || !clientSecret) {
+        if (warnings.length > 0) {
+          return c.json({ error: warnings.join('; '), results: [] }, 503)
+        }
+        return c.json({ results: [], source, warnings })
+      }
+      try {
+        const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
+        const tracks = await searchSpotifyTracks(token, query)
+        source = 'web-api'
+        rows = tracks
+          .filter((track): track is typeof track & { id: string } => Boolean(track.id))
+          .map((track) => ({
+            id: track.id,
+            title: track.name ?? 'Unknown',
+            artist: (track.artists ?? []).map((artist) => artist.name).join(', '),
+            albumArt: track.album?.images?.[0]?.url ?? '',
+            previewUrl: track.preview_url ?? null,
+            isOpm: isOpmSpotifyTrack(track),
+          }))
+      } catch (error) {
+        warnings.push(
+          `Web API search failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return c.json({ error: warnings.join('; '), results: [] }, 502)
+      }
+    }
 
     const existingIds = await findExistingTrackIds(
       c.env,
-      tracks.map((track) => track.id).filter((id): id is string => Boolean(id)),
+      rows.map((row) => row.id),
     )
 
     return c.json({
-      results: tracks.map((track) => ({
-        id: track.id,
-        title: track.name ?? 'Unknown',
-        artist: (track.artists ?? []).map((artist) => artist.name).join(', '),
-        albumArt: track.album?.images?.[0]?.url ?? '',
-        previewUrl: track.preview_url ?? null,
-        isOpm: isOpmSpotifyTrack(track),
-        inCatalog: track.id ? existingIds.has(track.id) : false,
+      source,
+      warnings,
+      results: rows.map((row) => ({
+        ...row,
+        inCatalog: existingIds.has(row.id),
       })),
     })
   })
 
   admin.post('/admin/api/catalog/add', async (c) => {
-    const clientId = c.env.SPOTIFY_CLIENT_ID
-    const clientSecret = c.env.SPOTIFY_CLIENT_SECRET
-    if (!clientId || !clientSecret) {
-      return c.json({ error: 'Spotify is not configured' }, 503)
-    }
+    try {
+      const body = await c.req.json<{
+        trackId?: string
+        title?: string
+        artist?: string
+        albumArt?: string
+        country?: string
+        catalog?: string
+        catalogs?: unknown
+        collections?: unknown
+      }>()
+      const trackId = body.trackId?.trim()
+      if (!trackId) {
+        return c.json({ error: 'trackId is required' }, 400)
+      }
 
-    const body = await c.req.json<{ trackId?: string; country?: string; catalog?: string }>()
-    const trackId = body.trackId?.trim()
+      const collectionIds = await resolveCatalogIds(c.env, parseRequestedCollectionIds(body))
+
+      let stats: Awaited<ReturnType<typeof fetchPublicTrackStats>> = null
+      try {
+        const session = await openWebPlayerSession(trackId)
+        if (session) stats = await fetchPublicTrackStats(trackId, session)
+      } catch (error) {
+        console.warn(
+          `[admin] public stats on add failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+
+      let title = body.title?.trim() || stats?.title?.trim() || ''
+      let artist = body.artist?.trim() || stats?.artist?.trim() || ''
+      let albumArt = body.albumArt?.trim() || stats?.albumArt?.trim() || ''
+
+      if (!title || !artist || !albumArt) {
+        const oembed = await fetchSpotifyOembed(trackId)
+        title = title || oembed?.title || ''
+        artist = artist || oembed?.authorName || ''
+        albumArt = albumArt || oembed?.thumbnailUrl || ''
+      }
+
+      if (!title || !artist) {
+        return c.json({ error: 'Could not resolve track title and artist' }, 400)
+      }
+
+      const built = await buildTrackFromPublicAdd({
+        id: trackId,
+        title,
+        artist,
+        albumArt,
+        durationMs: stats?.durationMs,
+        country: parseImportCountry(body.country),
+        catalog: collectionIds[0] ?? '',
+        popularity: stats?.popularity,
+        playCount: stats?.playCount,
+        artistPopularity: stats?.artistPopularity,
+        releaseDate: stats?.releaseDate,
+      })
+
+      const result = await addTrackToCatalog(c.env, built.track)
+      if (!result.ok) {
+        const reason =
+          result.reason === 'Track already in catalog'
+            ? 'Track already in the library'
+            : (result.reason ?? 'Could not add track')
+        return c.json({ error: reason }, 409)
+      }
+
+      try {
+        await setTrackCollections(c.env, trackId, collectionIds)
+      } catch (error) {
+        console.warn(
+          `[admin] collection assign after add failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+
+      return c.json({
+        ok: true,
+        track: {
+          id: built.track.id,
+          title: built.track.title,
+          artist: built.track.artist,
+        },
+        collections: collectionIds,
+        previewMissing: built.previewMissing,
+        totalTracks: result.totalTracks,
+      })
+    } catch (error) {
+      console.error(
+        `[admin] add track failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not add track' },
+        500,
+      )
+    }
+  })
+
+  admin.put('/admin/api/catalog/:trackId/collections', async (c) => {
+    const trackId = decodeURIComponent(c.req.param('trackId')).trim()
     if (!trackId) {
       return c.json({ error: 'trackId is required' }, 400)
     }
-
-    const token = await getSpotifyClientCredentialsToken(clientId, clientSecret)
-    const spotifyTrack = await fetchSpotifyTrack(token, trackId)
-    if (!spotifyTrack) {
-      return c.json({ error: 'Track not found on Spotify' }, 404)
-    }
-
-    const built = await buildTrackFromSpotify(spotifyTrack, {
-      country: parseImportCountry(body.country),
-      catalog: await resolveCatalogId(c.env, body.catalog),
-      requireOpm: false,
-    })
-    if (!built.track) {
-      return c.json({ error: built.reason ?? 'Could not add track' }, 400)
-    }
-
-    const result = await addTrackToCatalog(c.env, built.track)
-    if (!result.ok) {
-      return c.json({ error: result.reason ?? 'Could not add track' }, 409)
-    }
-
     try {
-      await syncPopularityByIds(c.env, [trackId])
+      const body = await c.req
+        .json<{ collections?: unknown; catalogs?: unknown; catalog?: string }>()
+        .catch(() => ({}))
+      const collections = await setTrackCollections(
+        c.env,
+        trackId,
+        parseRequestedCollectionIds(body),
+      )
+      return c.json({ ok: true, collections })
     } catch (error) {
-      console.warn(
-        `[admin] popularity hydrate after add failed: ${error instanceof Error ? error.message : String(error)}`,
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not update collections' },
+        500,
       )
     }
-
-    return c.json({
-      ok: true,
-      track: {
-        id: built.track.id,
-        title: built.track.title,
-        artist: built.track.artist,
-      },
-      totalTracks: result.totalTracks,
-    })
   })
 
   admin.post('/admin/api/catalog/playlist/preview', async (c) => {
@@ -738,6 +912,8 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
         playlistUrl?: string
         country?: string
         catalog?: string
+        catalogs?: unknown
+        collections?: unknown
         assumeAllLocal?: boolean
         trustArtists?: boolean
         requireKnownArtists?: boolean
@@ -757,6 +933,7 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     const importOptions: PlaylistImportOptions = {
       country: body.country,
       catalog: body.catalog,
+      catalogs: parseRequestedCollectionIds(body),
       assumeAllLocal: body.assumeAllLocal === true,
       trustArtists: body.trustArtists === true,
       requireKnownArtists: body.requireKnownArtists,
@@ -803,6 +980,94 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     return c.json(job)
   })
 
+  /**
+   * Proves, from Cloudflare's own network, which public Spotify services this
+   * Worker can actually reach. Home-network results do not transfer: the edge
+   * has different egress IPs and Spotify blocks some of them.
+   */
+  admin.get('/admin/api/spotify/diagnose', async (c) => {
+    const trackId = c.req.query('trackId')?.trim() || '4yzDFThA5Xd1s9aZzwyxCk'
+    const checks: Array<Record<string, unknown>> = []
+
+    const session = await openWebPlayerSession(trackId)
+    checks.push({
+      check: 'anonymous embed token',
+      ok: Boolean(session),
+      detail: session
+        ? `expires in ${Math.round((session.expiresAt - Date.now()) / 60000)} min`
+        : 'no token in __NEXT_DATA__',
+    })
+
+    if (session) {
+      try {
+        const stats = await fetchPublicTrackStats(trackId, session)
+        checks.push({
+          check: 'pathfinder getTrack (plays + release date)',
+          ok: stats?.playCount != null,
+          detail: stats
+            ? `${stats.title}: ${stats.playCount ?? 'no plays'} plays, released ${stats.releaseDate ?? 'unknown'}`
+            : 'no data',
+        })
+        checks.push({
+          check: 'spclient metadata (popularity)',
+          ok: stats?.popularity != null,
+          detail: stats?.popularity != null ? `popularity ${stats.popularity}` : 'no popularity',
+        })
+      } catch (error) {
+        checks.push({
+          check: 'pathfinder + spclient',
+          ok: false,
+          detail: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      try {
+        const results = await searchPublicTracks('multo', session, 5)
+        checks.push({
+          check: 'pathfinder searchTracks',
+          ok: results.length > 0,
+          detail: results.length > 0 ? `${results.length} results, top: ${results[0].title}` : 'no results',
+        })
+      } catch (error) {
+        checks.push({
+          check: 'pathfinder searchTracks',
+          ok: false,
+          detail: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    return c.json({
+      ok: checks.every((check) => check.ok),
+      colo: c.req.raw.cf?.colo ?? null,
+      trackId,
+      checks,
+    })
+  })
+
+  admin.post('/admin/api/catalog/playcounts', async (c) => {
+    const body = await c.req
+      .json<{ limit?: number; trackIds?: unknown }>()
+      .catch(() => ({ limit: undefined, trackIds: undefined }))
+    const limit = Number.isFinite(body.limit) ? Math.min(Math.max(Number(body.limit), 1), 500) : 250
+    const trackIds = Array.isArray(body.trackIds)
+      ? body.trackIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : undefined
+
+    try {
+      const result = await refreshPublicStats(c.env, limit, trackIds)
+      return c.json({ ok: true, ...result })
+    } catch (error) {
+      if (error instanceof CatalogUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Could not refresh play counts' },
+        500,
+      )
+    }
+  })
+
   admin.post('/admin/api/catalog/remove-bulk', async (c) => {
     const body = await c.req.json<{ trackIds?: unknown }>().catch(() => ({ trackIds: undefined }))
     const trackIds = Array.isArray(body.trackIds)
@@ -818,6 +1083,15 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
 
     try {
       const result = await removeTracksFromCatalog(c.env, trackIds)
+      if (result.removedIds.length > 0) {
+        try {
+          await removeCollectionsForTracks(c.env, result.removedIds)
+        } catch (error) {
+          console.warn(
+            `[admin] collection cleanup after bulk remove failed: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
 
       let r2Removed = 0
       try {
@@ -852,6 +1126,13 @@ export function createAdminApp(): Hono<{ Bindings: Env }> {
     const result = await removeTrackFromCatalog(c.env, trackId)
     if (!result.ok) {
       return c.json({ error: result.reason ?? 'Could not remove track' }, 404)
+    }
+    try {
+      await removeCollectionsForTracks(c.env, [decodeURIComponent(trackId)])
+    } catch (error) {
+      console.warn(
+        `[admin] collection cleanup after remove failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
     return c.json({ ok: true, totalTracks: result.totalTracks })
   })
