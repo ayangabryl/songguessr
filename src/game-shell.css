@@ -322,15 +322,12 @@ body,
   background-position: 0 0;
   background-size: auto 100%;
   animation-name: nootFlip;
-  animation-duration: var(--noot-duration);
-  animation-timing-function: steps(var(--noot-frames));
-  animation-iteration-count: var(--noot-iter);
   animation-fill-mode: forwards;
 }
 
 @keyframes nootFlip {
   to {
-    background-position: calc(-1 * var(--noot-frames) * 100%) 0;
+    background-position: calc(-1 * var(--noot-end) * 100%) 0;
   }
 }
 
