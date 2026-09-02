@@ -1204,13 +1204,13 @@ export function Game() {
       return
     }
 
-    noteStreakFail()
     const label = `${result.title} - ${result.artist}`
     const nextIndex = activeState.stageIndex + 1
     const wrongGuesses = [...activeState.wrongGuesses, label]
     const stageEndpoint = activeStages[activeState.stageIndex] ?? activeStages[0] ?? 0.1
 
     if (nextIndex >= activeStages.length) {
+      noteStreakFail()
       const reveal = await submitGuess(round, { reveal: true })
       setMascotLoseReason('wrong')
       updateRound(difficulty, {
@@ -1260,12 +1260,14 @@ export function Game() {
 
   function handleSkip() {
     void activateSpotifyElement()
-    noteStreakFail()
 
     const nextIndex = roundsRef.current[difficulty].stageIndex + 1
     const isLastStage = nextIndex >= activeStages.length
 
+    // Mid-round skip only reveals more of the clip — keep the streak.
+    // Streak breaks only when the round is actually lost (last skip / final miss).
     if (isLastStage) {
+      noteStreakFail()
       setMascotLoseReason('timeout')
     } else {
       setMascotSkip(true)
