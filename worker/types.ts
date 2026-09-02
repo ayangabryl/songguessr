@@ -42,6 +42,8 @@ export interface Track {
   country?: CountryCode
   /** Catalog bucket: opm, kpop, anime, other. */
   catalog?: CatalogKind
+  /** Many-to-many collection slugs when loaded for filter matching. */
+  collections?: CatalogKind[]
   /** Popular-chart imports stay easy/medium on later metric syncs. */
   chartBoost?: boolean
   forceTier?: Difficulty

@@ -1,9 +1,12 @@
 import {
+  COUNTRY_CODES,
   COUNTRY_LABELS,
   GAME_REGIONS,
   REGION_LABELS,
   REGION_OPTIONS,
-  isRegionFilter,
+  isCatalogKind,
+  isCountryCode,
+  type CatalogKind,
   type CountryCode,
   type RegionFilter,
 } from '../../shared/catalog-meta'
@@ -12,8 +15,15 @@ import { readMigratedItem } from './storage'
 
 export const ERA_OPTIONS = ['modern', '2010s', '2000s', 'classics'] as const
 export const GENRE_OPTIONS = ['pop', 'hip-hop', 'r&b', 'rock', 'dance', 'other'] as const
-export { COUNTRY_LABELS, GAME_REGIONS, ISO_COUNTRY_CODES, REGION_LABELS, REGION_OPTIONS }
-export type { CountryCode, RegionFilter }
+export {
+  COUNTRY_CODES,
+  COUNTRY_LABELS,
+  GAME_REGIONS,
+  ISO_COUNTRY_CODES,
+  REGION_LABELS,
+  REGION_OPTIONS,
+}
+export type { CatalogKind, CountryCode, RegionFilter }
 
 export type EraFilter = (typeof ERA_OPTIONS)[number]
 export type GenreFilter = (typeof GENRE_OPTIONS)[number]
@@ -22,29 +32,31 @@ export interface CatalogFilters {
   eras: EraFilter[]
   genres: GenreFilter[]
   countries: CountryCode[]
+  collections: CatalogKind[]
 }
 
 export const ERA_LABELS: Record<EraFilter | 'all', string> = {
-  all: 'All eras',
-  modern: 'Modern (2020+)',
+  all: 'All',
+  modern: '2020s',
   '2010s': '2010s',
   '2000s': '2000s',
-  classics: 'Classics (pre-2000)',
+  classics: 'Classics',
 }
 
 export const GENRE_LABELS: Record<GenreFilter | 'all', string> = {
-  all: 'All genres',
+  all: 'All',
   pop: 'Pop',
-  'hip-hop': 'Hip-hop / Rap',
-  'r&b': 'R&B / Soul',
-  rock: 'Rock / Alternative',
-  dance: 'Dance / Electronic',
-  other: 'Other / Unclassified',
+  'hip-hop': 'Hip-hop',
+  'r&b': 'R&B',
+  rock: 'Rock',
+  dance: 'Dance',
+  other: 'Other',
 }
 
 const ERA_KEY = 'songguessr-era-filter'
 const GENRE_KEY = 'songguessr-genre-filter'
 const REGION_KEY = 'songguessr-region-filter'
+const COLLECTION_KEY = 'songguessr-collection-filter'
 const LEGACY_ERA_KEY = 'songgussr-era-filter'
 const LEGACY_GENRE_KEY = 'songgussr-genre-filter'
 
@@ -92,7 +104,7 @@ export function loadRegionFilters(): CountryCode[] {
     if (!Array.isArray(parsed)) return []
     return parsed
       .map((item) => item.trim().toUpperCase())
-      .filter((item): item is CountryCode => isRegionFilter(item))
+      .filter((item): item is CountryCode => isCountryCode(item))
   } catch {
     return []
   }
@@ -100,6 +112,24 @@ export function loadRegionFilters(): CountryCode[] {
 
 export function saveRegionFilters(countries: CountryCode[]) {
   localStorage.setItem(REGION_KEY, JSON.stringify(countries))
+}
+
+export function loadCollectionFilters(): CatalogKind[] {
+  try {
+    const raw = localStorage.getItem(COLLECTION_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as string[]
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((item) => item.trim().toLowerCase())
+      .filter((item): item is CatalogKind => isCatalogKind(item))
+  } catch {
+    return []
+  }
+}
+
+export function saveCollectionFilters(collections: CatalogKind[]) {
+  localStorage.setItem(COLLECTION_KEY, JSON.stringify(collections))
 }
 
 export function toggleFilterValue<T extends string>(current: T[], value: T, allValues: readonly T[]): T[] {
@@ -112,7 +142,12 @@ export function toggleFilterValue<T extends string>(current: T[], value: T, allV
 }
 
 export function activeFilterCount(filters: CatalogFilters): number {
-  return filters.eras.length + filters.genres.length + filters.countries.length
+  return (
+    filters.eras.length +
+    filters.genres.length +
+    filters.countries.length +
+    filters.collections.length
+  )
 }
 
 export function filtersToSearchParams(filters: CatalogFilters): string {
@@ -122,6 +157,10 @@ export function filtersToSearchParams(filters: CatalogFilters): string {
   if (filters.countries.length > 0) {
     params.set('countries', filters.countries.join(','))
     params.set('regions', filters.countries.join(','))
+  }
+  if (filters.collections.length > 0) {
+    params.set('collections', filters.collections.join(','))
+    params.set('catalogs', filters.collections.join(','))
   }
   const query = params.toString()
   return query ? `&${query}` : ''

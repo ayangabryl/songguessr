@@ -2,6 +2,7 @@ import {
   CATALOG_SEED_MESSAGE,
   CatalogUnavailableError,
   findTrackById as findTrackByIdFromD1,
+  findTrackPoolPlacement,
   getAvailabilityCounts as getAvailabilityCountsFromD1,
   getCatalogStats,
   pickRandomTrack as pickRandomTrackFromD1,
@@ -10,7 +11,7 @@ import {
 import type { CatalogFilters } from './filters'
 import type { Catalog, Difficulty, Env, Track } from './types'
 
-export { CATALOG_SEED_MESSAGE, CatalogUnavailableError }
+export { CATALOG_SEED_MESSAGE, CatalogUnavailableError, findTrackPoolPlacement }
 
 export async function getCatalog(env: Env): Promise<Catalog> {
   const stats = await getCatalogStats(env)
@@ -45,7 +46,7 @@ export async function pickRandomTrack(
   env: Env,
   difficulty: Difficulty,
   _seed: string,
-  filters: CatalogFilters = { eras: [], genres: [], countries: [] },
+  filters: CatalogFilters = { eras: [], genres: [], countries: [], collections: [] },
   excludeIds: ReadonlySet<string> = new Set(),
   excludeSongKeys: ReadonlySet<string> = new Set(),
 ): Promise<Track | null> {

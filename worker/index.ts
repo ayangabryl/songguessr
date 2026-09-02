@@ -4,24 +4,26 @@ import { serveR2Audio } from './audio'
 import {
   CatalogUnavailableError,
   findTrackById,
+  findTrackPoolPlacement,
   getAvailabilityCounts,
   pickRandomTrack,
   searchCatalog,
 } from './catalog'
 import { getCatalogStats, listCatalogCountries } from './catalog-d1'
 import { listCatalogs } from './catalogs-d1'
-import { GAME_REGIONS, isCountryCode } from '../shared/catalog-meta'
+import { isCatalogKind, isCountryCode } from '../shared/catalog-meta'
 import { countryDisplayName } from '../shared/iso-countries'
 import { songIdentityKey } from './track-dedupe.ts'
 import {
   type CatalogFilters,
   type EraFilter,
   type GenreFilter,
+  parseCollectionFilters,
   parseCountryFilters,
   parseEraFilters,
   parseGenreFilters,
-  trackMatchesFilters,
 } from './filters'
+import { mapRequestedPoolTier } from './difficulty'
 import { checkGuess } from './guess'
 import { handleScheduled } from './scheduled'
 import { createAdminApp, handleAdminRequest } from './admin'
@@ -48,6 +50,7 @@ function parseCatalogFilters(c: { req: { query: (key: string) => string | undefi
     eras: parseEraFilters(c.req.query('eras')),
     genres: parseGenreFilters(c.req.query('genres')),
     countries: parseCountryFilters(c.req.query('countries'), c.req.query('regions')),
+    collections: parseCollectionFilters(c.req.query('collections'), c.req.query('catalogs')),
   }
 }
 
@@ -56,10 +59,15 @@ function parseCatalogFiltersFromBody(body: {
   genres?: string[]
   countries?: string[]
   regions?: string[]
+  collections?: string[]
+  catalogs?: string[]
 }): CatalogFilters {
   const countryValues = [...(body.countries ?? []), ...(body.regions ?? [])]
     .map((item) => item.trim().toUpperCase())
     .filter(isCountryCode)
+  const collectionValues = [...(body.collections ?? []), ...(body.catalogs ?? [])]
+    .map((item) => item.trim().toLowerCase())
+    .filter(isCatalogKind)
   return {
     eras: (body.eras ?? []).filter((era): era is EraFilter =>
       (['modern', '2010s', '2000s', 'classics'] as const).includes(era as EraFilter),
@@ -68,6 +76,7 @@ function parseCatalogFiltersFromBody(body: {
       (['pop', 'hip-hop', 'r&b', 'rock', 'dance', 'other'] as const).includes(genre as GenreFilter),
     ),
     countries: [...new Set(countryValues)],
+    collections: [...new Set(collectionValues)],
   }
 }
 
@@ -232,14 +241,20 @@ app.get('/api/catalog/catalogs', async (c) => {
 app.get('/api/catalog/regions', async (c) => {
   try {
     const counts = await listCatalogCountries(c.env)
-    const countByCountry = new Map(counts.map((row) => [row.country, row.count]))
-    return c.json({
-      regions: GAME_REGIONS.map((region) => ({
-        ...region,
-        label: countryDisplayName(region.country),
-        count: countByCountry.get(region.country) ?? 0,
-      })),
-    })
+    const regions = counts
+      .filter((row) => row.count > 0)
+      .sort((left, right) => {
+        if (left.country === 'GLOBAL') return -1
+        if (right.country === 'GLOBAL') return 1
+        return countryDisplayName(left.country).localeCompare(countryDisplayName(right.country))
+      })
+      .map((row) => ({
+        id: row.country,
+        label: countryDisplayName(row.country),
+        country: row.country,
+        count: row.count,
+      }))
+    return c.json({ regions })
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {
       return catalogUnavailable(c, error)
@@ -296,7 +311,7 @@ app.get('/api/random', async (c) => {
         {
           error: 'Catalogue error',
           message:
-            'No songs match these filters for this difficulty. Try another difficulty or clear the region, era, and genre filters.',
+            'No songs match these filters. Clear them or try another mix.',
         },
         404,
       )
@@ -356,13 +371,9 @@ async function resolveRoundTrack(
   filters: CatalogFilters,
 ): Promise<Awaited<ReturnType<typeof findTrackById>>> {
   if (trackId) {
-    const track = await findTrackById(env, trackId)
-    if (
-      track &&
-      track.difficulty === difficulty &&
-      trackMatchesFilters(track, filters)
-    ) {
-      return track
+    const placement = await findTrackPoolPlacement(env, trackId, filters)
+    if (placement && placement.tier === mapRequestedPoolTier(difficulty, placement.poolN)) {
+      return placement.track
     }
   }
 
@@ -382,6 +393,8 @@ app.post('/api/guess', async (c) => {
       genres?: string[]
       countries?: string[]
       regions?: string[]
+      collections?: string[]
+      catalogs?: string[]
     }>()
 
     const difficulty = parseDifficulty(body.difficulty)

@@ -4,26 +4,30 @@ import {
   type GameRound,
   type SearchResult,
   fetchAvailability,
+  fetchCollections,
   fetchRandomRound,
   fetchRegions,
   searchTracks,
   submitGuess,
+  type CatalogCollection,
   type CatalogRegion,
 } from '../lib/api'
 import {
+  COUNTRY_CODES,
+  ERA_OPTIONS,
+  GENRE_OPTIONS,
   activeFilterCount,
+  loadCollectionFilters,
   loadEraFilters,
   loadGenreFilters,
   loadRegionFilters,
+  saveCollectionFilters,
   saveEraFilters,
   saveGenreFilters,
   saveRegionFilters,
   toggleFilterValue,
-  ERA_OPTIONS,
-  GAME_REGIONS,
-  GENRE_OPTIONS,
-  ISO_COUNTRY_CODES,
   type CatalogFilters,
+  type CatalogKind,
   type CountryCode,
   type EraFilter,
   type GenreFilter,
@@ -202,23 +206,36 @@ export function Game() {
   const [eraFilters, setEraFilters] = useState<EraFilter[]>(loadEraFilters)
   const [genreFilters, setGenreFilters] = useState<GenreFilter[]>(loadGenreFilters)
   const [regionFilters, setRegionFilters] = useState<CountryCode[]>(loadRegionFilters)
-  const [regions, setRegions] = useState<CatalogRegion[]>(GAME_REGIONS)
+  const [collectionFilters, setCollectionFilters] = useState<CatalogKind[]>(loadCollectionFilters)
+  const [regions, setRegions] = useState<CatalogRegion[]>([])
+  const [collections, setCollections] = useState<CatalogCollection[]>([])
   const [filterModalOpen, setFilterModalOpen] = useState(false)
   const [draftEras, setDraftEras] = useState<EraFilter[]>([])
   const [draftGenres, setDraftGenres] = useState<GenreFilter[]>([])
   const [draftCountries, setDraftCountries] = useState<CountryCode[]>([])
+  const [draftCollections, setDraftCollections] = useState<CatalogKind[]>([])
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<Difficulty, number> | null>(
     null,
   )
   const [draftPreviewCount, setDraftPreviewCount] = useState(0)
 
   const catalogFilters = useMemo<CatalogFilters>(
-    () => ({ eras: eraFilters, genres: genreFilters, countries: regionFilters }),
-    [eraFilters, genreFilters, regionFilters],
+    () => ({
+      eras: eraFilters,
+      genres: genreFilters,
+      countries: regionFilters,
+      collections: collectionFilters,
+    }),
+    [eraFilters, genreFilters, regionFilters, collectionFilters],
   )
   const draftFilters = useMemo<CatalogFilters>(
-    () => ({ eras: draftEras, genres: draftGenres, countries: draftCountries }),
-    [draftEras, draftGenres, draftCountries],
+    () => ({
+      eras: draftEras,
+      genres: draftGenres,
+      countries: draftCountries,
+      collections: draftCollections,
+    }),
+    [draftEras, draftGenres, draftCountries, draftCollections],
   )
   const activeFilterTotal = activeFilterCount(catalogFilters)
 
@@ -263,22 +280,26 @@ export function Game() {
           ...(currentRound?.songKey ? [currentRound.songKey] : []),
         ]
 
-        const round = await fetchRandomRound(level, filters, {
-          excludeTrackIds: batchExcludeTrackIds,
-          excludeSongKeys: batchExcludeSongKeys,
-        })
-        excludeTrackIds.push(round.trackId)
-        if (round.songKey) excludeSongKeys.push(round.songKey)
-        rememberTrack(round.trackId, round.songKey)
-        results.push({
-          level,
-          state: {
-            ...createRoundState(),
-            round,
-            status: 'playing' as const,
-            startedAt: Date.now(),
-          },
-        })
+        try {
+          const round = await fetchRandomRound(level, filters, {
+            excludeTrackIds: batchExcludeTrackIds,
+            excludeSongKeys: batchExcludeSongKeys,
+          })
+          excludeTrackIds.push(round.trackId)
+          if (round.songKey) excludeSongKeys.push(round.songKey)
+          rememberTrack(round.trackId, round.songKey)
+          results.push({
+            level,
+            state: {
+              ...createRoundState(),
+              round,
+              status: 'playing' as const,
+              startedAt: Date.now(),
+            },
+          })
+        } catch {
+          results.push({ level, state: createRoundState() })
+        }
       }
 
       setRounds(
@@ -287,6 +308,9 @@ export function Game() {
           RoundState
         >,
       )
+      if (!results.some((result) => result.state.round)) {
+        setCatalogError('No songs match these filters.')
+      }
     } catch (error) {
       setCatalogError(error instanceof Error ? error.message : 'Could not load songs.')
     } finally {
@@ -443,14 +467,24 @@ export function Game() {
   }, [regionFilters])
 
   useEffect(() => {
-    void fetchRegions().then((next) => {
-      if (next.length > 0) setRegions(next)
+    saveCollectionFilters(collectionFilters)
+  }, [collectionFilters])
+
+  useEffect(() => {
+    void Promise.all([fetchRegions(), fetchCollections()]).then(([nextRegions, nextCollections]) => {
+      if (nextRegions.length > 0) setRegions(nextRegions)
+      if (nextCollections.length > 0) setCollections(nextCollections)
     })
   }, [])
 
   useEffect(() => {
     void fetchAvailability(catalogFilters).then((data) => {
       setAvailabilityCounts(data.counts)
+      setDifficulty((current) =>
+        data.counts[current] === 0
+          ? (DIFFICULTIES.find((level) => data.counts[level] > 0) ?? current)
+          : current,
+      )
     })
   }, [catalogFilters])
 
@@ -999,6 +1033,7 @@ export function Game() {
     setDraftEras([...eraFilters])
     setDraftGenres([...genreFilters])
     setDraftCountries([...regionFilters])
+    setDraftCollections([...collectionFilters])
     setFilterModalOpen(true)
   }
 
@@ -1006,7 +1041,19 @@ export function Game() {
     setEraFilters([...draftEras])
     setGenreFilters([...draftGenres])
     setRegionFilters([...draftCountries])
+    setCollectionFilters([...draftCollections])
     setFilterModalOpen(false)
+  }
+
+  function clearAllFilters() {
+    setEraFilters([])
+    setGenreFilters([])
+    setRegionFilters([])
+    setCollectionFilters([])
+    setDraftEras([])
+    setDraftGenres([])
+    setDraftCountries([])
+    setDraftCollections([])
   }
 
   function handleStartMode(mode: StartMode) {
@@ -1098,8 +1145,20 @@ export function Game() {
                 <p>
                   {catalogLoading
                     ? 'The song library is loading.'
-                    : catalogError}
+                    : 'Clear filters or try another mix.'}
                 </p>
+                {!catalogLoading && activeFilterTotal > 0 ? (
+                  <button
+                    type="button"
+                    className="empty-clear"
+                    onClick={() => {
+                      clearAllFilters()
+                      setCatalogError(null)
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
               </div>
             )}
 
@@ -1460,7 +1519,9 @@ export function Game() {
         draftEras={draftEras}
         draftGenres={draftGenres}
         draftCountries={draftCountries}
+        draftCollections={draftCollections}
         regions={regions}
+        collections={collections}
         previewCount={draftPreviewCount}
         onClose={() => setFilterModalOpen(false)}
         onToggleEra={(era) => setDraftEras((current) => toggleFilterValue(current, era, ERA_OPTIONS))}
@@ -1468,15 +1529,26 @@ export function Game() {
           setDraftGenres((current) => toggleFilterValue(current, genre, GENRE_OPTIONS))
         }
         onToggleRegion={(country) =>
-          setDraftCountries((current) => toggleFilterValue(current, country, ISO_COUNTRY_CODES))
+          setDraftCountries((current) => toggleFilterValue(current, country, COUNTRY_CODES))
+        }
+        onToggleCollection={(id) =>
+          setDraftCollections((current) =>
+            toggleFilterValue(
+              current,
+              id,
+              collections.map((collection) => collection.id),
+            ),
+          )
         }
         onClearEras={() => setDraftEras([])}
         onClearGenres={() => setDraftGenres([])}
         onClearRegions={() => setDraftCountries([])}
+        onClearCollections={() => setDraftCollections([])}
         onClearAll={() => {
           setDraftEras([])
           setDraftGenres([])
           setDraftCountries([])
+          setDraftCollections([])
         }}
         onApply={applyFilters}
       />

@@ -39,12 +39,13 @@ export const CATALOG_LABELS: Record<string, string> = {
 }
 
 export const REGION_LABELS: Record<string, string> = {
-  all: 'All regions',
+  all: 'All',
+  GLOBAL: 'Global',
   ...Object.fromEntries(ISO_COUNTRIES.map((country) => [country.code, country.name])),
 }
 
 export interface CatalogRegion {
-  id: RegionFilter
+  id: CountryCode
   label: string
   country: CountryCode
 }

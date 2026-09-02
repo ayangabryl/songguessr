@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CountryFlag } from '../../shared/country-flag'
-import { filterIsoCountries } from '../../shared/iso-countries'
+import { NotoEmoji } from '../../shared/noto-emoji'
+import { countryDisplayName } from '../../shared/iso-countries'
 import {
   ERA_LABELS,
   ERA_OPTIONS,
   GENRE_LABELS,
   GENRE_OPTIONS,
   REGION_LABELS,
+  type CatalogKind,
   type CountryCode,
   type EraFilter,
   type GenreFilter,
 } from '../lib/filters'
 import { DIFFICULTY_LABELS } from '../lib/game-state'
-import type { CatalogRegion, Difficulty } from '../lib/api'
+import type { CatalogCollection, CatalogRegion, Difficulty } from '../lib/api'
 import { FilterIcon } from './Icons'
 
 interface FilterModalProps {
@@ -21,15 +23,19 @@ interface FilterModalProps {
   draftEras: EraFilter[]
   draftGenres: GenreFilter[]
   draftCountries: CountryCode[]
+  draftCollections: CatalogKind[]
   regions: CatalogRegion[]
+  collections: CatalogCollection[]
   previewCount: number
   onClose: () => void
   onToggleEra: (era: EraFilter) => void
   onToggleGenre: (genre: GenreFilter) => void
   onToggleRegion: (country: CountryCode) => void
+  onToggleCollection: (id: CatalogKind) => void
   onClearEras: () => void
   onClearGenres: () => void
   onClearRegions: () => void
+  onClearCollections: () => void
   onClearAll: () => void
   onApply: () => void
 }
@@ -40,23 +46,27 @@ export function FilterModal({
   draftEras,
   draftGenres,
   draftCountries,
+  draftCollections,
   regions,
+  collections,
   previewCount,
   onClose,
   onToggleEra,
   onToggleGenre,
   onToggleRegion,
+  onToggleCollection,
   onClearEras,
   onClearGenres,
   onClearRegions,
+  onClearCollections,
   onClearAll,
   onApply,
 }: FilterModalProps) {
-  const [regionQuery, setRegionQuery] = useState('')
+  const [countryQuery, setCountryQuery] = useState('')
 
   useEffect(() => {
     if (!open) {
-      setRegionQuery('')
+      setCountryQuery('')
       return
     }
 
@@ -68,16 +78,36 @@ export function FilterModal({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open, onClose])
 
-  const countByCountry = useMemo(
-    () => new Map(regions.map((region) => [region.country, region.count ?? 0])),
-    [regions],
-  )
-  const visibleCountries = useMemo(() => filterIsoCountries(regionQuery), [regionQuery])
+  const visibleCountries = useMemo(() => {
+    const listed = regions.filter((region) => (region.count ?? 0) > 0)
+    const normalized = countryQuery.trim().toLowerCase()
+    const filtered = normalized
+      ? listed.filter((region) => {
+          const name = region.label || countryDisplayName(region.country)
+          return (
+            name.toLowerCase().includes(normalized) ||
+            region.country.toLowerCase().includes(normalized)
+          )
+        })
+      : listed
+    return [...filtered].sort((left, right) => {
+      if (left.country === 'GLOBAL') return -1
+      if (right.country === 'GLOBAL') return 1
+      return (left.label || countryDisplayName(left.country)).localeCompare(
+        right.label || countryDisplayName(right.country),
+      )
+    })
+  }, [regions, countryQuery])
 
   if (!open) return null
 
   const hasDraftFilters =
-    draftEras.length > 0 || draftGenres.length > 0 || draftCountries.length > 0
+    draftEras.length > 0 ||
+    draftGenres.length > 0 ||
+    draftCountries.length > 0 ||
+    draftCollections.length > 0
+  const showCountrySearch = regions.filter((region) => (region.count ?? 0) > 0).length > 8
+  const emptyPreview = previewCount === 0
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -89,27 +119,31 @@ export function FilterModal({
         <div className="filter-heading">
           <FilterIcon />
           <div>
-            <h2>Song filters</h2>
+            <h2>Filters</h2>
             <p>
-              {previewCount} {previewCount === 1 ? 'song' : 'songs'} available in{' '}
+              {previewCount} {previewCount === 1 ? 'song' : 'songs'} in{' '}
               {DIFFICULTY_LABELS[difficulty]}
             </p>
           </div>
         </div>
 
+        <p className="filter-helper">
+          Country is where it’s from. Collections are playlists like OPM.
+        </p>
+
         <fieldset className="filter-group">
-          <legend>
-            Region <span>(select any)</span>
-          </legend>
-          <input
-            type="search"
-            className="filter-region-search"
-            value={regionQuery}
-            onChange={(event) => setRegionQuery(event.target.value)}
-            placeholder="Search all countries"
-            aria-label="Search regions"
-          />
-          <div className="filter-options filter-region-list">
+          <legend>Country</legend>
+          {showCountrySearch ? (
+            <input
+              type="search"
+              className="filter-region-search"
+              value={countryQuery}
+              onChange={(event) => setCountryQuery(event.target.value)}
+              placeholder="Search countries"
+              aria-label="Search countries"
+            />
+          ) : null}
+          <div className="filter-options">
             <button
               type="button"
               className={draftCountries.length === 0 ? 'selected' : ''}
@@ -118,25 +152,22 @@ export function FilterModal({
             >
               {REGION_LABELS.all}
             </button>
-            {visibleCountries.map((country) => {
-              const count = countByCountry.get(country.code)
+            {visibleCountries.map((region) => {
+              const selected = draftCountries.includes(region.country)
               return (
                 <button
-                  key={country.code}
+                  key={region.country}
                   type="button"
-                  className={draftCountries.includes(country.code) ? 'selected' : ''}
-                  aria-pressed={draftCountries.includes(country.code)}
-                  onClick={() => onToggleRegion(country.code)}
+                  className={selected ? 'selected' : ''}
+                  aria-pressed={selected}
+                  onClick={() => onToggleRegion(region.country)}
                 >
                   <CountryFlag
-                    code={country.code}
+                    code={region.country}
                     className="filter-flag"
-                    title={country.name}
+                    title={region.label}
                   />
-                  <span>{country.name}</span>
-                  {count != null && count > 0 ? (
-                    <span className="filter-region-count">{count}</span>
-                  ) : null}
+                  <span>{region.label || countryDisplayName(region.country)}</span>
                 </button>
               )
             })}
@@ -144,9 +175,42 @@ export function FilterModal({
         </fieldset>
 
         <fieldset className="filter-group">
-          <legend>
-            Era <span>(select any)</span>
-          </legend>
+          <legend>Collections</legend>
+          <div className="filter-options">
+            <button
+              type="button"
+              className={draftCollections.length === 0 ? 'selected' : ''}
+              aria-pressed={draftCollections.length === 0}
+              onClick={onClearCollections}
+            >
+              All
+            </button>
+            {collections.map((collection) => {
+              const selected = draftCollections.includes(collection.id)
+              return (
+                <button
+                  key={collection.id}
+                  type="button"
+                  className={selected ? 'selected' : ''}
+                  aria-pressed={selected}
+                  onClick={() => onToggleCollection(collection.id)}
+                >
+                  {collection.emoji ? (
+                    <NotoEmoji
+                      emoji={collection.emoji}
+                      className="filter-flag"
+                      title={collection.name}
+                    />
+                  ) : null}
+                  <span>{collection.name}</span>
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+
+        <fieldset className="filter-group">
+          <legend>Era</legend>
           <div className="filter-options">
             <button
               type="button"
@@ -171,9 +235,7 @@ export function FilterModal({
         </fieldset>
 
         <fieldset className="filter-group">
-          <legend>
-            Genre <span>(select any)</span>
-          </legend>
+          <legend>Genre</legend>
           <div className="filter-options">
             <button
               type="button"
@@ -197,6 +259,12 @@ export function FilterModal({
           </div>
         </fieldset>
 
+        {emptyPreview ? (
+          <p className="filter-empty" role="status">
+            No songs match. Clear a filter and try again.
+          </p>
+        ) : null}
+
         <div className="filter-footer">
           <button
             type="button"
@@ -204,12 +272,12 @@ export function FilterModal({
             disabled={!hasDraftFilters}
             onClick={onClearAll}
           >
-            Clear filters
+            Clear
           </button>
           <button
             type="button"
             className="filter-done"
-            disabled={previewCount === 0}
+            disabled={emptyPreview}
             onClick={onApply}
           >
             Play this mix

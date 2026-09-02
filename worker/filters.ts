@@ -4,6 +4,8 @@ import {
   REGION_LABELS,
   REGION_OPTIONS,
   countriesFromQuery,
+  isCatalogKind,
+  type CatalogKind,
   type CountryCode,
   type RegionFilter,
 } from '../shared/catalog-meta'
@@ -21,12 +23,14 @@ export interface CatalogFilters {
   eras: EraFilter[]
   genres: GenreFilter[]
   countries: CountryCode[]
+  collections: CatalogKind[]
 }
 
 export const EMPTY_CATALOG_FILTERS: CatalogFilters = {
   eras: [],
   genres: [],
   countries: [],
+  collections: [],
 }
 
 export const ERA_LABELS: Record<EraFilter | 'all', string> = {
@@ -68,6 +72,21 @@ export function parseCountryFilters(
   regions?: string,
 ): CountryCode[] {
   return countriesFromQuery(countries, regions)
+}
+
+export function parseCollectionFilters(
+  collections?: string,
+  catalogs?: string,
+): CatalogKind[] {
+  const seen = new Set<CatalogKind>()
+  for (const raw of [collections, catalogs]) {
+    if (!raw?.trim()) continue
+    for (const item of raw.split(',')) {
+      const id = item.trim().toLowerCase()
+      if (isCatalogKind(id)) seen.add(id)
+    }
+  }
+  return [...seen]
 }
 
 export function toggleFilterValue<T extends string>(current: T[], value: T, allValues: readonly T[]): T[] {
@@ -136,17 +155,26 @@ function matchesCountry(track: Track, country: CountryCode): boolean {
   return getTrackCountry(track) === country
 }
 
+function matchesCollection(track: Track, collection: CatalogKind): boolean {
+  if (track.catalog === collection) return true
+  return track.collections?.includes(collection) === true
+}
+
 export function trackMatchesFilters(track: Track, filters: CatalogFilters): boolean {
   const eras = filters.eras
   const genres = filters.genres
   const countries = filters.countries
+  const collections = filters.collections
 
   const eraMatch = eras.length === 0 || eras.some((era) => matchesEra(track, era))
   const genreMatch = genres.length === 0 || genres.some((genre) => matchesGenre(track, genre))
   const countryMatch =
     countries.length === 0 || countries.some((country) => matchesCountry(track, country))
+  const collectionMatch =
+    collections.length === 0 ||
+    collections.some((collection) => matchesCollection(track, collection))
 
-  return eraMatch && genreMatch && countryMatch
+  return eraMatch && genreMatch && countryMatch && collectionMatch
 }
 
 export function filterTracks(tracks: Track[], filters: CatalogFilters): Track[] {

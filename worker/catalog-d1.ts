@@ -6,6 +6,7 @@ import {
   type CatalogKind,
   type CountryCode,
 } from '../shared/catalog-meta'
+import { mapRequestedPoolTier, poolTierCaseSql } from './difficulty'
 import {
   EMPTY_CATALOG_FILTERS,
   ERA_OPTIONS,
@@ -14,7 +15,8 @@ import {
   type EraFilter,
   type GenreFilter,
 } from './filters'
-import { dedupeTracks, songIdentityKey } from './track-dedupe'
+import { compareVariants, dedupeTracks, songIdentityKey } from './track-dedupe'
+import { findVariantRowsByIdentity } from './variant-rows'
 import type { Difficulty, Env, Track } from './types'
 
 export const MAX_CATALOG_TRACKS = 20_000
@@ -44,6 +46,7 @@ export interface TrackRow {
   difficulty: Difficulty
   popularity: number | null
   play_count: number | null
+  play_count_updated_at: string | null
   artist_popularity: number | null
   release_year: number | null
   release_date: string | null
@@ -67,8 +70,11 @@ export interface CatalogStats {
   popularityMissing: number
   playCountFilled: number
   playCountMissing: number
+  /** Rows whose play count has never been stamped, so a sweep should revisit. */
+  playCountStale: number
   releaseDateFilled: number
   releaseDateMissing: number
+  previewMissing: number
 }
 
 export interface CatalogMutationResult {
@@ -82,6 +88,8 @@ export interface AddTracksToCatalogResult {
   totalTracks: number
   skippedExisting: number
   skippedCap: number
+  /** Rows dropped because an incoming recording of the same song scored better. */
+  replaced?: number
 }
 
 export interface CatalogListFilters {
@@ -105,6 +113,7 @@ export interface CatalogListPage {
     hasPreview: boolean
     popularity?: number
     playCount?: number
+    playCountUpdatedAt?: string
     country: CountryCode
     catalog: CatalogKind
     releaseDate?: string
@@ -222,6 +231,7 @@ function trackBindValues(track: Track, now: string): SqlValue[] {
     track.difficulty,
     track.popularity ?? null,
     track.playCount ?? null,
+    track.playCount != null ? now : null,
     track.artistPopularity ?? null,
     track.releaseYear ?? null,
     track.releaseDate ?? null,
@@ -239,13 +249,16 @@ function trackBindValues(track: Track, now: string): SqlValue[] {
 }
 
 const INSERT_COLUMNS = `id, title, artist, preview_url, hook_preview_url, hook_start_seconds,
-  album_art, difficulty, popularity, play_count, artist_popularity, release_year, release_date, duration_ms,
+  album_art, difficulty, popularity, play_count, play_count_updated_at, artist_popularity,
+  release_year, release_date, duration_ms,
   genre_groups, spotify_genres, song_key, updated_at, spotify_synced_at, country, catalog,
   chart_boost, force_tier`
 
-const INSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const INSERT_PLACEHOLDERS = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
 
-const UPSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+const INSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})`
+
+const UPSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})
   ON CONFLICT(id) DO UPDATE SET
     title = excluded.title,
     artist = excluded.artist,
@@ -259,6 +272,7 @@ const UPSERT_SQL = `INSERT INTO tracks (${INSERT_COLUMNS}) VALUES (?, ?, ?, ?, ?
     END,
     popularity = COALESCE(excluded.popularity, tracks.popularity),
     play_count = COALESCE(excluded.play_count, tracks.play_count),
+    play_count_updated_at = COALESCE(excluded.play_count_updated_at, tracks.play_count_updated_at),
     artist_popularity = COALESCE(excluded.artist_popularity, tracks.artist_popularity),
     release_year = COALESCE(excluded.release_year, tracks.release_year),
     release_date = COALESCE(excluded.release_date, tracks.release_date),
@@ -310,10 +324,132 @@ function buildFilterSql(filters: CatalogFilters): { sql: string; params: SqlValu
     params.push(...filters.countries)
   }
 
+  if (filters.collections.length > 0) {
+    const placeholders = filters.collections.map(() => '?').join(', ')
+    clauses.push(`(
+      catalog IN (${placeholders})
+      OR EXISTS (
+        SELECT 1 FROM track_collections tc
+        WHERE tc.track_id = tracks.id AND tc.collection_id IN (${placeholders})
+      )
+    )`)
+    params.push(...filters.collections, ...filters.collections)
+  }
+
   return {
     sql: clauses.length > 0 ? ` AND ${clauses.join(' AND ')}` : '',
     params,
   }
+}
+
+function collectionFilterCatalogOnly(filters: CatalogFilters): { sql: string; params: SqlValue[] } {
+  if (filters.collections.length === 0) return { sql: '', params: [] }
+  const placeholders = filters.collections.map(() => '?').join(', ')
+  return {
+    sql: ` AND catalog IN (${placeholders})`,
+    params: [...filters.collections],
+  }
+}
+
+function buildFilterSqlWithFallback(
+  filters: CatalogFilters,
+  joinTable: boolean,
+): { sql: string; params: SqlValue[] } {
+  if (joinTable || filters.collections.length === 0) return buildFilterSql(filters)
+
+  const withoutCollections = buildFilterSql({ ...filters, collections: [] })
+  const catalogOnly = collectionFilterCatalogOnly(filters)
+  return {
+    sql: `${withoutCollections.sql}${catalogOnly.sql}`,
+    params: [...withoutCollections.params, ...catalogOnly.params],
+  }
+}
+
+function preferGlobalMix(filters: CatalogFilters): boolean {
+  return filters.countries.length === 0 && filters.collections.length === 0
+}
+
+function pickWeightSql(filters: CatalogFilters): string {
+  const jitter = `((ABS(RANDOM()) % 80) + 20)`
+  if (!preferGlobalMix(filters)) return jitter
+  return `(CASE
+      WHEN country = 'GLOBAL' THEN 4
+      WHEN catalog = 'global' THEN 3
+      ELSE 1
+    END) * ${jitter}`
+}
+
+/**
+ * Rank the filtered pool by blended relative fame, then slice into game tiers.
+ * Missing popularity / plays are skipped (never treated as 0). Cutpoints are
+ * percentiles of *this* pool, so they move as the catalog grows.
+ */
+function poolTieredCte(filterSql: string): string {
+  return `WITH pool AS (
+      SELECT
+        tracks.*,
+        CASE WHEN play_count IS NOT NULL AND play_count > 0 THEN 1 ELSE 0 END AS has_plays,
+        CASE WHEN popularity IS NOT NULL THEN 1 ELSE 0 END AS has_pop,
+        CASE
+          WHEN play_count IS NOT NULL AND play_count > 0 AND release_year IS NOT NULL THEN 1
+          ELSE 0
+        END AS has_vel,
+        CASE WHEN artist_popularity IS NOT NULL THEN 1 ELSE 0 END AS has_artist,
+        CASE
+          WHEN play_count IS NOT NULL AND play_count > 0 AND release_year IS NOT NULL
+          THEN play_count * 1.0 / MAX(1, CAST(strftime('%Y', 'now') AS INTEGER) - release_year + 1)
+        END AS velocity
+      FROM tracks
+      WHERE 1 = 1${filterSql}
+    ),
+    ranked AS (
+      SELECT
+        pool.*,
+        CASE
+          WHEN has_plays = 1
+          THEN PERCENT_RANK() OVER (PARTITION BY has_plays ORDER BY play_count ASC)
+        END AS play_pct,
+        CASE
+          WHEN has_pop = 1
+          THEN PERCENT_RANK() OVER (PARTITION BY has_pop ORDER BY popularity ASC)
+        END AS pop_pct,
+        CASE
+          WHEN has_vel = 1
+          THEN PERCENT_RANK() OVER (PARTITION BY has_vel ORDER BY velocity ASC)
+        END AS vel_pct,
+        CASE
+          WHEN has_artist = 1
+          THEN PERCENT_RANK() OVER (PARTITION BY has_artist ORDER BY artist_popularity ASC)
+        END AS artist_pct,
+        COUNT(*) OVER () AS pool_n
+      FROM pool
+    ),
+    scored AS (
+      SELECT
+        ranked.*,
+        CASE
+          WHEN (has_plays * 0.65 + has_pop * 0.20 + has_vel * 0.10 + has_artist * 0.05) = 0
+          THEN 0.5
+          ELSE (
+            COALESCE(play_pct, 0) * has_plays * 0.65
+            + COALESCE(pop_pct, 0) * has_pop * 0.20
+            + COALESCE(vel_pct, 0) * has_vel * 0.10
+            + COALESCE(artist_pct, 0) * has_artist * 0.05
+          ) / (has_plays * 0.65 + has_pop * 0.20 + has_vel * 0.10 + has_artist * 0.05)
+        END
+        + CASE WHEN COALESCE(chart_boost, 0) = 1 THEN 0.03 ELSE 0 END AS pool_score
+      FROM ranked
+    ),
+    fame AS (
+      SELECT
+        scored.*,
+        PERCENT_RANK() OVER (ORDER BY pool_score ASC) AS fame_pct
+      FROM scored
+    ),
+    tiered AS (
+      SELECT fame.*, ${poolTierCaseSql()} AS pool_tier
+      FROM fame
+    )`
 }
 
 function inClause(column: string, values: string[]): { sql: string; params: SqlValue[] } {
@@ -337,12 +473,15 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
          COUNT(*) AS count,
          MAX(updated_at) AS updated_at,
          MAX(spotify_synced_at) AS spotify_synced_at,
-         SUM(CASE WHEN popularity IS NOT NULL AND popularity > 0 THEN 1 ELSE 0 END) AS popularity_filled,
-         SUM(CASE WHEN popularity IS NULL OR popularity = 0 THEN 1 ELSE 0 END) AS popularity_missing,
+         -- A stored 0 is a real Spotify answer, so only NULL counts as missing.
+         SUM(CASE WHEN popularity IS NOT NULL THEN 1 ELSE 0 END) AS popularity_filled,
+         SUM(CASE WHEN popularity IS NULL THEN 1 ELSE 0 END) AS popularity_missing,
          SUM(CASE WHEN play_count IS NOT NULL THEN 1 ELSE 0 END) AS play_count_filled,
          SUM(CASE WHEN play_count IS NULL THEN 1 ELSE 0 END) AS play_count_missing,
+         SUM(CASE WHEN play_count_updated_at IS NULL THEN 1 ELSE 0 END) AS play_count_stale,
          SUM(CASE WHEN release_date IS NOT NULL AND release_date != '' THEN 1 ELSE 0 END) AS release_date_filled,
-         SUM(CASE WHEN release_date IS NULL OR release_date = '' THEN 1 ELSE 0 END) AS release_date_missing
+         SUM(CASE WHEN release_date IS NULL OR release_date = '' THEN 1 ELSE 0 END) AS release_date_missing,
+         SUM(CASE WHEN preview_url IS NULL OR preview_url = '' THEN 1 ELSE 0 END) AS preview_missing
        FROM tracks`,
     )
     .first<{
@@ -353,8 +492,10 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
       popularity_missing: number | null
       play_count_filled: number | null
       play_count_missing: number | null
+      play_count_stale: number | null
       release_date_filled: number | null
       release_date_missing: number | null
+      preview_missing: number | null
     }>()
 
   return {
@@ -365,8 +506,10 @@ export async function getCatalogStats(env: Env): Promise<CatalogStats> {
     popularityMissing: row?.popularity_missing ?? 0,
     playCountFilled: row?.play_count_filled ?? 0,
     playCountMissing: row?.play_count_missing ?? 0,
+    playCountStale: row?.play_count_stale ?? 0,
     releaseDateFilled: row?.release_date_filled ?? 0,
     releaseDateMissing: row?.release_date_missing ?? 0,
+    previewMissing: row?.preview_missing ?? 0,
   }
 }
 
@@ -381,14 +524,30 @@ export async function listTrackIds(env: Env): Promise<string[]> {
   return (result.results ?? []).map((row) => row.id)
 }
 
-/** Tracks still missing a play count or a release date, oldest sync first. */
+/**
+ * Tracks that still need public stats, oldest attempt first.
+ *
+ * `play_count_updated_at IS NULL` is the retry marker: a track whose enrichment
+ * failed keeps a null timestamp and is picked up again, while a track Spotify
+ * genuinely has no play count for is only retried once its timestamp ages out.
+ *
+ * A stored popularity of 0 is a real answer, not a gap: Spotify rates live and
+ * concert-album cuts that way. Only NULL means "never fetched", so zeros are
+ * left alone instead of being re-requested on every sweep.
+ */
 export async function listTrackIdsMissingPublicStats(env: Env, limit = 250): Promise<string[]> {
   const db = requireDb(env)
   const result = await db
     .prepare(
       `SELECT id FROM tracks
-       WHERE play_count IS NULL OR release_date IS NULL OR release_date = ''
-       ORDER BY (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
+       WHERE play_count_updated_at IS NULL
+          OR play_count IS NULL
+          OR popularity IS NULL
+          OR artist_popularity IS NULL
+          OR release_date IS NULL
+          OR release_date = ''
+       ORDER BY (play_count_updated_at IS NOT NULL), play_count_updated_at ASC,
+         (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
        LIMIT ?`,
     )
     .bind(limit)
@@ -402,7 +561,7 @@ export async function listTrackIdsStalestStats(env: Env, limit = 250): Promise<s
   const result = await db
     .prepare(
       `SELECT id FROM tracks
-       ORDER BY (spotify_synced_at IS NOT NULL), spotify_synced_at ASC
+       ORDER BY (play_count_updated_at IS NOT NULL), play_count_updated_at ASC
        LIMIT ?`,
     )
     .bind(limit)
@@ -510,21 +669,13 @@ export async function findExistingIdentities(
   return { ids, songKeys }
 }
 
-function keeperScore(row: {
-  album_art: string | null
-  preview_url: string | null
-  song_key: string | null
-  updated_at: string | null
-}): number {
-  let score = 0
-  if (row.album_art) score += 10
-  if (row.preview_url) score += 10
-  if (row.song_key) score += 1
-  if (row.updated_at) score += 0.001
-  return score
-}
-
-/** Keep one row per song_key / identity. Prefer album art + preview. */
+/**
+ * Keep one row per song identity, including version variants.
+ *
+ * Grouping recomputes the canonical key instead of trusting `song_key`, so
+ * rows written before the canonicalizer learned a qualifier still collapse, and
+ * the surviving row has its key rewritten to match.
+ */
 export async function removeDuplicateTracks(env: Env): Promise<{
   removed: number
   kept: number
@@ -533,7 +684,8 @@ export async function removeDuplicateTracks(env: Env): Promise<{
   const db = requireDb(env)
   const result = await db
     .prepare(
-      `SELECT id, title, artist, song_key, album_art, preview_url, updated_at FROM tracks`,
+      `SELECT id, title, artist, song_key, album_art, preview_url, play_count, popularity, updated_at
+       FROM tracks`,
     )
     .all<{
       id: string
@@ -542,12 +694,14 @@ export async function removeDuplicateTracks(env: Env): Promise<{
       song_key: string | null
       album_art: string | null
       preview_url: string | null
+      play_count: number | null
+      popularity: number | null
       updated_at: string | null
     }>()
 
   const groups = new Map<string, typeof result.results>()
   for (const row of result.results ?? []) {
-    const key = row.song_key || songIdentityKey(row)
+    const key = songIdentityKey(row)
     if (!key) continue
     const list = groups.get(key) ?? []
     list.push(row)
@@ -559,7 +713,12 @@ export async function removeDuplicateTracks(env: Env): Promise<{
 
   for (const [key, rows] of groups) {
     if (!rows || rows.length === 0) continue
-    const ranked = [...rows].sort((left, right) => keeperScore(right) - keeperScore(left))
+    const ranked = [...rows].sort((left, right) =>
+      compareVariants(
+        { id: left.id, title: left.title, playCount: left.play_count, popularity: left.popularity, albumArt: left.album_art, previewUrl: left.preview_url },
+        { id: right.id, title: right.title, playCount: right.play_count, popularity: right.popularity, albumArt: right.album_art, previewUrl: right.preview_url },
+      ),
+    )
     const keep = ranked[0]
     if (!keep) continue
     keyUpdates.push({ id: keep.id, songKey: key })
@@ -602,101 +761,54 @@ export async function findTrackById(env: Env, id: string): Promise<Track | undef
   return row ? rowToTrack(row) : undefined
 }
 
-/**
- * Play count on the same 0–100 scale as popularity. Bucketed rather than
- * log-scaled because D1's SQLite build has no log10(); the steps mirror
- * `playCountScore` in difficulty.ts.
- */
-const PLAY_COUNT_SCORE_SQL = `CASE
-      WHEN play_count >= 300000000 THEN 100
-      WHEN play_count >= 100000000 THEN 89
-      WHEN play_count >= 30000000 THEN 77
-      WHEN play_count >= 10000000 THEN 67
-      WHEN play_count >= 3000000 THEN 55
-      WHEN play_count >= 1000000 THEN 44
-      WHEN play_count >= 300000 THEN 33
-      WHEN play_count >= 100000 THEN 22
-      WHEN play_count >= 30000 THEN 11
-      ELSE 0
-    END`
+function emptyDifficultyCounts(): Record<Difficulty, number> {
+  return Object.fromEntries(DIFFICULTIES.map((item) => [item, 0])) as Record<Difficulty, number>
+}
 
-// Popularity stays the primary term; plays stand in for it only when the Web
-// API quota left it empty, so tuned thresholds keep their original meaning.
-const FAME_SQL = `(
-  0.62 * (CASE WHEN COALESCE(popularity, 0) > 0 THEN popularity ELSE ${PLAY_COUNT_SCORE_SQL} END)
-  + 0.22 * COALESCE(artist_popularity, 0)
-  + CASE WHEN COALESCE(chart_boost, 0) = 1 THEN 16 ELSE 0 END
-  + CASE WHEN force_tier = 'easy' THEN 10 ELSE 0 END
-  + CASE difficulty
-      WHEN 'easy' THEN 28
-      WHEN 'medium' THEN 14
-      WHEN 'hard' THEN 6
-      ELSE 0
-    END
-  - CASE
-      WHEN COALESCE(popularity, 0) < 40
-        AND COALESCE(chart_boost, 0) = 0
-        AND COALESCE(play_count, 0) < 5000000
-        AND release_year IS NOT NULL
-        AND release_year >= CAST(strftime('%Y', 'now') AS INTEGER) - 1
-      THEN 22
-      ELSE 0
-    END
-)`
+async function runFilterQuery<T>(
+  db: D1Database,
+  filters: CatalogFilters,
+  sqlFor: (filterSql: string) => string,
+): Promise<{ rows: T[]; params: SqlValue[] }> {
+  const attempts: Array<{ sql: string; params: SqlValue[] }> = [
+    buildFilterSqlWithFallback(filters, true),
+  ]
+  if (filters.collections.length > 0) {
+    attempts.push(buildFilterSqlWithFallback(filters, false))
+  }
 
-function fameThreshold(difficulty: Difficulty): number {
-  switch (difficulty) {
-    case 'easy':
-      return 42
-    case 'medium':
-      return 28
-    case 'hard':
-      return 14
-    case 'expert':
-      return 6
-    case 'impossible':
-      return 0
-    default: {
-      const _never: never = difficulty
-      throw new Error(`Unhandled difficulty: ${_never}`)
+  let lastError: unknown
+  for (const attempt of attempts) {
+    try {
+      const result = await db
+        .prepare(sqlFor(attempt.sql))
+        .bind(...attempt.params)
+        .all<T>()
+      return { rows: result.results ?? [], params: attempt.params }
+    } catch (error) {
+      lastError = error
     }
   }
+  throw lastError instanceof Error ? lastError : new Error('Catalog filter query failed')
 }
-
-function shouldApplyFameGate(filters: CatalogFilters, fameGate: boolean): boolean {
-  return fameGate && filters.countries.length === 0
-}
-
-const FAME_GATE_SQL = ` AND ${FAME_SQL} >= CASE difficulty
-  WHEN 'easy' THEN 42
-  WHEN 'medium' THEN 28
-  WHEN 'hard' THEN 14
-  WHEN 'expert' THEN 6
-  ELSE 0
-END`
 
 export async function getAvailabilityCounts(
   env: Env,
   filters: CatalogFilters,
-  options: { fameGate?: boolean } = {},
 ): Promise<Record<Difficulty, number>> {
   const db = requireDb(env)
-  const { sql, params } = buildFilterSql(filters)
-  const fameSql = shouldApplyFameGate(filters, options.fameGate !== false) ? FAME_GATE_SQL : ''
-  const result = await db
-    .prepare(
-      `SELECT difficulty, COUNT(*) AS n FROM tracks WHERE 1 = 1${sql}${fameSql} GROUP BY difficulty`,
-    )
-    .bind(...params)
-    .all<{ difficulty: Difficulty; n: number }>()
+  const { rows } = await runFilterQuery<{ pool_tier: Difficulty; n: number }>(
+    db,
+    filters,
+    (filterSql) =>
+      `${poolTieredCte(filterSql)}
+       SELECT pool_tier, COUNT(*) AS n FROM tiered GROUP BY pool_tier`,
+  )
 
-  const counts = Object.fromEntries(DIFFICULTIES.map((item) => [item, 0])) as Record<
-    Difficulty,
-    number
-  >
-  for (const row of result.results ?? []) {
-    if (DIFFICULTIES.includes(row.difficulty)) {
-      counts[row.difficulty] = row.n
+  const counts = emptyDifficultyCounts()
+  for (const row of rows) {
+    if (DIFFICULTIES.includes(row.pool_tier)) {
+      counts[row.pool_tier] = row.n
     }
   }
   return counts
@@ -705,45 +817,99 @@ export async function getAvailabilityCounts(
 export async function getDifficultyDistribution(
   env: Env,
 ): Promise<Record<Difficulty, number>> {
-  return getAvailabilityCounts(env, EMPTY_CATALOG_FILTERS, { fameGate: false })
-}
+  const db = requireDb(env)
+  const result = await db
+    .prepare(`SELECT difficulty, COUNT(*) AS n FROM tracks GROUP BY difficulty`)
+    .all<{ difficulty: Difficulty; n: number }>()
 
-async function pickOne(
-  db: D1Database,
-  difficulty: Difficulty,
-  filterSql: string,
-  filterParams: SqlValue[],
-  extraSql: string,
-  extraParams: SqlValue[],
-  useFame: boolean,
-): Promise<Track | null> {
-  if (useFame) {
-    const thresholds = [
-      fameThreshold(difficulty),
-      Math.floor(fameThreshold(difficulty) / 2),
-      0,
-    ]
-    for (const minFame of thresholds) {
-      const row = await db
-        .prepare(
-          `SELECT * FROM tracks
-           WHERE difficulty = ?${filterSql}${extraSql} AND ${FAME_SQL} >= ?
-           ORDER BY (${FAME_SQL} + 15) * ((ABS(RANDOM()) % 80) + 20) DESC
-           LIMIT 1`,
-        )
-        .bind(difficulty, ...filterParams, ...extraParams, minFame)
-        .first<TrackRow>()
-      if (row) return rowToTrack(row)
+  const counts = emptyDifficultyCounts()
+  for (const row of result.results ?? []) {
+    if (DIFFICULTIES.includes(row.difficulty)) {
+      counts[row.difficulty] = row.n
     }
   }
+  return counts
+}
 
-  const row = await db
-    .prepare(
-      `SELECT * FROM tracks WHERE difficulty = ?${filterSql}${extraSql} ORDER BY RANDOM() LIMIT 1`,
-    )
-    .bind(difficulty, ...filterParams, ...extraParams)
-    .first<TrackRow>()
-  return row ? rowToTrack(row) : null
+async function countFilteredPool(db: D1Database, filters: CatalogFilters): Promise<number> {
+  const { rows } = await runFilterQuery<{ n: number }>(
+    db,
+    filters,
+    (filterSql) => `SELECT COUNT(*) AS n FROM tracks WHERE 1 = 1${filterSql}`,
+  )
+  return rows[0]?.n ?? 0
+}
+
+async function pickOneFromPool(
+  db: D1Database,
+  difficulty: Difficulty,
+  filters: CatalogFilters,
+  extraSql: string,
+  extraParams: SqlValue[],
+): Promise<Track | null> {
+  const weight = pickWeightSql(filters)
+  const attempts: Array<{ sql: string; params: SqlValue[] }> = [
+    buildFilterSqlWithFallback(filters, true),
+  ]
+  if (filters.collections.length > 0) {
+    attempts.push(buildFilterSqlWithFallback(filters, false))
+  }
+
+  let lastError: unknown
+  for (const attempt of attempts) {
+    try {
+      const row = await db
+        .prepare(
+          `${poolTieredCte(attempt.sql)}
+           SELECT * FROM tiered
+           WHERE pool_tier = ?${extraSql}
+           ORDER BY ${weight} DESC
+           LIMIT 1`,
+        )
+        .bind(...attempt.params, difficulty, ...extraParams)
+        .first<TrackRow>()
+      return row ? rowToTrack(row) : null
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Catalog pick query failed')
+}
+
+export async function findTrackPoolPlacement(
+  env: Env,
+  trackId: string,
+  filters: CatalogFilters,
+): Promise<{ track: Track; tier: Difficulty; poolN: number } | null> {
+  const db = requireDb(env)
+  const attempts: Array<{ sql: string; params: SqlValue[] }> = [
+    buildFilterSqlWithFallback(filters, true),
+  ]
+  if (filters.collections.length > 0) {
+    attempts.push(buildFilterSqlWithFallback(filters, false))
+  }
+
+  let lastError: unknown
+  for (const attempt of attempts) {
+    try {
+      const row = await db
+        .prepare(
+          `${poolTieredCte(attempt.sql)}
+           SELECT * FROM tiered WHERE id = ? LIMIT 1`,
+        )
+        .bind(...attempt.params, trackId)
+        .first<TrackRow & { pool_tier: Difficulty; pool_n: number }>()
+      if (!row) return null
+      return {
+        track: rowToTrack(row),
+        tier: row.pool_tier,
+        poolN: row.pool_n,
+      }
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Catalog placement query failed')
 }
 
 export async function pickRandomTrack(
@@ -754,7 +920,10 @@ export async function pickRandomTrack(
   excludeSongKeys: ReadonlySet<string> = new Set(),
 ): Promise<Track | null> {
   const db = requireDb(env)
-  const { sql: filterSql, params: filterParams } = buildFilterSql(filters)
+  const poolN = await countFilteredPool(db, filters)
+  if (poolN === 0) return null
+  const poolTier = mapRequestedPoolTier(difficulty, poolN)
+
   const ids = [...excludeIds]
   const keys = [...excludeSongKeys]
   const idClause = inClause('id', ids)
@@ -767,16 +936,13 @@ export async function pickRandomTrack(
     { sql: '', params: [] },
   ]
 
-  const useFame = shouldApplyFameGate(filters, true)
   for (const attempt of attempts) {
-    const track = await pickOne(
+    const track = await pickOneFromPool(
       db,
-      difficulty,
-      filterSql,
-      filterParams,
+      poolTier,
+      filters,
       attempt.sql,
       attempt.params,
-      useFame,
     )
     if (track) return track
   }
@@ -812,32 +978,66 @@ export async function insertTracks(
     return { added: 0, totalTracks: totalBefore, skippedExisting: 0, skippedCap: 0 }
   }
 
-  const identities = await findExistingIdentities(env, tracks)
+  // Variants of one song are duplicates to a player, so the batch settles on
+  // its own best recording before it is compared with what D1 already holds.
+  const candidates = dedupeTracks(tracks)
+
+  const identities = await findExistingIdentities(env, candidates)
+  const rivals = await findVariantRowsByIdentity(db, candidates)
   const existing = identities.ids
   const existingKeys = identities.songKeys
-  let skippedExisting = 0
+  let skippedExisting = tracks.length - candidates.length
   let skippedCap = 0
   const incoming: Track[] = []
+  const replacedIds: string[] = []
   let remainingCap = Math.max(0, MAX_CATALOG_TRACKS - totalBefore)
 
-  for (const track of tracks) {
+  for (const track of candidates) {
     const key = songIdentityKey(track)
-    if (existing.has(track.id) || existingKeys.has(key)) {
+    if (existing.has(track.id)) {
       skippedExisting += 1
       continue
     }
-    if (remainingCap <= 0) {
-      skippedCap += 1
-      continue
+
+    const rival = rivals.get(key)
+    if (rival) {
+      // Keep the better recording rather than whichever arrived first.
+      if (compareVariants(track, rival) >= 0) {
+        skippedExisting += 1
+        continue
+      }
+      // Swapping one recording for another does not grow the catalog, so a
+      // replacement is not charged against the track cap.
+      replacedIds.push(rival.id)
+      rivals.delete(key)
+      existingKeys.delete(key)
+    } else {
+      if (existingKeys.has(key)) {
+        skippedExisting += 1
+        continue
+      }
+      if (remainingCap <= 0) {
+        skippedCap += 1
+        continue
+      }
+      remainingCap -= 1
     }
+
     existing.add(track.id)
     existingKeys.add(key)
     incoming.push(track)
-    remainingCap -= 1
   }
 
   if (incoming.length === 0) {
-    return { added: 0, totalTracks: totalBefore, skippedExisting, skippedCap }
+    return { added: 0, totalTracks: totalBefore, skippedExisting, skippedCap, replaced: 0 }
+  }
+
+  for (let index = 0; index < replacedIds.length; index += MAX_IN_PARAMS) {
+    const batch = replacedIds.slice(index, index + MAX_IN_PARAMS)
+    await db
+      .prepare(`DELETE FROM tracks WHERE id IN (${batch.map(() => '?').join(', ')})`)
+      .bind(...batch)
+      .run()
   }
 
   const now = new Date().toISOString()
@@ -848,9 +1048,10 @@ export async function insertTracks(
 
   return {
     added: incoming.length,
-    totalTracks: totalBefore + incoming.length,
+    totalTracks: totalBefore + incoming.length - replacedIds.length,
     skippedExisting,
     skippedCap,
+    replaced: replacedIds.length,
   }
 }
 
@@ -1123,6 +1324,7 @@ export async function applyTrackMetricPatches(
            album_art = COALESCE(?, album_art),
            popularity = COALESCE(?, popularity),
            play_count = COALESCE(?, play_count),
+           play_count_updated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE play_count_updated_at END,
            artist_popularity = COALESCE(?, artist_popularity),
            release_year = COALESCE(?, release_year),
            release_date = COALESCE(?, release_date),
@@ -1146,6 +1348,8 @@ export async function applyTrackMetricPatches(
         patch.albumArt ?? null,
         patch.popularity ?? null,
         patch.playCount ?? null,
+        patch.playCount ?? null,
+        now,
         patch.artistPopularity ?? null,
         patch.releaseYear ?? null,
         patch.releaseDate ?? null,
@@ -1335,6 +1539,7 @@ export async function listCatalogPage(
         hasPreview: Boolean(track.previewUrl),
         popularity: track.popularity,
         playCount: track.playCount,
+        playCountUpdatedAt: row.play_count_updated_at ?? undefined,
         country: track.country ?? DEFAULT_COUNTRY,
         catalog: track.catalog ?? DEFAULT_CATALOG,
         releaseDate: track.releaseDate,
@@ -1397,6 +1602,70 @@ export async function applyOembedPatches(env: Env, patches: OembedPatch[]): Prom
          WHERE id = ?`,
       )
       .bind(patch.title ?? null, patch.artist ?? null, patch.albumArt ?? null, now, patch.id),
+  )
+
+  let updated = 0
+  for (let index = 0; index < statements.length; index += 100) {
+    const result = await db.batch(statements.slice(index, index + 100))
+    updated += result.reduce((sum, item) => sum + (item.meta?.changes ?? 0), 0)
+  }
+  return updated
+}
+
+export async function listTracksMissingPreview(
+  env: Env,
+): Promise<Array<{ id: string; title: string; artist: string; hookPreviewUrl: string | null }>> {
+  const db = requireDb(env)
+  const result = await db
+    .prepare(
+      `SELECT id, title, artist, hook_preview_url
+       FROM tracks
+       WHERE preview_url IS NULL OR preview_url = ''`,
+    )
+    .all<{ id: string; title: string; artist: string; hook_preview_url: string | null }>()
+  return (result.results ?? []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    artist: row.artist,
+    hookPreviewUrl: row.hook_preview_url,
+  }))
+}
+
+export async function applyPreviewPatches(
+  env: Env,
+  patches: Array<{
+    id: string
+    previewUrl: string
+    hookPreviewUrl?: string
+    hookStartSeconds?: number
+  }>,
+): Promise<number> {
+  const usable = patches.filter((patch) => patch.id && patch.previewUrl)
+  if (usable.length === 0) return 0
+
+  const db = requireDb(env)
+  const now = new Date().toISOString()
+  const statements = usable.map((patch) =>
+    db
+      .prepare(
+        `UPDATE tracks SET
+           preview_url = ?,
+           hook_preview_url = CASE
+             WHEN (hook_preview_url IS NULL OR hook_preview_url = '') AND ? IS NOT NULL THEN ?
+             ELSE hook_preview_url
+           END,
+           hook_start_seconds = COALESCE(hook_start_seconds, ?),
+           updated_at = ?
+         WHERE id = ? AND (preview_url IS NULL OR preview_url = '')`,
+      )
+      .bind(
+        patch.previewUrl,
+        patch.hookPreviewUrl ?? null,
+        patch.hookPreviewUrl ?? null,
+        patch.hookStartSeconds ?? null,
+        now,
+        patch.id,
+      ),
   )
 
   let updated = 0
