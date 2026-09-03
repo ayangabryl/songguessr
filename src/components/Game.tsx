@@ -1546,6 +1546,7 @@ export function Game() {
         </header>
 
         <main className="stage" data-intent={mascotIntent}>
+          <div className="console-group">
           <div className="stage-head">
             <p className="readout" role="status">
               {readout}
@@ -1765,9 +1766,11 @@ export function Game() {
               </div>
             )}
           </section>
+          </div>
 
-          {session.length > 0 ? (
-            <section className="session" aria-label="This sitting">
+          <section className="session" aria-label="This sitting">
+            {session.length > 0 ? (
+              <>
               <h2 className="session-title">This sitting</h2>
               <ul className="session-list">
                 {session.map((entry) => (
@@ -1790,8 +1793,9 @@ export function Game() {
                   </li>
                 ))}
               </ul>
-            </section>
-          ) : null}
+              </>
+            ) : null}
+          </section>
         </main>
       </div>
 
