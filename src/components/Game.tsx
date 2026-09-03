@@ -73,11 +73,7 @@ import {
   warmupSpotifyPlayer,
 } from '../lib/spotify-player'
 import { useSpotify } from '../hooks/useSpotify'
-import {
-  progressAtElapsedSeconds,
-  progressAtStageBoundary,
-  stageSegmentWeight,
-} from '../lib/stage-progress'
+import { progressAtElapsedSeconds } from '../lib/stage-progress'
 import { loadRecentExcludes, rememberTrack, clearRecentTrackIds } from '../lib/recent-tracks'
 import { incrementStreak, loadStreak, resetStreak } from '../lib/streak'
 import {
@@ -111,6 +107,7 @@ import { SpotifyConnect } from './SpotifyConnect'
 import { Mascot } from './Mascot'
 import { SettingsSheet } from './SettingsSheet'
 import { StreakBadge } from './StreakBadge'
+import { Ruler, stopPosition } from './Ruler'
 
 const FilterModal = lazy(() =>
   import('./FilterModal').then((mod) => ({ default: mod.FilterModal })),
@@ -138,10 +135,30 @@ function resolveMascotIntent(input: {
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
 
+/** An event drawn on the ruler at the stage where it happened. */
+export interface RoundMark {
+  stage: number
+  kind: 'miss' | 'skip'
+  label?: string
+}
+
+/** One finished round in this sitting; the ruler is reused as its signature. */
+interface SessionEntry {
+  id: string
+  title: string
+  artist: string
+  albumArt?: string
+  status: 'won' | 'lost'
+  solvedStage: number | null
+  stages: number[]
+  marks: RoundMark[]
+}
+
 interface RoundState {
   round: GameRound | null
   stageIndex: number
   wrongGuesses: string[]
+  marks: RoundMark[]
   status: ShellStatus
   answer: SearchResult | null
   startedAt: number
@@ -155,6 +172,7 @@ function createRoundState(): RoundState {
     round: null,
     stageIndex: 0,
     wrongGuesses: [],
+    marks: [],
     status: 'idle',
     answer: null,
     startedAt: Date.now(),
@@ -162,45 +180,6 @@ function createRoundState(): RoundState {
     unlockedSeconds: 0,
     playbackSeconds: 0,
   }
-}
-
-function Confetti() {
-  const pieces = useMemo(
-    () =>
-      Array.from({ length: 18 }, (_, index) => ({
-        id: index,
-        color: ['#22d875', '#ffd119', '#e17c21', '#d74842', '#9a4de0'][index % 5],
-        x: `${(index % 6) * 22 - 55}px`,
-        y: `${Math.floor(index / 6) * -18 - 20}px`,
-        fall: `${80 + (index % 4) * 24}px`,
-        rotation: `${(index % 5) * 72}deg`,
-        delay: `${index * 0.03}s`,
-        round: index % 3 === 0,
-      })),
-    [],
-  )
-
-  return (
-    <div className="confetti" aria-hidden="true">
-      {pieces.map((piece) => (
-        <span
-          key={piece.id}
-          className={piece.round ? 'confetti-piece round' : 'confetti-piece'}
-          style={
-            {
-              '--confetti-color': piece.color,
-              '--confetti-x': piece.x,
-              '--confetti-y': piece.y,
-              '--confetti-fall': piece.fall,
-              '--confetti-rotation': piece.rotation,
-              '--confetti-delay': piece.delay,
-              animationDelay: piece.delay,
-            } as CSSProperties
-          }
-        />
-      ))}
-    </div>
-  )
 }
 
 export function Game() {
@@ -286,6 +265,7 @@ export function Game() {
   )
   const [draftPreviewCount, setDraftPreviewCount] = useState(0)
   const [streak, setStreak] = useState(loadStreak)
+  const [session, setSession] = useState<SessionEntry[]>([])
   const [streakBump, setStreakBump] = useState(false)
   const [themePreference, setThemePreference] = useState<ThemePreference>(loadThemePreference)
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(loadThemePreference()))
@@ -326,10 +306,6 @@ export function Game() {
     activeState.status === 'idle' ? (catalogLoading ? 'idle' : 'playing') : activeState.status
   const controlsDisabled = isPlaying || isLoadingClip
 
-  const unlockedProgress = progressAtStageBoundary(
-    activeStages,
-    activeState.stageIndex + 1,
-  )
   const playbackProgress = progressAtElapsedSeconds(
     activeStages,
     activeState.stageIndex,
@@ -747,6 +723,7 @@ export function Game() {
     updateRound(level, {
       stageIndex: 0,
       wrongGuesses: [],
+      marks: [],
       status: 'playing',
       answer: null,
       solvedAt: null,
@@ -1173,11 +1150,40 @@ export function Game() {
     if (!round) return
     void activateSpotifyElement()
     const result = await submitGuess(round, { reveal: true })
+    const state = roundsRef.current[level]
+    const lastStage = activeStages[state.stageIndex] ?? activeStages[activeStages.length - 1] ?? 15
+    const marks = [...state.marks, { stage: lastStage, kind: 'skip' as const }]
     updateRound(level, {
       status: 'lost',
       answer: result.answer,
+      marks,
     })
+    recordSession(result.answer, 'lost', null, marks)
     void playReveal(round)
+  }
+
+  function recordSession(
+    answer: SearchResult | null,
+    status: 'won' | 'lost',
+    solvedStage: number | null,
+    marks: RoundMark[],
+  ) {
+    if (!answer) return
+    setSession((current) =>
+      [
+        {
+          id: `${answer.id}-${Date.now()}`,
+          title: answer.title,
+          artist: answer.artist,
+          albumArt: answer.albumArt,
+          status,
+          solvedStage,
+          stages: activeStages,
+          marks,
+        },
+        ...current,
+      ].slice(0, 8),
+    )
   }
 
   function clearAutoReroll() {
@@ -1221,6 +1227,7 @@ export function Game() {
         answer: guessResult.answer,
         solvedAt,
       })
+      recordSession(guessResult.answer, 'won', currentStageEndpoint, activeState.marks)
       void playReveal(round)
       scheduleAutoReroll(difficulty)
       return
@@ -1230,6 +1237,7 @@ export function Game() {
     const nextIndex = activeState.stageIndex + 1
     const wrongGuesses = [...activeState.wrongGuesses, label]
     const stageEndpoint = activeStages[activeState.stageIndex] ?? activeStages[0] ?? 0.1
+    const marks = [...activeState.marks, { stage: stageEndpoint, kind: 'miss' as const, label }]
 
     if (nextIndex >= activeStages.length) {
       noteStreakFail()
@@ -1239,7 +1247,9 @@ export function Game() {
         status: 'lost',
         answer: reveal.answer,
         wrongGuesses,
+        marks,
       })
+      recordSession(reveal.answer, 'lost', null, marks)
       void playReveal(round)
       scheduleAutoReroll(difficulty)
       return
@@ -1249,6 +1259,7 @@ export function Game() {
     updateRound(difficulty, {
       stageIndex: nextIndex,
       wrongGuesses,
+      marks,
       unlockedSeconds: stageEndpoint,
       playbackSeconds: stageEndpoint,
     })
@@ -1266,6 +1277,7 @@ export function Game() {
 
     updateRound(level, {
       stageIndex: nextIndex,
+      marks: [...rounds[level].marks, { stage: stageEndpoint, kind: 'skip' as const }],
       unlockedSeconds: stageEndpoint,
       playbackSeconds: stageEndpoint,
     })
@@ -1403,30 +1415,24 @@ export function Game() {
     updateRound(difficulty, { unlockedSeconds: 0, playbackSeconds: 0 })
   }
 
-  const guessSeconds =
-    activeState.solvedAt && activeState.startedAt
-      ? Math.max(1, Math.round((activeState.solvedAt - activeState.startedAt) / 1000))
-      : 1
-
   const showResult = activeState.status === 'won' || activeState.status === 'lost'
   const isCatalogEmpty = catalogLoading && !activeState.round
-  const headline =
+  const lastStage = activeStages[activeStages.length - 1] ?? 15
+  const numeralStage =
+    activeState.status === 'lost' ? lastStage : currentStageEndpoint
+  const readout =
     activeState.status === 'won'
-      ? 'Nailed it.'
+      ? 'Named at'
       : activeState.status === 'lost'
-        ? 'Not this time.'
+        ? 'Not this time'
         : isCatalogEmpty
-          ? 'Tuning in.'
-          : 'Hear the clip. Name the track.'
-  const subline =
-    activeState.status === 'won'
-      ? 'Keep it going.'
-      : activeState.status === 'lost'
-        ? 'Here is what it was.'
-        : isCatalogEmpty
-          ? 'Finding songs for you.'
-          : 'Each guess unlocks a longer clip.'
-  const attemptNumber = Math.min(activeState.stageIndex + 1, activeStages.length)
+          ? 'Finding songs'
+          : `Try ${Math.min(activeState.stageIndex + 1, activeStages.length)} of ${activeStages.length}`
+  const firstRun = session.length === 0 && streak === 0 && activeState.marks.length === 0
+  const figurePosition = showResult
+    ? stopPosition(activeStages, activeState.status === 'won' ? currentStageEndpoint : lastStage)
+    : stopPosition(activeStages, currentStageEndpoint)
+  const missNotes = activeState.marks.filter((mark) => mark.kind === 'miss' && mark.label)
   const mascotIntent = resolveMascotIntent({
     switching: mascotSwitch,
     skipPulse: mascotSkip,
@@ -1471,18 +1477,30 @@ export function Game() {
   }, [themePreference])
 
   return (
-    <div className="app-shell" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
-      <div className="room">
-        <header className="room-bar">
+    <div className="app-shell console" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
+      <div className="console-room">
+        <header className="bar">
           <div className="wordmark">
-            <img
-              className="wordmark-mark"
-              src="/app-icons/noot-app-icon.png"
-              alt=""
-              aria-hidden="true"
-            />
+            <img className="wordmark-mark" src="/app-icons/noot-app-icon.png" alt="" aria-hidden="true" />
             <h1 className="wordmark-name">SongGuessr</h1>
           </div>
+
+          <div ref={levelSwitchRef} className="level-switch" role="group" aria-label="Difficulty">
+            <span className="level-indicator" aria-hidden="true" />
+            {DIFFICULTIES.map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={level === difficulty ? 'is-active' : ''}
+                aria-pressed={level === difficulty}
+                onClick={() => handleDifficulty(level)}
+                disabled={availabilityCounts !== null && availabilityCounts[level] === 0}
+              >
+                {DIFFICULTY_LABELS[level]}
+              </button>
+            ))}
+          </div>
+
           <div className="bar-actions">
             <StreakBadge count={streak} bump={streakBump} />
             <button
@@ -1527,43 +1545,71 @@ export function Game() {
           </div>
         </header>
 
-        <main className="room-stage">
-          <div
-            ref={levelSwitchRef}
-            className="level-switch"
-            role="group"
-            aria-label="Difficulty"
-          >
-            <span className="level-indicator" aria-hidden="true" />
-            {DIFFICULTIES.map((level) => (
-              <button
-                key={level}
-                type="button"
-                className={level === difficulty ? 'is-active' : ''}
-                aria-pressed={level === difficulty}
-                onClick={() => handleDifficulty(level)}
-                disabled={availabilityCounts !== null && availabilityCounts[level] === 0}
-              >
-                {DIFFICULTY_LABELS[level]}
-              </button>
-            ))}
+        <main className="stage" data-intent={mascotIntent}>
+          <div className="stage-head">
+            <p className="readout" role="status">
+              {readout}
+            </p>
+            <p className="numeral" key={`${activeState.status}-${numeralStage}`} aria-hidden="true">
+              <b>{formatStageValue(numeralStage)}</b>
+              <span>s</span>
+            </p>
           </div>
 
-          <div className="hero">
-            <div className="mascot-ground" data-intent={mascotIntent}>
-              <span className="stage-disc" aria-hidden="true" />
-              <span className="mascot-shadow" aria-hidden="true" />
-              <Mascot
-                difficulty={difficulty}
-                intent={mascotIntent}
-                withStreak={mascotWinStreak}
-                loseReason={mascotLoseReason}
-              />
-            </div>
-            <h2 className="headline" key={headline}>
-              {headline}
-            </h2>
-            <p className="subline">{subline}</p>
+          <div className="stage-ruler" data-side={figurePosition > 50 ? 'left' : 'right'}>
+            <Ruler
+              stages={activeStages}
+              stageIndex={activeState.stageIndex}
+              marks={activeState.marks}
+              status={activeState.round ? activeState.status === 'idle' ? 'playing' : activeState.status : 'idle'}
+              solvedStage={activeState.status === 'won' ? currentStageEndpoint : null}
+              playheadRef={playbackBarRef}
+              playbackProgress={playbackProgress}
+              isPlaying={isPlaying}
+            >
+              <div className="figure" style={{ '--pos': `${figurePosition}%` } as CSSProperties}>
+                <span className="mascot-shadow" aria-hidden="true" />
+                <Mascot
+                  difficulty={difficulty}
+                  intent={mascotIntent}
+                  withStreak={mascotWinStreak}
+                  loseReason={mascotLoseReason}
+                />
+              </div>
+
+              {showResult && activeState.answer ? (
+                <div
+                  className={`answer-cover ${activeState.status}`}
+                  style={{ '--pos': `${figurePosition}%` } as CSSProperties}
+                >
+                  <button
+                    type="button"
+                    className={`result-play-toggle${isPlaying ? ' playing' : ' paused'}`}
+                    onClick={() => toggleRevealPlayback()}
+                    aria-label={isPlaying ? 'Pause song' : 'Play song'}
+                  >
+                    {activeState.answer.albumArt ? (
+                      <img className="artwork" src={activeState.answer.albumArt} alt="" width={72} height={72} decoding="async" />
+                    ) : (
+                      <div className="artwork fallback">♫</div>
+                    )}
+                    <span className="result-play-glyph" aria-hidden="true">
+                      <PlayControlIcon state={isPlaying ? 'pause' : 'play'} />
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+            </Ruler>
+
+            {missNotes.length > 0 ? (
+              <ul className="ruler-notes" aria-label="Wrong guesses">
+                {missNotes.map((mark, index) => (
+                  <li key={`${mark.stage}-${index}`} style={{ left: `${stopPosition(activeStages, mark.stage)}%` }}>
+                    {mark.label}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <section className="deck">
@@ -1594,79 +1640,25 @@ export function Game() {
             )}
 
             {activeState.round && !showResult && (
-              <div className="round">
-                <div
-                  className={[
-                    'transport',
-                    isPlaying ? 'is-playing' : '',
-                    isLoadingClip ? 'is-loading' : '',
-                    !roundHasAudio ? 'no-audio' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
+              <div
+                className={[
+                  'transport-row',
+                  isPlaying ? 'is-playing' : '',
+                  isLoadingClip ? 'is-loading' : '',
+                  !roundHasAudio ? 'no-audio' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <button
+                  type="button"
+                  className="play-control"
+                  onClick={() => void playClip()}
+                  disabled={!roundHasAudio && !isPlaying && !isLoadingClip}
+                  aria-label={isLoadingClip ? 'Cancel loading clip' : `Play ${currentStageEndpoint} second clip`}
                 >
-                  <button
-                    type="button"
-                    className="play-control"
-                    onClick={() => void playClip()}
-                    disabled={!roundHasAudio && !isPlaying && !isLoadingClip}
-                    aria-label={
-                      isLoadingClip
-                        ? 'Cancel loading clip'
-                        : `Play ${currentStageEndpoint} second clip`
-                    }
-                  >
-                    <PlayControlIcon
-                      state={isLoadingClip ? 'loading' : isPlaying ? 'pause' : 'play'}
-                    />
-                  </button>
-
-                  <div className="meter">
-                    <div className="meter-row">
-                      <p className="meter-label">
-                        Try {attemptNumber} of {activeStages.length}
-                      </p>
-                      <span className="clip-length" key={currentStageEndpoint}>
-                        <b>{formatStageValue(currentStageEndpoint)}</b>
-                        <span>s</span>
-                      </span>
-                    </div>
-                    <div className="stage-track" aria-label="Stage progress">
-                      {ALL_STAGES.map((stage) => {
-                        const enabled = enabledStages.includes(stage)
-                        const stagePosition = activeStages.indexOf(stage)
-                        const isCurrent = enabled && stagePosition === activeState.stageIndex
-                        const isPassed = enabled && stagePosition >= 0 && stagePosition < activeState.stageIndex
-                        const isLastEnabled =
-                          enabled && stage === activeStages[activeStages.length - 1]
-                        return (
-                          <span
-                            key={stage}
-                            className={[
-                              enabled ? 'enabled' : 'disabled',
-                              isPassed ? 'passed' : '',
-                              isCurrent ? 'current' : '',
-                              isLastEnabled ? 'last-enabled' : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            style={{ flexGrow: enabled ? stageSegmentWeight(stage) : 0 }}
-                            aria-hidden={!enabled}
-                          />
-                        )
-                      })}
-                      <div
-                        className="stage-unlocked-progress"
-                        style={{ width: `${unlockedProgress}%` }}
-                      />
-                      <div
-                        ref={playbackBarRef}
-                        className="stage-playback-progress"
-                        style={{ width: `${playbackProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
+                  <PlayControlIcon state={isLoadingClip ? 'loading' : isPlaying ? 'pause' : 'play'} />
+                </button>
 
                 <form className="guess-form" onSubmit={handleGuessSubmit}>
                   <div className={`search-wrap ${selectedTrack ? 'selected' : ''}`}>
@@ -1685,12 +1677,7 @@ export function Game() {
                       spellCheck={false}
                     />
                     {searchQuery && !selectedTrack && searchOpen && (
-                      <div
-                        className="suggestions"
-                        role="listbox"
-                        aria-label="Song suggestions"
-                        ref={suggestionsRef}
-                      >
+                      <div className="suggestions" role="listbox" aria-label="Song suggestions" ref={suggestionsRef}>
                         {searchResults.map((result, index) => (
                           <button
                             key={result.id}
@@ -1702,14 +1689,7 @@ export function Game() {
                             onClick={() => selectTrackForGuess(result)}
                           >
                             {result.albumArt ? (
-                              <img
-                                className="artwork small"
-                                src={result.albumArt}
-                                alt=""
-                                width={30}
-                                height={30}
-                                decoding="async"
-                              />
+                              <img className="artwork small" src={result.albumArt} alt="" width={30} height={30} decoding="async" />
                             ) : (
                               <span className="artwork small fallback">♫</span>
                             )}
@@ -1729,83 +1709,30 @@ export function Game() {
                   ) : (
                     <button type="button" className="btn btn-quiet skip-button" onClick={handleSkip}>
                       <SkipIcon />
-                      Skip
+                      <span>Skip</span>
                     </button>
                   )}
                 </form>
 
+                {firstRun ? <p className="purpose">Press play, then name the track. Every miss unlocks a longer clip.</p> : null}
                 {audioError && (
                   <p className="inline-alert" role="alert">
                     {audioError}
                   </p>
-                )}
-
-                {activeState.wrongGuesses.length > 0 && (
-                  <ul className="misses" aria-label="Wrong guesses">
-                    {activeState.wrongGuesses.map((guess) => (
-                      <li key={guess}>{guess}</li>
-                    ))}
-                  </ul>
                 )}
               </div>
             )}
 
             {showResult && activeState.answer && (
               <div className={`result ${activeState.status}`}>
-                <div className="track-row">
-                  <div className="result-artwork-wrap">
-                    <button
-                      type="button"
-                      className={`result-play-toggle${isPlaying ? ' playing' : ' paused'}`}
-                      onClick={() => toggleRevealPlayback()}
-                      aria-label={isPlaying ? 'Pause song' : 'Play song'}
-                    >
-                      {activeState.answer.albumArt ? (
-                        <img
-                          className="artwork"
-                          src={activeState.answer.albumArt}
-                          alt=""
-                          width={72}
-                          height={72}
-                          decoding="async"
-                        />
-                      ) : (
-                        <div className="artwork fallback">♫</div>
-                      )}
-                      <span className="result-play-glyph" aria-hidden="true">
-                        <PlayControlIcon state={isPlaying ? 'pause' : 'play'} />
-                      </span>
-                    </button>
-                    {activeState.status === 'won' && (
-                      <>
-                        <div className="success-ring success-ring-one" />
-                        <div className="success-ring success-ring-two" />
-                        <Confetti />
-                      </>
-                    )}
-                  </div>
-                  <div className="track-meta">
-                    <p className="track-kicker">
-                      {activeState.status === 'won' ? `Guessed in ${guessSeconds}s` : 'The answer'}
-                    </p>
-                    <h3 className="track-title">{activeState.answer.title}</h3>
-                    <p className="track-artist">{activeState.answer.artist}</p>
-                  </div>
+                <div className="track-meta">
+                  <h2 className="track-title">{activeState.answer.title}</h2>
+                  <p className="track-artist">{activeState.answer.artist}</p>
                 </div>
-
-                {audioError && (
-                  <p className="inline-alert" role="alert">
-                    {audioError}
-                  </p>
-                )}
 
                 <div className="result-actions">
                   {autoRerollCountdown === null ? (
-                    <button
-                      type="button"
-                      className="btn btn-primary result-next-button"
-                      onClick={() => startNextSong()}
-                    >
+                    <button type="button" className="btn btn-primary result-next-button" onClick={() => startNextSong()}>
                       Next song <NextSongIcon />
                     </button>
                   ) : (
@@ -1817,11 +1744,7 @@ export function Game() {
                     </div>
                   )}
                   {activeState.status === 'lost' && (
-                    <button
-                      type="button"
-                      className="btn btn-quiet result-retry-button"
-                      onClick={() => retryRound()}
-                    >
+                    <button type="button" className="btn btn-quiet result-retry-button" onClick={() => retryRound()}>
                       <RetryIcon /> Retry
                     </button>
                   )}
@@ -1834,9 +1757,41 @@ export function Game() {
                     Open in Spotify
                   </a>
                 </div>
+                {audioError && (
+                  <p className="inline-alert" role="alert">
+                    {audioError}
+                  </p>
+                )}
               </div>
             )}
           </section>
+
+          {session.length > 0 ? (
+            <section className="session" aria-label="This sitting">
+              <h2 className="session-title">This sitting</h2>
+              <ul className="session-list">
+                {session.map((entry) => (
+                  <li key={entry.id} className={`session-row ${entry.status}`}>
+                    <Ruler
+                      size="signature"
+                      stages={entry.stages}
+                      stageIndex={entry.stages.length}
+                      marks={entry.marks}
+                      status={entry.status}
+                      solvedStage={entry.solvedStage}
+                    />
+                    <span className="session-time">
+                      {entry.status === 'won' && entry.solvedStage != null ? `${formatStageValue(entry.solvedStage)} s` : '—'}
+                    </span>
+                    <span className="session-track">
+                      <strong>{entry.title}</strong>
+                      <small>{entry.artist}</small>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </main>
       </div>
 

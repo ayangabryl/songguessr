@@ -1,0 +1,619 @@
+/*
+ * SongGuessr — "Console" layer.
+ *
+ * The clip is the instrument. One time ruler runs the width of the room with
+ * a stop at every stage (0.1, 0.5, 2, 8, 15 s). The unlocked span fills as
+ * tries are spent, the playhead runs along it while a clip plays, every miss
+ * and skip is marked at the stop where it happened, and Noot stands above the
+ * stop you have reached. The transport and the guess field share one row
+ * directly under the ruler; the level switch lives in the bar; each finished
+ * round leaves its ruler as a signature in the session row.
+ *
+ * Tokens (type scale, spacing, radii, colour formula, motion) come from
+ * game-shell.css. This file only lays out the console and its parts.
+ * Direction: warm analogue with one figure. Nothing moves except the ruler
+ * and the character.
+ */
+
+.console {
+  --page-x: var(--space-12);
+  --ruler-inset: var(--space-6);
+  --line-y: 14px;
+  --figure: 120px;
+  --control: 56px;
+  --cover: 72px;
+  display: flex;
+  flex-direction: column;
+}
+
+.console-room {
+  width: min(100%, 1600px);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: var(--space-4) var(--page-x) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar: wordmark | level switch | actions, one row
+ * ------------------------------------------------------------------ */
+.console .bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 48px;
+}
+.console .bar-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.console .level-switch {
+  width: auto;
+  padding: var(--space-1);
+}
+.console .level-switch button {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 var(--space-4);
+  font-size: var(--fs-1);
+}
+
+/* ------------------------------------------------------------------ *
+ * Stage: readout and numeral, the ruler with the figure, the transport
+ * ------------------------------------------------------------------ */
+.console .stage {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  /* A fixed distance from the bar, so the console never moves between round and result. */
+  padding: var(--space-16) 0 0;
+  min-height: 0;
+}
+
+.stage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--ruler-inset);
+}
+.readout {
+  margin: 0;
+  font-size: var(--fs-2);
+  font-weight: 500;
+  color: var(--text-2);
+}
+.numeral {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-d2);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  animation: numeralIn var(--dur-3) var(--ease-out) both;
+}
+.numeral span {
+  font-style: italic;
+  font-size: var(--fs-4);
+  margin-left: var(--space-1);
+  color: var(--text-2);
+}
+@keyframes numeralIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The ruler region: figure above the line, labels below, notes under those. */
+.stage-ruler {
+  position: relative;
+  display: grid;
+  /* An empty first row is the lane the figure and the cover stand in. */
+  grid-template-rows: calc(var(--figure) + var(--space-2)) auto auto;
+  padding: 0 var(--ruler-inset);
+}
+.stage-ruler > .ruler {
+  grid-row: 2;
+}
+.stage-ruler > .ruler-notes {
+  grid-row: 3;
+}
+
+.ruler {
+  position: relative;
+  height: 44px;
+}
+.ruler-draw {
+  position: absolute;
+  inset: 0;
+}
+.ruler-line,
+.ruler-fill,
+.ruler-head {
+  position: absolute;
+  top: var(--line-y);
+  left: 0;
+  height: 2px;
+  pointer-events: none;
+}
+.ruler-line {
+  right: 0;
+  background: var(--hairline-strong);
+}
+.ruler-fill {
+  background: var(--accent-strong);
+  transition: width var(--dur-4) var(--ease-out);
+}
+.ruler-head {
+  top: calc(var(--line-y) - 7px);
+  height: 16px;
+  border-right: 2px solid var(--accent-strong);
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.ruler[data-playing] .ruler-head {
+  opacity: 1;
+}
+
+.ruler-stop {
+  position: absolute;
+  top: var(--line-y);
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+}
+.ruler-stop i {
+  display: block;
+  width: 2px;
+  height: 12px;
+  transform: translateY(calc(-50% + 1px));
+  background: var(--hairline-strong);
+  transition: background var(--dur-3) var(--ease-out), height var(--dur-2) var(--ease-out);
+}
+.ruler-stop[data-state='passed'] i {
+  background: var(--accent-strong);
+}
+.ruler-stop[data-state='current'] i {
+  height: 16px;
+  background: var(--accent-strong);
+}
+.ruler-stop b {
+  margin-top: var(--space-1);
+  font-size: var(--fs-1);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: color var(--dur-3) var(--ease-out);
+}
+.ruler-stop[data-state='current'] b {
+  color: var(--text);
+}
+
+/* Marks: a miss is a cross, a skip a hollow dot, the win a filled dot. */
+.ruler-mark {
+  position: absolute;
+  top: var(--line-y);
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, calc(-50% + 1px));
+  border-radius: 50%;
+  animation: markIn var(--dur-2) var(--ease-land) both;
+}
+.ruler-mark[data-kind='miss'] {
+  background: var(--canvas);
+}
+.ruler-mark[data-kind='miss']::before,
+.ruler-mark[data-kind='miss']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.ruler-mark[data-kind='miss']::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+.ruler-mark[data-kind='skip'] {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--text-3);
+  background: var(--canvas);
+  box-sizing: border-box;
+}
+.ruler-mark[data-kind='win'] {
+  width: 16px;
+  height: 16px;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 3px var(--canvas);
+}
+@keyframes markIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 1px)) scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, calc(-50% + 1px)) scale(1);
+  }
+}
+
+/* The figure stands on the line above the current stop and moves with it. */
+.figure {
+  position: absolute;
+  bottom: calc(100% - var(--line-y) + 1px);
+  left: clamp(calc(var(--figure) / 2), var(--pos), calc(100% - var(--figure) / 2));
+  width: var(--figure);
+  height: var(--figure);
+  transform: translateX(-50%);
+  transition: left var(--dur-3) var(--ease-land), transform var(--dur-3) var(--ease-land);
+  z-index: 2;
+}
+.figure > .mascot {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+.figure .mascot-shadow {
+  position: absolute;
+  z-index: 1;
+  bottom: calc(var(--figure) * 0.02);
+  left: 50%;
+  width: calc(var(--figure) * 0.6);
+  height: calc(var(--figure) * 0.07);
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, var(--contact-shadow), transparent 70%);
+}
+/* On a result the cover takes the stop; the figure steps to the side with more room. */
+.console[data-status='won'] .figure,
+.console[data-status='lost'] .figure {
+  transform: translateX(calc(-50% + var(--cover) + var(--space-4)));
+}
+.console[data-status='won'] .stage-ruler[data-side='left'] .figure,
+.console[data-status='lost'] .stage-ruler[data-side='left'] .figure {
+  transform: translateX(calc(-50% - var(--cover) - var(--space-4)));
+}
+
+.answer-cover {
+  position: absolute;
+  bottom: calc(100% - var(--line-y) + var(--space-3));
+  left: clamp(calc(var(--cover) / 2), var(--pos), calc(100% - var(--cover) / 2));
+  transform: translateX(-50%);
+  z-index: 3;
+  animation: coverIn var(--dur-3) var(--ease-land) both;
+}
+.answer-cover .result-play-toggle {
+  display: block;
+  width: var(--cover);
+  height: var(--cover);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-3);
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-pop);
+  cursor: pointer;
+  position: relative;
+}
+.answer-cover .artwork {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.answer-cover .artwork.fallback {
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  font-size: var(--fs-4);
+}
+@keyframes coverIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* Miss notes sit under the label of the stop where the guess was made. */
+.ruler-notes {
+  position: relative;
+  height: 20px;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ruler-notes li {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  max-width: 200px;
+  font-size: var(--fs-1);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: numeralIn var(--dur-2) var(--ease-out) both;
+}
+
+/* ------------------------------------------------------------------ *
+ * Deck: transport row, result
+ * ------------------------------------------------------------------ */
+.console .deck {
+  align-items: stretch;
+  min-height: 96px;
+  padding: 0 var(--ruler-inset);
+}
+.transport-row {
+  display: grid;
+  grid-template-columns: var(--control) 1fr;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-3);
+  animation: riseIn var(--dur-3) var(--ease-out) both;
+}
+.console .play-control {
+  width: var(--control);
+  height: var(--control);
+}
+.console .guess-form .btn,
+.console .search-wrap input {
+  height: var(--control);
+}
+.console .search-wrap input {
+  padding-left: var(--space-12);
+}
+.console .guess-form .btn {
+  padding: 0 var(--space-5);
+  min-width: 0;
+}
+.console .guess-form .skip-button .skip-icon {
+  display: block;
+}
+.purpose,
+.transport-row .inline-alert {
+  grid-column: 2;
+  margin: 0;
+}
+.purpose {
+  font-size: var(--fs-1);
+  color: var(--text-3);
+}
+
+.console .result {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: var(--space-4) var(--space-8);
+  padding-top: var(--space-2);
+}
+.console .track-meta {
+  min-width: 0;
+}
+.console .track-title {
+  font-size: var(--fs-5);
+}
+.console .result-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.console .result .inline-alert {
+  grid-column: 1 / -1;
+}
+
+/* ------------------------------------------------------------------ *
+ * Session: each finished round leaves its ruler as a signature
+ * ------------------------------------------------------------------ */
+.session {
+  padding: var(--space-10) var(--ruler-inset) 0;
+}
+.session-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-1);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.session-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: var(--space-2) var(--space-8);
+}
+.session-row {
+  display: grid;
+  grid-template-columns: 96px 44px 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 36px;
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-2);
+  animation: riseIn var(--dur-3) var(--ease-out) both;
+}
+.ruler-signature {
+  height: 12px;
+  --line-y: 5px;
+}
+.ruler-signature .ruler-stop i {
+  height: 6px;
+}
+.ruler-signature .ruler-mark {
+  width: 8px;
+  height: 8px;
+}
+.ruler-signature .ruler-mark[data-kind='miss']::before,
+.ruler-signature .ruler-mark[data-kind='miss']::after {
+  width: 7px;
+}
+.ruler-signature .ruler-mark[data-kind='skip'] {
+  width: 7px;
+  height: 7px;
+  border-width: 1.5px;
+}
+.ruler-signature .ruler-mark[data-kind='win'] {
+  width: 9px;
+  height: 9px;
+  box-shadow: 0 0 0 2px var(--canvas);
+}
+.session-time {
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  text-align: right;
+}
+.session-row.lost .session-time {
+  color: var(--text-3);
+}
+.session-track {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--fs-1);
+}
+.session-track strong {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-track small {
+  font-size: inherit;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------------ *
+ * Breakpoints
+ * ------------------------------------------------------------------ */
+@media (max-width: 899px) {
+  .console {
+    --page-x: var(--space-4);
+    --ruler-inset: var(--space-3);
+    --figure: 96px;
+    --control: 48px;
+    --cover: 64px;
+  }
+  .console .bar {
+    grid-template-columns: 1fr auto;
+    row-gap: var(--space-3);
+  }
+  .console .bar .wordmark {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .console .bar-actions {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .console .level-switch {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .console .level-switch::-webkit-scrollbar {
+    display: none;
+  }
+  .console .level-switch button {
+    flex: 1 0 auto;
+    height: 44px;
+    padding: 0 var(--space-3);
+  }
+  .console .bar-btn .bar-label {
+    display: none;
+  }
+  .console .bar-btn {
+    padding: 0;
+    width: 40px;
+  }
+  .console .stage {
+    justify-content: flex-start;
+    padding-top: var(--space-6);
+  }
+  .numeral {
+    font-size: var(--fs-d0);
+  }
+  .transport-row {
+    grid-template-columns: var(--control) 1fr;
+  }
+  .console .guess-form .btn.skip-button {
+    width: var(--control);
+    padding: 0;
+  }
+  .console .guess-form .btn.skip-button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .ruler-notes {
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .ruler-notes li {
+    position: static;
+    transform: none;
+    max-width: none;
+  }
+  .console .result {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .console .result-actions {
+    justify-content: flex-start;
+  }
+  .session-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .figure,
+  .ruler-fill,
+  .ruler-stop i,
+  .ruler-stop b {
+    transition: none;
+  }
+  .ruler-mark,
+  .answer-cover,
+  .numeral,
+  .ruler-notes li,
+  .transport-row,
+  .session-row {
+    animation: none;
+  }
+}
