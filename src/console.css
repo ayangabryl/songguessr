@@ -192,12 +192,14 @@
   height: 12px;
   transform: translateY(calc(-50% + 1px));
   background: var(--hairline-strong);
-  transition: background var(--dur-3) var(--ease-out), height var(--dur-2) var(--ease-out);
+  transition:
+    background var(--dur-3) var(--ease-out),
+    height var(--dur-2) var(--ease-out);
 }
-.ruler-stop[data-state='passed'] i {
+.ruler-stop[data-state="passed"] i {
   background: var(--accent-strong);
 }
-.ruler-stop[data-state='current'] i {
+.ruler-stop[data-state="current"] i {
   height: 16px;
   background: var(--accent-strong);
 }
@@ -210,7 +212,7 @@
   white-space: nowrap;
   transition: color var(--dur-3) var(--ease-out);
 }
-.ruler-stop[data-state='current'] b {
+.ruler-stop[data-state="current"] b {
   color: var(--text);
 }
 
@@ -224,12 +226,12 @@
   border-radius: 50%;
   animation: markIn var(--dur-2) var(--ease-land) both;
 }
-.ruler-mark[data-kind='miss'] {
+.ruler-mark[data-kind="miss"] {
   background: var(--canvas);
 }
-.ruler-mark[data-kind='miss']::before,
-.ruler-mark[data-kind='miss']::after {
-  content: '';
+.ruler-mark[data-kind="miss"]::before,
+.ruler-mark[data-kind="miss"]::after {
+  content: "";
   position: absolute;
   left: 50%;
   top: 50%;
@@ -239,17 +241,17 @@
   background: var(--text);
   transform: translate(-50%, -50%) rotate(45deg);
 }
-.ruler-mark[data-kind='miss']::after {
+.ruler-mark[data-kind="miss"]::after {
   transform: translate(-50%, -50%) rotate(-45deg);
 }
-.ruler-mark[data-kind='skip'] {
+.ruler-mark[data-kind="skip"] {
   width: 12px;
   height: 12px;
   border: 2px solid var(--text-3);
   background: var(--canvas);
   box-sizing: border-box;
 }
-.ruler-mark[data-kind='win'] {
+.ruler-mark[data-kind="win"] {
   width: 16px;
   height: 16px;
   background: var(--accent-strong);
@@ -272,11 +274,17 @@
   bottom: calc(100% - var(--line-y) + 1px);
   /* The figure may lean into the room's margins, so it centres on the end stops too. */
   --lean: calc(var(--ruler-inset) + var(--page-x));
-  left: clamp(calc(var(--figure) / 2 - var(--lean)), var(--pos), calc(100% - var(--figure) / 2 + var(--lean)));
+  left: clamp(
+    calc(var(--figure) / 2 - var(--lean)),
+    var(--pos),
+    calc(100% - var(--figure) / 2 + var(--lean))
+  );
   width: var(--figure);
   height: var(--figure);
   transform: translateX(-50%);
-  transition: left var(--dur-3) var(--ease-land), transform var(--dur-3) var(--ease-land);
+  transition:
+    left var(--dur-3) var(--ease-land),
+    transform var(--dur-3) var(--ease-land);
   z-index: 2;
 }
 .figure > .mascot {
@@ -295,15 +303,19 @@
   height: calc(var(--figure) * 0.07);
   transform: translateX(-50%);
   border-radius: 50%;
-  background: radial-gradient(ellipse at 50% 50%, var(--contact-shadow), transparent 70%);
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    var(--contact-shadow),
+    transparent 70%
+  );
 }
 /* On a result the cover takes the stop; the figure steps to the side with more room. */
-.console[data-status='won'] .figure,
-.console[data-status='lost'] .figure {
+.console[data-status="won"] .figure,
+.console[data-status="lost"] .figure {
   transform: translateX(calc(-50% + var(--cover) + var(--space-4)));
 }
-.console[data-status='won'] .stage-ruler[data-side='left'] .figure,
-.console[data-status='lost'] .stage-ruler[data-side='left'] .figure {
+.console[data-status="won"] .stage-ruler[data-side="left"] .figure,
+.console[data-status="lost"] .stage-ruler[data-side="left"] .figure {
   transform: translateX(calc(-50% - var(--cover) - var(--space-4)));
 }
 
@@ -311,7 +323,11 @@
   position: absolute;
   bottom: calc(100% - var(--line-y) + var(--space-3));
   --lean: calc(var(--ruler-inset) + var(--page-x) - var(--space-2));
-  left: clamp(calc(var(--cover) / 2 - var(--lean)), var(--pos), calc(100% - var(--cover) / 2 + var(--lean)));
+  left: clamp(
+    calc(var(--cover) / 2 - var(--lean)),
+    var(--pos),
+    calc(100% - var(--cover) / 2 + var(--lean))
+  );
   transform: translateX(-50%);
   z-index: 3;
   animation: coverIn var(--dur-3) var(--ease-land) both;
@@ -490,16 +506,16 @@
   width: 8px;
   height: 8px;
 }
-.ruler-signature .ruler-mark[data-kind='miss']::before,
-.ruler-signature .ruler-mark[data-kind='miss']::after {
+.ruler-signature .ruler-mark[data-kind="miss"]::before,
+.ruler-signature .ruler-mark[data-kind="miss"]::after {
   width: 7px;
 }
-.ruler-signature .ruler-mark[data-kind='skip'] {
+.ruler-signature .ruler-mark[data-kind="skip"] {
   width: 7px;
   height: 7px;
   border-width: 1.5px;
 }
-.ruler-signature .ruler-mark[data-kind='win'] {
+.ruler-signature .ruler-mark[data-kind="win"] {
   width: 9px;
   height: 9px;
   box-shadow: 0 0 0 2px var(--canvas);
