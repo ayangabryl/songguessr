@@ -3,7 +3,7 @@
 Owner: direction desk. Consumed by: layout, typography, colour, motion, creative-web, illustration, qa.
 
 ## Divergence: four structures
-Before any idea, four one-line options that differ in structure (what is on the page, in what order, at what weight), not in skin. At least one keeps the current structure (so the choice to leave it is deliberate), at least two do not. Each names what it does for the primary task and what it costs.
+Before any idea, four one-line options that differ in structure (what is on the page, in what order, at what weight), not in skin. At least one keeps the current structure (so the choice to leave it is deliberate), at least two do not; at least one changes the content unit (what a row, card or scene is) and at least one uses the widest viewport differently. Re-sorting or re-weighting the same rows is not an option. Each names what it does for the primary task and what it costs. Pick the catalogue direction after choosing the structure, not before.
 1. <e.g. Keep the ranked list; one column; hierarchy by type only. Serves: scanning. Costs: nothing new for returning readers.>
 2. <e.g. Top five threads carry a second line and live comment velocity; the rest drop to a dense ledger. Serves: return visits. Costs: 3 rows above the fold.>
 3. <e.g. Two panes: list left, selected thread's top comment right. Serves: comments as the product. Costs: mobile becomes two screens.>

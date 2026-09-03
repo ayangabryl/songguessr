@@ -54,7 +54,7 @@ Use three references: one for hierarchy and rhythm, one for material and motion,
 
 ### 3.3 Divergence before the idea
 
-Four structural options in `concept.md` before a single idea is written; a structure is what is on the page, in what order, at what weight, and what the user can do there. Skin (type, colour, radius) does not count as a difference. One option keeps the current structure so that leaving it is a decision; two or more change it. Each option names what it does for the primary task and the return ritual, and what it costs (rows above the fold, taps, state to keep). Carry two into the direction presentation, choose one, and say which line of the brief chose it. Source the options from `references/practice.md` section 10 (the six methods) and from the competitor map's empty quadrant. `[source: Crazy 8s, Google Ventures sprint; house]`
+Four structural options in `concept.md` before a single idea is written; a structure is what is on the page, in what order, at what weight, and what the user can do there. Skin (type, colour, radius) does not count as a difference, and neither does re-ordering or re-weighting the same rows: at least one option changes the content unit (what a row, card or scene is: a conversation instead of a link, a moment instead of a form), and at least one uses the widest viewport differently (columns, rails, a second region), because an option set that only re-sorts one list produces variations, not alternatives. One option keeps the current structure so that leaving it is a decision; two or more change it. Each option names what it does for the primary task and the return ritual, and what it costs (rows above the fold, taps, state to keep). Carry two into the direction presentation, choose one, and say which line of the brief chose it. Source the options from `references/practice.md` section 10 (the six methods) and from the competitor map's empty quadrant. `[source: Crazy 8s, Google Ventures sprint; house]`
 
 | Situation | Default | Escape hatch |
 |---|---|---|
@@ -62,6 +62,9 @@ Four structural options in `concept.md` before a single idea is written; a struc
 | Intake scope is refresh | One option (the current structure) named as such; skip to the idea | None |
 | All four options keep the old structure | Not divergence; rewrite until two change it | None |
 | The chosen option is the current structure on a rethink | Allowed only with a written reason from the ritual or the metric; the reskin test still applies | None |
+| All four options are the same list re-sorted or re-weighted | Not divergence; add an option that changes the content unit and one that changes the desktop use | None |
+
+Order of operations on a rethink: structure first, direction second. The catalogue direction (`references/directions.md`) is chosen for the structure that won, not before it; choosing "Tool density" before divergence pins the structure to one dense list and the model will find the old page twice. `[house]`
 
 ### 3.4 The one idea
 
@@ -158,7 +161,7 @@ Score each category 0 to 10 from QA evidence. Start at 10; subtract 2 per failed
 | H Character | One illustration style; expression by posture, lids and brows; irregular blink; no cropping through a body; peaks use anticipation, action, settle within 900 ms; reaction pools with no immediate repeat |
 | I Copy | Headline makes a specific claim; labels are the user's words; one CTA per section, verb first; sentence case; numbers formatted |
 | J Craft | Ten measurements spot-checked, all on scale; optical alignment corrected; no orphans in headlines; dark mode designed; nothing fails "what is this earning" |
-| K Reskin test (rethink and new only) | Before and after side by side at 25 percent zoom (`scripts/capture.mjs` both, same viewport): structure differs, not only skin; the one idea is legible at that zoom; the one new mechanism exists in the render and serves the primary task; the chosen divergence option is the one built; a stranger's one-line description of each would differ. Under 7 on a rethink is a reskin: loop, with the divergence options as the next brief |
+| K Reskin test (rethink and new only) | Scored blind by someone who did not build it (a second agent or the client), given only the two 25 percent images with no labels and no concept: they write one line per image and say whether they are the same product. Then the maker checks: structure differs, not only skin; the one idea is legible at that zoom; the one new mechanism exists in the render and serves the primary task; the chosen divergence option is the one built; the widest viewport is used (a list or stage using under 60 percent of a 1440 viewport's width without a written reason is a failed check). The maker never scores K alone. Under 7 on a rethink is a reskin: loop, with the divergence options as the next brief |
 
 Verdict: studio grade at or above 8 in every category with zero slop hits (K included on a rethink); competent at or above 6 everywhere with at most 3 hits; template otherwise. Report the lowest category first, then the slop hits by number and location, then the top five fixes ordered by impact with the categories each affects.
 
