@@ -12,7 +12,7 @@ Run: `node scripts/capture.mjs <url> <out-dir>`. Viewports 390x844 (mobile), 768
 ## Brief pass
 Success metric from `brief.md`: <statement>. Baseline (current build): <numbers>. Measured on this build: <numbers, with the command>. Kill list: <each item, present or absent>.
 
-Reskin check (rethink and new only): before and after at 25 percent, same viewport: <paths>. Structure differs: <yes or no, what>. One idea legible: <yes or no>. New mechanism present and reachable: <yes or no, where>. Stranger's line, before: <one line>. After: <one line>.
+Reskin check (rethink and new only): before and after at 25 percent, same viewport: <paths>. Blind lines from <who: second agent or client>, verbatim: before "<one line>", after "<one line>", same product: <yes or no>. Structure differs: <yes or no, what>. One idea legible: <yes or no>. New mechanism present and reachable: <yes or no, where>. Viewport use at 1440: <main region px / 1440 = percent>.
 
 ## Measurements
 Run: `node scripts/measure.mjs <url>` and `python3 scripts/contrast.py`.
