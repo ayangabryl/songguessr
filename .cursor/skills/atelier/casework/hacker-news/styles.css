@@ -1,0 +1,396 @@
+/* entry.css: the only place the layer order is declared (engineering §3.1, §5). tokens.css is
+   linked before this stylesheet (see index.html) and left unlayered — it only ever declares
+   custom properties on :root and [data-theme], which nothing in base/components/utilities also
+   sets, so there is no cascade conflict for @layer to resolve. */
+@layer base, components, utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html { font-family: var(--font-sans); -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--text);
+    font-size: var(--fs-2);
+    line-height: var(--lh-body);
+    transition: background-color var(--dur-2) var(--ease-in-out), color var(--dur-2) var(--ease-in-out);
+  }
+  a { color: inherit; }
+  button {
+    font: inherit; color: inherit; margin: 0; padding: 0; border: 0; background: none;
+  }
+  .num { font-variant-numeric: tabular-nums lining-nums; }
+
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+
+  .skip-link {
+    position: absolute;
+    top: var(--space-2);
+    left: var(--space-2);
+    z-index: var(--z-toast);
+    padding-inline: var(--space-4);
+    min-height: var(--target);
+    display: inline-flex;
+    align-items: center;
+    background: var(--text);
+    color: var(--canvas);
+    border-radius: var(--r-1);
+    font-size: var(--fs-1);
+    font-weight: 500;
+    text-decoration: none;
+    opacity: 0;
+    transform: translateY(-150%);
+    transition: transform var(--dur-2) var(--ease-out), opacity var(--dur-2) var(--ease-out);
+  }
+  .skip-link:focus-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skip-link { transition-property: opacity; }
+    .vote, .retry { transition-property: background-color, color; }
+  }
+
+  @media (forced-colors: active) {
+    .vote, .theme-toggle, .retry { border: 1px solid ButtonText; }
+    :focus-visible { outline-color: Highlight; }
+  }
+}
+
+@layer components {
+
+  /* ---------- Header: the brand bar. Orange background and the Y mark are the two elements
+     the intake card names as fixed; everything else here is new. ---------- */
+  .site-header {
+    background: var(--accent);
+    color: var(--on-accent);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-4); /* loop 2: row-gap was --space-2 (8px) */
+    padding-inline: var(--page-margin);
+    padding-block: 0; /* loop 2: was --space-1 (4px); the bar's own controls are already 44 px
+      touch targets (nav a, theme-toggle, login, wordmark) — extra padding around them at 390 px
+      only cost list density, at a viewport where every px is spent against the 12-row floor */
+  }
+  .site-header :focus-visible { outline-color: var(--canvas); }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-inline-end: var(--space-2);
+  }
+  .mark {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--on-accent);
+    border-radius: var(--r-1);
+    background: var(--surface);
+    color: var(--accent-strong);
+    font-size: var(--fs-1);
+    font-weight: 600;
+    line-height: 1;
+  }
+  .wordmark {
+    font-size: var(--fs-2);
+    font-weight: 600;
+    text-decoration: none; /* loop 2: a second underline beneath the Y mark's own bar read as a
+      redundant rule (direction audit S3); the mark itself is the "you are here" signal */
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--target);
+  }
+
+  .nav {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
+  /* loop 2: below the width where all three header groups fit one line (the same 48rem step
+     `--page-margin` already breaks at), the nav becomes a single scrolling line instead of wrapping
+     across up to three 44 px lines — 132 px of a 204 px header at 390 px wide, most of the shortfall
+     against the 12-row-at-390x844 density floor. Reordered after `.header-actions` so brand and
+     actions (both narrow) share the header's first wrapped line and the full-width nav takes a
+     second line alone, instead of each of the three groups claiming its own line. Desktop keeps the
+     original single-line header (nav fits beside brand and actions there, so it is left alone). */
+  @media (max-width: 47.9375rem) {
+    .header-actions { order: 1; }
+    .nav {
+      order: 2;
+      flex-basis: 100%;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .nav::-webkit-scrollbar { display: none; }
+  }
+  .nav a {
+    font-size: var(--fs-1);
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    padding: var(--space-2) var(--space-3);
+    min-height: var(--target);
+    min-width: var(--target);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+  .nav a:not(:first-child) {
+    border-left: 1px solid color-mix(in oklch, var(--on-accent), transparent 65%);
+  }
+  @media (hover: hover) {
+    .nav a:hover, .footer-nav a:hover, .login:hover { text-decoration: underline; }
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-inline-start: auto;
+  }
+  .theme-toggle {
+    appearance: none;
+    background: transparent;
+    border: 1px solid color-mix(in oklch, var(--on-accent), transparent 55%);
+    border-radius: var(--r-1);
+    min-width: var(--target);
+    min-height: var(--target);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    color: var(--on-accent);
+    transition: background-color var(--dur-1) var(--ease-out);
+  }
+  @media (hover: hover) {
+    .theme-toggle:hover { background: color-mix(in oklch, var(--on-accent), transparent 88%); }
+  }
+  .theme-icon { width: 16px; height: 16px; fill: none; stroke: none; }
+  .theme-icon-sun { fill: currentColor; }
+  .theme-icon-moon { fill: currentColor; display: none; }
+  [data-theme="dark"] .theme-icon-sun,
+  html:not([data-theme]) .theme-icon-sun { display: block; }
+  [data-theme="dark"] .theme-icon-moon { display: block; }
+  [data-theme="dark"] .theme-icon-sun { display: none; }
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme]) .theme-icon-sun { display: none; }
+    html:not([data-theme]) .theme-icon-moon { display: block; }
+  }
+  .login {
+    font-size: var(--fs-1);
+    font-weight: 500;
+    text-decoration: none;
+    min-height: var(--target);
+    min-width: var(--target);
+    padding-inline: var(--space-3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ---------- Main: the list is the whole product. ---------- */
+  main { display: block; }
+  #list-region {
+    max-width: var(--list-max);
+    margin-inline: auto;
+    padding: var(--space-2) var(--page-margin) var(--space-8); /* loop 3 (direction): 8 px top so the
+      first row does not touch the bar. loop 2: top was --space-6 (32px), then
+      --space-3, then --space-1; a scanning list's first row should sit directly under the bar
+      (layout §4.1 rule 3 reserves the large gaps for between regions, not above the one region this
+      whole page is) — 0 closes the last of the 390x844 density gap */
+  }
+  .status { color: var(--text-2); font-size: var(--fs-1); }
+
+  .story-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .story-row {
+    display: grid;
+    grid-template-columns: 2ch auto 1fr; /* loop 2: was 2.5ch; two digits plus a period still fits
+      (rank right-aligns, so a wide "30." does not collide with the vote column), and every ch here
+      is title-column width at 390 */
+    column-gap: var(--space-2); /* loop 2: was --space-3 (12px); every px here is taken from the
+      title column's available width at 390, where it directly costs wrapped lines */
+    align-items: start;
+    padding-block: var(--space-0); /* loop 3 (direction): 2 px each side gives the hairline a little air
+      without giving up the density floor; measured 25 rows at 1440 and 12 at 390 */
+    /* loop 2 note, kept for the record: the 24-row-at-1440x900 / 12-row-at-390x844 floor leaves about 35 px
+      per row in the ~836 px available at 1440 — close to news.ycombinator.com's own measured 34 px
+      (title 19 + meta 10 + a ~5 px spacer). This build's own type is still larger (16/13 px against
+      the old build's ~9-10 px meta), so the only room left is padding: 0, relying on the hairline
+      alone for inter-row separation, same as intra-row (0). Gestalt proximity (rule 3) is closer to
+      even here than the studio default asks for — recorded as a finding, not hidden (see CASE.md) */
+    border-bottom: 1px solid var(--hairline);
+  }
+  .story-row:last-child { border-bottom: none; }
+
+  .rank {
+    font-size: var(--fs-1);
+    color: var(--text-3);
+    text-align: right;
+    padding-top: var(--space-1);
+  }
+
+  .vote {
+    appearance: none;
+    background: none;
+    border: none;
+    border-radius: var(--r-1);
+    min-width: var(--target);
+    min-height: var(--target);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    color: var(--text-3);
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+  }
+  .vote-icon { width: 11px; height: 11px; fill: currentColor; transform: translateX(1%); } /* optical
+    nudge toward the point per layout §4.4 rule 25 */
+  @media (hover: hover) {
+    .vote:hover { background: var(--surface-2); color: var(--text); }
+  }
+  .vote:active { transform: scale(var(--press-scale)); }
+  .vote[aria-pressed="true"] {
+    color: var(--accent); /* the third of the four places the accent appears */
+  }
+
+  .story-content { min-width: 0; } /* allow long titles to wrap inside the grid track */
+  .story-title {
+    margin: 0;
+    font-size: var(--fs-2);
+    font-weight: 500;
+    line-height: var(--lh-tight); /* loop 2: 1.1, was 1.4 — the density floor (§brief) needs a tight
+      single line here; wrapped titles (rare now that --list-max is 68rem) still read fine at 1.1 */
+    text-wrap: pretty;
+  }
+  .title-link {
+    text-decoration: none;
+    word-break: break-word;
+    /* loop 2: layout §4.7 rule 35b — an inline text link inside running text is exempt from the
+      44 px target rule; `inline-flex` plus `min-height` turned it into an atomic box that could not
+      wrap like text, forcing titles onto extra lines and inflating the row (direction audit S1/S2).
+      The row itself, not this link, is this screen's touch target. */
+  }
+  @media (hover: hover) {
+    .title-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+  }
+  .domain {
+    font-size: var(--fs-1);
+    color: var(--text-2);
+    margin-inline-start: var(--space-1);
+  }
+
+  .story-meta {
+    margin: 0; /* loop 2: was --space-1 (4px) top; at this density the title's own line-height
+      leading already separates it from the meta line (Gestalt proximity still holds: 0 intra-row
+      gap is visibly less than the 4 px inter-row margin plus the hairline) */
+    font-size: var(--fs-0);
+    line-height: var(--lh-tight); /* 1.1, was 1.5 inherited */
+    color: var(--text-2);
+    /* loop 2: plain inline flow, not flexbox — a flex child is blockified (its computed `display`
+      stops being `inline`), which silently defeated the inline-link exemption on `a.comments`
+      (layout §4.7 rule 35b) and made `measure.mjs` count and fail it as a standalone control. The
+      `·` separators already carry their own spacing as text, so flex's `column-gap` is not missed. */
+  }
+  .story-meta .points { font-weight: 500; color: var(--text); }
+  .story-meta .user { color: var(--text-2); }
+  .story-meta a.comments {
+    text-decoration: none;
+    color: var(--text-2);
+    /* loop 2: layout §4.7 rule 35b — an inline link in a meta line is exempt from the 44 px
+      target rule (`measure.mjs` counts it separately and does not fail it); padding it to a full
+      touch target here was the second cause of the inflated row height. */
+  }
+  @media (hover: hover) {
+    .story-meta a.comments:hover { text-decoration: underline; color: var(--text); }
+  }
+  .story-meta .sep { color: var(--text-3); }
+
+  .error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-4);
+    padding-block: var(--space-6);
+    color: var(--danger);
+  }
+  .retry {
+    appearance: none;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--outline);
+    border-radius: var(--r-1);
+    min-height: var(--target);
+    padding-inline: var(--space-5);
+    font-size: var(--fs-1);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+  }
+  @media (hover: hover) {
+    .retry:hover { background: color-mix(in oklch, var(--surface-2), var(--text) 8%); }
+  }
+  .retry:active { transform: scale(var(--press-scale)); }
+
+  /* ---------- Footer ---------- */
+  .site-footer {
+    border-top: 1px solid var(--hairline);
+    padding: var(--space-6) var(--page-margin) var(--space-8);
+    max-width: var(--list-max);
+    margin-inline: auto;
+  }
+  .footer-nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-1) 0;
+  }
+  .footer-nav a {
+    font-size: var(--fs-1);
+    color: var(--text-2);
+    text-decoration: none;
+    padding: var(--space-2) var(--space-3);
+    min-height: var(--target);
+    min-width: var(--target);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .footer-nav a:not(:first-child) {
+    border-left: 1px solid var(--hairline);
+  }
+  .footer-note {
+    text-align: center;
+    font-size: var(--fs-0);
+    color: var(--text-3);
+    margin: var(--space-4) 0 0;
+  }
+  .footer-note code {
+    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+
+  /* ---------- Responsive: content-based breakpoints (layout §4.8 rule 38), 390 px first. ---------- */
+  @media (min-width: 30rem) {
+    .story-row { grid-template-columns: 3ch auto 1fr; }
+  }
+  @media (max-width: 47.9375rem) {
+    .story-title {
+      font-size: var(--fs-1); /* loop 2: 14 px, was 16 px. At 390 px the column is ~358 px; 16 px
+        type wrapped nearly every title (measured live news.ycombinator.com's own mobile title font:
+        14.67 px, close to this token) to 2-3 lines and made the 12-row-at-390x844 floor impossible
+        without this step. Still above the old build's ~9-10 px meta text and the 12 px meta floor. */
+    }
+  }
+}

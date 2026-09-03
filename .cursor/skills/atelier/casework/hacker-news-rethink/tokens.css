@@ -1,0 +1,118 @@
+/*
+  Token sheet: Hacker News front page (rethink)
+  Owner: layout (space, radius, layers), typography (type), colour (colour), motion (motion).
+  Rule: components read tokens only. Any literal outside this file needs a one-line reason beside it.
+  Every colour pair used for text or UI carries its measured contrast ratio in a comment, from
+  `python3 /workspace/.cursor/skills/atelier/scripts/contrast.py "<fg>" "<bg>"`.
+*/
+
+:root {
+  color-scheme: light dark;
+
+  /* Space: 4 px base, 8 px rhythm. Tool density direction: tight inside rows, larger between bands. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* Radius: role-mapped, not capsule (Tool density direction: controls are rectangular, dense). */
+  --r-0: 0px;    /* full-bleed edges, the tide-line rule */
+  --r-1: 6px;    /* the theme toggle, the skip link */
+  --r-2: 10px;   /* focus-visible corner on row targets */
+  --r-3: 14px;   /* unused on this screen; kept on the scale for future panels */
+  --r-pill: 999px;
+
+  /* Type: one variable family (Geist), typography desk's reason below. Ratio 1.25 from 16 px (product UI default,
+     `typography/PLAYBOOK.md` 3.2); this screen needs 4 visible sizes, under the 6-size escape-hatch threshold. */
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --fs-0: 0.8125rem;  /* 13 px   age, delta, footer */
+  --fs-1: 0.875rem;   /* 14 px   domain, "new" label, secondary meta */
+  --fs-2: 1rem;       /* 16 px   story title, body */
+  --fs-3: 1.25rem;    /* 20 px   wordmark */
+  --lh-tight: 1.1;
+  --lh-snug: 1.2;
+  --lh-body: 1.5;
+  --measure: 68rem;   /* Tool density: a scanning list column runs 60-72 rem, not a 44 rem prose measure */
+
+  /* Colour: one hue, HN's own orange. #ff6600 measures L 0.696 C 0.204 h 43.5 in OKLab; --hue: 43 keeps the
+     redesign continuous with the brand instead of introducing a new one. Light system. */
+  --hue: 43;
+  --bg:            oklch(0.985 0.004 var(--hue));
+  --surface:       oklch(0.995 0.002 var(--hue));
+  --surface-2:     oklch(0.955 0.008 var(--hue));
+  --line:          oklch(0.900 0.010 var(--hue));   /* decorative row hairline, 1.3:1, exempt (colour 3.3) */
+  --outline:       oklch(0.600 0.020 var(--hue));   /* control boundary: on --bg 3.80:1, on --surface 3.7:1 (>=3) */
+  --text:          oklch(0.220 0.012 var(--hue));   /* on --bg 16.61:1, on --surface-2 15.2:1 */
+  --text-2:        oklch(0.450 0.012 var(--hue));   /* on --bg 7.15:1, on --surface-2 6.6:1 */
+  --text-3:        oklch(0.535 0.012 var(--hue));   /* loop 3 (S3-3): one step lighter than 0.530 so the delta and
+                                                        domain read quieter than --text-2; on --bg 4.97:1, on
+                                                        --surface-2 (row hover) 4.54:1 — the ceiling this token can
+                                                        move to before the hover background drops it under 4.5:1
+                                                        (meta/velocity only, never body copy) */
+  --accent:        oklch(0.520 0.140 var(--hue));   /* fill; not clipped */
+  --accent-strong: oklch(0.450 0.120 var(--hue));   /* thin fills, links: on --bg 7.50:1, on --surface-2 6.86:1 */
+  --on-accent:     oklch(0.990 0 0);                /* on --accent 5.68:1 */
+  --focus:         oklch(0.600 0.180 var(--hue));   /* on --bg 4.19-4.07:1, on --surface 4.19:1 (>=3) */
+  --shadow-1: 0 1px 2px oklch(0.2 0.01 var(--hue) / 0.08);
+
+  /* Motion: one duration ramp, two easings, one spring (Tool density -> tool snap dialect; see motion-spec.md). */
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --dur-4: 520ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-land: linear(0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 18.9%, 0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%, 0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%, 1.001);
+  --stagger: 30ms;
+  --press-scale: 0.98;
+
+  /* Layers */
+  --z-content: 0;
+  --z-control: 10;
+  --z-overlay: 20;
+  --z-toast: 30;
+
+  /* Layout derived tokens. Default 32 px (pointer: fine); grown to 44 px only under (pointer: coarse), not the
+     reverse default, because desktop Chrome (no mobile/touch emulation) resolves neither pointer media query and
+     must not silently keep a 44 px floor it never asked for. */
+  --target: 32px;
+  --page-margin: var(--space-4);
+}
+
+@media (pointer: coarse) { :root { --target: 44px; } }
+@media (min-width: 60rem) { :root { --page-margin: var(--space-6); } }
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:            oklch(0.170 0.012 var(--hue));
+  --surface:       oklch(0.225 0.014 var(--hue));
+  --surface-2:     oklch(0.290 0.016 var(--hue));
+  --line:          oklch(0.300 0.012 var(--hue));
+  --outline:       oklch(0.550 0.020 var(--hue));   /* on --bg 3.92:1, on --surface 3.51:1 (>=3) */
+  --text:          oklch(0.930 0.006 var(--hue));   /* on --bg 15.56:1, on --surface-2 11.4:1 */
+  --text-2:        oklch(0.760 0.012 var(--hue));   /* on --bg 8.89:1, on --surface-2 6.6:1 */
+  --text-3:        oklch(0.660 0.012 var(--hue));   /* loop 3 (S3-3): one step lighter than 0.680; on --bg 6.13:1,
+                                                        on --surface-2 (row hover) 4.54:1 — same hover-background
+                                                        ceiling as the light theme (meta/velocity only) */
+  --accent:        oklch(0.720 0.140 var(--hue));   /* not clipped */
+  --accent-strong: oklch(0.780 0.130 var(--hue));   /* not clipped; on --bg 9.17:1, on --surface 8.21:1 */
+  --on-accent:     oklch(0.200 0.030 var(--hue));   /* on --accent 6.98:1 (dark ink wins over white at this L) */
+  --focus:         oklch(0.780 0.130 var(--hue));   /* on --bg 9.17:1, on --surface 8.21:1 (>=3) */
+  --shadow-1: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --dur-4: 0ms;
+    --press-scale: 1;
+    --stagger: 0ms;
+  }
+}

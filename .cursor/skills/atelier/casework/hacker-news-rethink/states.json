@@ -1,0 +1,5 @@
+{
+  "idle": "window.__hnDemo.resetToNormalReturn()",
+  "returning-with-new-items": "window.__hnDemo.forceDramaticReturn()",
+  "keyboard-focus": "window.__hnDemo.resetToNormalReturn(); window.__hnDemo.focusFirstRow()"
+}

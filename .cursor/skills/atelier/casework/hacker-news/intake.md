@@ -1,0 +1,12 @@
+# Intake card: Hacker News front page
+
+Date: 2026-09-03. Source: project archaeology (`departments/strategy/PLAYBOOK.md` section 3.2) — no client in the room. Lines marked (guess) were not confirmed by a client.
+
+1. Product and users: Hacker News is a link aggregator run by Y Combinator. Read mostly by programmers and founders, many times a day, on desktop at work and on phones in between. (fact, given in the brief)
+2. Primary task of the screen: scan 30 headlines and choose which to open — the story link or the comments. There is no second competing task on this screen; navigation and submission are tertiary. (fact, given)
+3. Success: (guess) a reader completes one pass of the list — reads rank, title, domain and meta for all 30 rows — and opens a story or its comments, without a horizontal scroll, a lost place in the list, or a moment spent decoding a value. No analytics exist to confirm a number; this is inferred from the primary task.
+4. Must not change: the orange bar and the "Y" mark (fact, given); the seven nav items in their existing order plus login (fact, given, read from `hn-before-1440.png`); the seven fields captured in `items.json` — rank, title, url, site, points, user, age, comments (fact, read from `items.json`); the footer link set — Guidelines, FAQ, Lists, API, Security, Legal, Apply to YC, Contact (fact, given).
+5. References the client likes: no client, so none volunteered. Three mechanisms chosen by the direction desk instead, each with a stated reason — see `concept.md`. (guess, by necessity)
+6. Dislikes (read from `hn-before-1440.png` and `hn-before-390.png`, not guessed): meta text set very small (about 9–10 px) in a low-contrast grey that measures under 4 s.4:1 on white; the upvote triangle has no visible hit area beyond its glyph (well under 44 px); title, domain and meta share almost the same size and weight, so the eye has to read every character to find the boundary between fields; no dark theme; no visible focus ring in the capture.
+7. Tone: quiet, dense, legible. Never: flashy. (fact, given)
+8. Constraints: static HTML + CSS + a small amount of vanilla JS rendering `items.json`; no framework, no build step; self-hosted or system fonts only, no CDN fonts; WCAG 2.2 AA; reduced motion respected (the split policy, `departments/motion/PLAYBOOK.md` rule 25); light and dark via `prefers-color-scheme` plus a manual toggle stored in `localStorage["hn-theme"]` applied as `data-theme` on `<html>`; no external network requests at load; locale: English only. (fact, given)

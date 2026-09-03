@@ -1,0 +1,335 @@
+@layer tokens, base, components, utilities;
+
+@layer tokens {
+  /* Self-hosted, one variable file, latin subset, swap. Fallback metrics are an approximation (no fontaine run
+     in this build) rather than the browser default Arial box — noted here rather than presented as exact. */
+  @font-face {
+    font-family: 'Geist Variable';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('fonts/geist-latin-wght-normal.woff2') format('woff2-variations');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Geist Fallback';
+    src: local('Arial'), local('Liberation Sans'), local('Helvetica Neue');
+    size-adjust: 104%;
+    ascent-override: 92%;
+    descent-override: 24%;
+    line-gap-override: 0%;
+  }
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  html {
+    font-family: 'Geist Variable', 'Geist Fallback', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 100%;
+    font-kerning: normal;
+    font-feature-settings: "liga" 1;
+    font-optical-sizing: auto;
+    font-synthesis: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    line-height: var(--lh-body);
+    transition: background-color var(--dur-3) var(--ease-in-out), color var(--dur-3) var(--ease-in-out);
+  }
+  a { color: inherit; }
+  .num, .num * { font-variant-numeric: tabular-nums lining-nums; }
+
+  .skip-link {
+    position: absolute;
+    inset: var(--space-2) auto auto var(--space-2);
+    z-index: var(--z-toast);
+    translate: 0 -200%;
+    background: var(--accent);
+    color: var(--on-accent);
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--target);
+    padding-inline: var(--space-4);
+    border-radius: var(--r-1);
+    font-size: var(--fs-1);
+    font-weight: 500;
+  }
+  .skip-link:focus-visible { translate: 0 0; }
+
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  @media (prefers-contrast: more) { :root { --line: var(--text-2); } }
+
+  @media (forced-colors: active) {
+    .story-row, .theme-toggle, .retry { border: 1px solid ButtonText; }
+    :focus-visible { outline-color: Highlight; }
+  }
+}
+
+@layer components {
+  .site-header {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    transition: background-color var(--dur-3) var(--ease-in-out), border-color var(--dur-3) var(--ease-in-out);
+  }
+  /* One row on desktop: brand, then the section nav filling the header's own slack space, then the theme
+     control and login. No second row, so the 24-row density floor at 1440 is untouched (loop 3, S2-1). */
+  .header-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-1) var(--page-margin);
+  }
+  .brand { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; flex: none; }
+  .brand-mark {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--r-1);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--fs-1);
+    font-weight: 600;
+    line-height: 1;
+  }
+  .brand-name { font-size: var(--fs-1); font-weight: 600; letter-spacing: -0.005em; }
+
+  /* Restored site sections (loop 3, S2-1): a real `<nav>`, so its links are never counted against the inline
+     text-link target exemption (layout/PLAYBOOK.md 4.7, measure.mjs `nav a` exclusion) and must clear
+     `--target` on their own via padding, not just their text line-box. */
+  .site-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 1;
+    min-width: 0;
+  }
+  .site-nav a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--target);
+    min-width: var(--target);
+    padding-inline: var(--space-2);
+    font-size: var(--fs-1);
+    color: var(--text-2);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  @media (hover: hover) { .site-nav a:hover { text-decoration: underline; } }
+
+  .header-actions { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+  /* A flex child's used `display` is blockified even when declared `inline` (the same rule that governs
+     `.title-link`, above), so login does not qualify for the inline-text-link target exemption; it gets a
+     real `--target`-sized hit area instead, the same treatment as the nav links beside it. */
+  .login-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--target);
+    min-width: var(--target);
+    padding-inline: var(--space-2);
+    font-size: var(--fs-1);
+    color: var(--text-2);
+    text-decoration: none;
+  }
+  @media (hover: hover) { .login-link:hover { text-decoration: underline; } }
+
+  .theme-toggle {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    border: 1px solid var(--outline);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: var(--r-1);
+    padding: var(--space-1) var(--space-3);
+    min-height: var(--target);
+    font: inherit;
+    font-size: var(--fs-1);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+  }
+  @media (hover: hover) { .theme-toggle:hover { background: var(--surface-2); } }
+  .theme-toggle:active { transform: scale(var(--press-scale)); }
+  .theme-icon { display: none; flex: none; }
+
+  main { display: block; }
+
+  .story-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-width: var(--measure);
+    margin-inline: auto;
+  }
+  .story-list.band-flat, .story-list.band-rising { counter-reset: rank; }
+  .story-row {
+    counter-increment: rank;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding-inline: var(--page-margin);
+    border-bottom: 1px solid var(--line);
+  }
+  .story-row::before {
+    content: counter(rank);
+    flex: none;
+    width: 2.2ch;
+    text-align: right;
+    font-size: var(--fs-0);
+    font-weight: 400;
+    color: var(--text-3);
+  }
+  .story-list.band-steady { counter-reset: rank var(--steady-start, 0); }
+  @media (hover: hover) {
+    .story-row:hover { background: var(--surface-2); }
+  }
+
+  .story-body { min-width: 0; flex: 1; }
+  /* Plain inline flow, not flex: a flex container blockifies its children's used `display`, which would strip
+     the title link of the WCAG 2.2 2.5.8 inline-text-link exemption (layout 4.7 rule 35b) it needs to stay
+     dense, and would stop the title wrapping at a normal word boundary on narrow viewports. */
+  .story-title-line {
+    line-height: var(--lh-tight);
+  }
+  .title-link {
+    font-size: var(--fs-2);
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+  }
+  /* Steady rows drop tone as well as weight (loop 3, S3-1): at 16 px the 500/400 weight step alone
+     disappeared into the face; --text-2 still clears 4.5:1 in both themes (tokens.css), so the step reads
+     without needing colour on Rising, which would cost the orange as a second signal it does not need. */
+  .story-row[data-band="steady"] .title-link { font-weight: 400; color: var(--text-2); }
+  @media (hover: hover) { .title-link:hover { text-decoration: underline; } }
+  /* Domain and "new" are one nowrap unit (loop 3, S2-2): if the line breaks here, both move to the next
+     line together instead of leaving "new" to wrap alone. */
+  .domain-group { display: inline-block; white-space: nowrap; }
+  .domain { font-size: var(--fs-1); color: var(--text-3); margin-inline-start: var(--space-2); }
+  .new-badge {
+    font-size: var(--fs-0);
+    font-weight: 500;
+    color: var(--accent-strong);
+    margin-inline-start: var(--space-2);
+  }
+
+  .story-meta {
+    font-size: var(--fs-0);
+    line-height: var(--lh-snug);
+    color: var(--text-2);
+    display: block;
+  }
+  .story-meta a { text-decoration: underline; text-decoration-color: var(--line); color: var(--text-2); }
+  @media (hover: hover) { .story-meta a:hover { text-decoration-color: currentColor; } }
+  .sep { color: var(--text-3); margin-inline: 2px; }
+  .delta { color: var(--text-3); font-weight: 500; }
+  .by { color: var(--text-2); }
+  .age { color: var(--text-3); }
+
+  .tide-mark {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) var(--page-margin);
+    max-width: var(--measure);
+    margin-inline: auto;
+  }
+  .tide-line { flex: none; width: var(--space-4); height: 1px; background: var(--accent-strong); }
+  .tide-text {
+    margin: 0;
+    font-size: var(--fs-0);
+    font-weight: 500;
+    color: var(--text-2);
+  }
+
+  .story-row--skeleton { border-bottom: 1px solid var(--line); }
+  .skeleton-line {
+    background: var(--surface-2);
+    border-radius: var(--r-1);
+    height: 12px;
+    margin-block: 3px;
+  }
+  .skeleton-line--title { width: 70%; height: 16px; }
+  .skeleton-line--meta { width: 40%; }
+
+  .state-message {
+    padding: var(--space-7) var(--page-margin);
+    max-width: var(--measure);
+    margin-inline: auto;
+    text-align: left;
+  }
+  .state-message p { margin: 0 0 var(--space-3); }
+  .retry {
+    margin-top: var(--space-3);
+    appearance: none;
+    border: 1px solid var(--outline);
+    background: var(--accent);
+    color: var(--on-accent);
+    border-radius: var(--r-1);
+    padding: var(--space-2) var(--space-4);
+    min-height: var(--target);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .site-footer {
+    padding: var(--space-5) var(--page-margin) var(--space-7);
+    max-width: var(--measure);
+    margin-inline: auto;
+    font-size: var(--fs-0);
+    color: var(--text-3);
+  }
+  .site-footer p { margin: 0; }
+}
+
+@layer utilities {
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+}
+
+@media (max-width: 30rem) {
+  .brand-name { display: none; }
+  .story-row { gap: var(--space-2); }
+  .title-link { font-size: var(--fs-1); }
+  .story-row::before { width: 1.8ch; }
+
+  /* Section nav moves to its own scrollable row under the wordmark row (loop 3, S2-1): one row of extra
+     height, affordable against a 12-row floor when the build already clears it at 14. */
+  .header-row { flex-wrap: wrap; padding-block: var(--space-1) 0; row-gap: 0; }
+  .site-nav {
+    order: 3;
+    flex-basis: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: var(--space-1);
+    margin-inline: calc(var(--page-margin) * -1);
+    padding-inline: var(--page-margin);
+  }
+  .site-nav a { flex: none; }
+
+  /* Icon-only 44 px square (loop 3, S3-2): the theme control was reading as the header's strongest
+     element as a bordered text pill; a quiet --line border and an icon keep it a utility, not the
+     primary action (the wordmark is). Accessible name comes from aria-label, set in app.js, not this text. */
+  .theme-toggle {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+    border-color: var(--line);
+  }
+  .theme-toggle-label { display: none; }
+  .theme-icon { display: block; color: var(--text-2); }
+  :root[data-theme="light"] .theme-icon--sun { display: none; }
+  :root[data-theme="dark"] .theme-icon--moon { display: none; }
+}

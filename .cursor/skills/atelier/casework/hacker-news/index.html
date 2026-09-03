@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Hacker News</title>
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('hn-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+<!-- tokens.css is linked directly (not via @import) because headless Chrome, as driven by
+     scripts/cdp.mjs, does not enumerate an @import'ed sheet as its own document.styleSheets entry,
+     which would hide every --space-*/--fs-*/--dur-* value from measure.mjs and motion-audit.mjs
+     (engineering §3.2: the scripts must read the real scale, not fall back silently). -->
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to stories</a>
+
+<header class="site-header">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">Y</span>
+    <a class="wordmark" href="index.html">Hacker News</a>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="https://news.ycombinator.com/newest">new</a>
+    <a href="https://news.ycombinator.com/front">past</a>
+    <a href="https://news.ycombinator.com/newcomments">comments</a>
+    <a href="https://news.ycombinator.com/ask">ask</a>
+    <a href="https://news.ycombinator.com/show">show</a>
+    <a href="https://news.ycombinator.com/jobs">jobs</a>
+    <a href="https://news.ycombinator.com/submit">submit</a>
+  </nav>
+  <div class="header-actions">
+    <button class="theme-toggle" type="button" id="theme-toggle" aria-pressed="false">
+      <svg class="theme-icon theme-icon-sun" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="3.2"></circle>
+        <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+          <line x1="8" y1="0.5" x2="8" y2="2.4"></line>
+          <line x1="8" y1="13.6" x2="8" y2="15.5"></line>
+          <line x1="0.5" y1="8" x2="2.4" y2="8"></line>
+          <line x1="13.6" y1="8" x2="15.5" y2="8"></line>
+          <line x1="2.6" y1="2.6" x2="3.9" y2="3.9"></line>
+          <line x1="12.1" y1="12.1" x2="13.4" y2="13.4"></line>
+          <line x1="13.4" y1="2.6" x2="12.1" y2="3.9"></line>
+          <line x1="3.9" y1="12.1" x2="2.6" y2="13.4"></line>
+        </g>
+      </svg>
+      <svg class="theme-icon theme-icon-moon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M13.5 9.8A6 6 0 1 1 6.2 2.5a4.8 4.8 0 0 0 7.3 7.3Z"></path>
+      </svg>
+      <span class="visually-hidden">Switch to <span id="theme-target-label">dark</span> theme</span>
+    </button>
+    <a class="login" href="https://news.ycombinator.com/login">login</a>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+  <div id="list-region" aria-live="polite" aria-busy="true">
+    <p class="status" id="status">Loading stories…</p>
+    <ol class="story-list" id="story-list" hidden></ol>
+    <div class="error-state" id="error-state" hidden role="alert">
+      <p>Couldn't load the stories. The file may be missing or the connection dropped.</p>
+      <button class="retry" type="button" id="retry-btn">Retry</button>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <nav class="footer-nav" aria-label="Legal and company">
+    <a href="https://news.ycombinator.com/newsguidelines.html">Guidelines</a>
+    <a href="https://news.ycombinator.com/newsfaq.html">FAQ</a>
+    <a href="https://news.ycombinator.com/lists">Lists</a>
+    <a href="https://github.com/HackerNews/API">API</a>
+    <a href="https://news.ycombinator.com/security.html">Security</a>
+    <a href="https://www.ycombinator.com/legal/">Legal</a>
+    <a href="https://www.ycombinator.com/apply/">Apply to YC</a>
+    <a href="https://news.ycombinator.com/contact">Contact</a>
+  </nav>
+  <p class="footer-note">A design case study for the atelier skill. Stories rendered from <code>items.json</code>, not the live site.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

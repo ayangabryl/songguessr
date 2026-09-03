@@ -1,0 +1,150 @@
+/*
+  Token sheet: Hacker News front page redesign
+  Owner: layout (space, radius, layers), typography (type), colour (colour), motion (motion).
+  Rule: components read tokens only. Any literal outside this file needs a one-line reason beside it.
+  Every colour pair used for text or UI carries its measured contrast ratio in a comment, from
+  `python3 scripts/contrast.py "<fg>" "<bg>"`.
+*/
+
+:root {
+  color-scheme: light dark;
+
+  /* Space: 4 px base, 8 px rhythm. Layout desk. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* Radius: role-mapped, one shape language (layout §3.2). Quiet/dense tone takes the quieter
+     option: no capsules anywhere on this build (rule "when unsure, choose the quieter option"). */
+  --r-0: 0px;   /* full-bleed header bar, hairline rules, table-like row edges */
+  --r-1: 6px;   /* buttons, inputs, the theme toggle, the Y mark */
+  --r-2: 12px;  /* not used on this build; reserved for future popovers */
+  --r-3: 20px;  /* not used on this build; reserved for future overlays */
+  --r-pill: 999px; /* not used: this build has no capsule controls */
+
+  /* Layout: derived tokens (layout §5). */
+  --target: 32px;                         /* loop 2: default is now the pointer floor (32), grown to
+                                              44 under `(pointer: coarse)` below — was the reverse
+                                              (default 44, shrunk under `(pointer: fine)`), which this
+                                              test harness's headless Chrome never matches (it reports
+                                              neither fine nor coarse without touch emulation), so the
+                                              vote control silently stayed 44 px tall on every desktop
+                                              measurement and put a 44 px floor under every row,
+                                              capping density at ~18 rows however tight everything
+                                              else got. `(pointer: coarse)` does fire correctly under
+                                              this harness's own mobile touch emulation, so real touch
+                                              devices — and the 390 px test — are unaffected. */
+  --list-max: 68rem;                      /* 1088 px: loop 2 correction (direction audit, layout §3.4
+                                              and direction references §10 "list column 60 to 72 rem, not
+                                              a 44 rem prose measure" — a scanning list of uniform rows is
+                                              not prose; 44rem forced almost every title onto two lines and
+                                              cut density to a quarter of the page it replaces) */
+  --page-margin: var(--space-4);          /* 390 px default (layout rule 37); stepped, not clamp()'d,
+                                              so every computed value stays exactly on the space scale */
+
+  --z-content: 0;
+  --z-control: 10;
+  --z-overlay: 20;
+  --z-toast: 30;
+  @media (pointer: coarse) { --target: 44px; }
+  @media (min-width: 48rem) { --page-margin: var(--space-5); }
+  @media (min-width: 90rem) { --page-margin: var(--space-6); }
+
+  /* Type: one family (typography §3.1, "Tool or dashboard" row: body face reused, no display face).
+     Self-hosted/CDN faces are unavailable in this environment (only Instrument Serif, Nunito and Open
+     Runde are present under node_modules/@fontsource/, none of which suit a quiet, dense tool voice per
+     the typography catalogue) — engineering substitutes the system-ui stack, which loads with zero
+     network requests and zero font-swap shift, satisfying the "no external requests" constraint. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fs-0: 0.8125rem;  /* 13 px  meta line (points, by, age, comments) */
+  --fs-1: 0.875rem;   /* 14 px  domain, nav, footer, rank number */
+  --fs-2: 1rem;       /* 16 px  story title, wordmark */
+  --fs-3: 1.25rem;    /* 20 px  not used at this size on this build */
+  --lh-tight: 1.1;
+  --lh-snug: 1.3;
+  --lh-body: 1.5;
+  --measure: 64ch;
+
+  /* Colour: hue 50 (orange/amber) matches the brand bar (#ff6600 sits near oklch(*, *, 50) across the
+     sRGB gamut boundary — confirmed by brute-force search in scripts/contrast.py's own conversion).
+     One accent only (colour §3.2, "Product UI, tool, dashboard" row). Neutrals hue-shifted per rule 5;
+     at this hue and this low a chroma the canvas lands close to Hacker News's own long-standing warm
+     off-white background, which reads as continuity rather than a new palette. */
+  --hue: 50;
+  --canvas:    oklch(0.985 0.004 var(--hue));
+  --surface:   oklch(0.995 0.002 var(--hue));
+  --surface-2: oklch(0.955 0.008 var(--hue));
+  --hairline:  oklch(0.900 0.010 var(--hue));   /* decorative row/nav rules, exempt from 3:1 */
+  --outline:   oklch(0.600 0.020 var(--hue));   /* control boundary: 3.80:1 on --canvas */
+  --text:      oklch(0.220 0.012 var(--hue));   /* 16.60:1 on --canvas, 15.19:1 on --surface-2 */
+  --text-2:    oklch(0.450 0.012 var(--hue));   /* 7.15:1 on --canvas, 6.54:1 on --surface-2 */
+  --text-3:    oklch(0.530 0.012 var(--hue));   /* 5.07:1 on --canvas, 4.64:1 on --surface-2 (meta only) */
+  --accent:        oklch(0.520 0.140 var(--hue)); /* fill; unclipped at this hue's gamut cap */
+  --accent-strong: oklch(0.420 0.100 var(--hue)); /* ink for the Y mark's label; 8.41:1 on --canvas */
+  --on-accent: oklch(0.990 0 0);                  /* 5.65:1 on --accent */
+  --focus:     oklch(0.600 0.140 var(--hue));     /* 3.97:1 on --canvas, unclipped */
+  --danger:    oklch(0.550 0.190 25);             /* error state text; 5.12:1 on --canvas */
+  --shadow-1: 0 1px 2px oklch(0.2 0.01 var(--hue) / 0.08); /* popover only; not used on this build */
+
+  /* Motion: tool-snap dialect (motion §3.1/3.2, "Tools, dashboards" row). Reduced motion is the split
+     (motion §4 rule 25), applied below, not the all-zero escape hatch. */
+  --dur-1: 120ms;  /* state change: hover, pressed, exit */
+  --dur-2: 200ms;  /* small move, fade, swap, theme crossfade */
+  --dur-3: 320ms;  /* not used on this build: no panels or sheets exist */
+  --dur-4: 520ms;  /* not used on this build: no scenes or heroes exist */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --press-scale: 0.98;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas:    oklch(0.170 0.012 var(--hue));
+  --surface:   oklch(0.225 0.014 var(--hue));
+  --surface-2: oklch(0.290 0.016 var(--hue));
+  --hairline:  oklch(0.300 0.012 var(--hue));
+  --outline:   oklch(0.550 0.020 var(--hue));     /* 3.92:1 on --canvas */
+  --text:      oklch(0.930 0.006 var(--hue));     /* 15.56:1 on --canvas */
+  --text-2:    oklch(0.800 0.012 var(--hue));     /* 10.22:1 on --canvas, 7.56:1 on --surface-2 */
+  --text-3:    oklch(0.680 0.012 var(--hue));     /* 6.62:1 on --canvas */
+  --accent:        oklch(0.720 0.140 var(--hue));
+  --accent-strong: oklch(0.800 0.100 var(--hue)); /* 9.97:1 on --canvas */
+  --on-accent: oklch(0.200 0.030 var(--hue));     /* 7.02:1 on --accent (dark ink wins at this L) */
+  --focus:     oklch(0.780 0.140 var(--hue));     /* 9.18:1 on --canvas */
+  --danger:    oklch(0.720 0.160 25);             /* 7.20:1 on --canvas */
+  --shadow-1: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --canvas:    oklch(0.170 0.012 var(--hue));
+    --surface:   oklch(0.225 0.014 var(--hue));
+    --surface-2: oklch(0.290 0.016 var(--hue));
+    --hairline:  oklch(0.300 0.012 var(--hue));
+    --outline:   oklch(0.550 0.020 var(--hue));
+    --text:      oklch(0.930 0.006 var(--hue));
+    --text-2:    oklch(0.800 0.012 var(--hue));
+    --text-3:    oklch(0.680 0.012 var(--hue));
+    --accent:        oklch(0.720 0.140 var(--hue));
+    --accent-strong: oklch(0.800 0.100 var(--hue));
+    --on-accent: oklch(0.200 0.030 var(--hue));
+    --focus:     oklch(0.780 0.140 var(--hue));
+    --danger:    oklch(0.720 0.160 25);
+    --shadow-1: none;
+  }
+}
+
+/* Reduced motion: the split (motion §4 rule 25/26), not the all-zero escape hatch. Translation and
+   scale are removed; opacity changes stay under --dur-2; colour changes (hover, theme) are unaffected
+   because they are not motion. There are no loops, springs or scale-from-zero enters on this build to
+   begin with, so the split has little to do here beyond removing the press scale. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --press-scale: 1; }
+}
