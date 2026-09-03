@@ -407,6 +407,12 @@
 .console .guess-form .skip-button .skip-icon {
   display: block;
 }
+/* Suggestions open downward, into the free room under the row, never over the instrument. */
+.console .suggestions {
+  top: calc(100% + var(--space-2));
+  bottom: auto;
+  border-radius: var(--r-4);
+}
 .purpose,
 .transport-row .inline-alert {
   grid-column: 2;
@@ -610,6 +616,11 @@
     position: static;
     transform: none;
     max-width: none;
+  }
+  /* On a phone the keyboard owns the bottom, so the list opens upward again. */
+  .console .suggestions {
+    top: auto;
+    bottom: calc(100% + var(--space-2));
   }
   .console .result {
     grid-template-columns: 1fr;
