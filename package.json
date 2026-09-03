@@ -26,6 +26,7 @@
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
     "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
     "@fontsource/nunito": "^5.3.0",
     "@fontsource/open-runde": "^5.3.0",
     "@phosphor-icons/react": "^2.1.10",

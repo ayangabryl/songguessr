@@ -9,8 +9,9 @@
  * colour and motion, so nothing here can pull the drawing off-model.
  *
  * Flat vector: no outlines anywhere, and no white except the eyes and the
- * headphone highlights. One viewBox and one ground-anchored transform origin,
- * so the mascot never changes size between poses.
+ * headphone highlights. One viewBox and one ground-anchored transform origin;
+ * poses are whole-body and always return to 1:1, so the mascot's resting size
+ * is identical in every state.
  */
 
 /*
@@ -74,9 +75,9 @@
     --noot-shade 420ms cubic-bezier(0.33, 1, 0.68, 1),
     --noot-cheek 420ms cubic-bezier(0.33, 1, 0.68, 1);
 
-  width: 176px;
-  height: 176px;
-  margin: 4px auto 0;
+  width: 200px;
+  height: 200px;
+  margin: 0 auto;
   position: relative;
   display: block;
 }
@@ -135,11 +136,16 @@
 
 /* ------------------------------------------------------------------ *
  * Face
+ *
+ * Every expression is a transform of the traced features. Eyes scale from
+ * the upper lid so a squint reads as the lower lid rising (a real smile);
+ * the smile shape grows into a laugh or flips into a frown. Pupils drift on
+ * a slow cycle so he never looks glassy.
  * ------------------------------------------------------------------ */
 
 .noot-brow {
   transform-box: fill-box;
-  transition: transform 220ms cubic-bezier(0.33, 1, 0.68, 1);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .noot-brow-l {
@@ -150,60 +156,45 @@
   transform-origin: 0% 50%;
 }
 
-/* The blink itself is bound in the motion section below. */
 .noot-eye {
+  transform-box: fill-box;
+  transform-origin: 50% 22%;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * Eyelids. A copy of the eye white in body colour, clipped to the eye, parked
+ * just above it. A blink slides it down and back (Mascot.tsx drives this with
+ * the Web Animations API so the close/hold/open take real milliseconds, not
+ * a fraction of a randomised cycle). The lid rides inside `.noot-eye`, so
+ * squints scale it along with the rest of the eye.
+ */
+.noot-lid {
+  fill: var(--noot-body);
+  transform-box: fill-box;
+  transform: translateY(-104%);
+}
+
+.noot-pupil {
   transform-box: fill-box;
   transform-origin: center;
 }
 
-/* Hand-authored alternates, drawn in 240-space on the traced centres. */
-.noot-eye-happy {
-  fill: none;
-  stroke: var(--noot-slate);
-  stroke-width: 5.5;
-  stroke-linecap: round;
-}
-
-.noot-mouth-flat,
-.noot-mouth-sad {
-  fill: none;
-  stroke: var(--noot-slate);
-  stroke-width: 5;
-  stroke-linecap: round;
-}
-
-.noot-mouth-open {
-  fill: var(--noot-slate);
-  stroke: var(--noot-slate);
-  stroke-width: 5;
-  stroke-linejoin: round;
-}
-
-/* Default expression: the traced smile, eyes open, nothing else. */
-.noot-mouth-flat,
-.noot-mouth-sad,
-.noot-mouth-open,
-.noot-eye-happy,
-.noot-notes,
-.noot-sparks {
-  opacity: 0;
-}
-
-.noot-mouth-smile,
-.noot-eye {
-  opacity: 1;
-}
-
-.noot-mouth,
-.noot-mouth-open,
-.noot-eye-happy,
-.noot-eye {
-  transition: opacity 150ms ease;
+.noot-mouth {
+  transform-box: fill-box;
+  transform-origin: 50% 18%;
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ------------------------------------------------------------------ *
  * Extras
  * ------------------------------------------------------------------ */
+
+/* Hidden until a pose asks for them. */
+.noot-notes,
+.noot-sparks {
+  opacity: 0;
+}
 
 .noot-note {
   fill: var(--noot-body);
@@ -220,357 +211,381 @@
 /* ------------------------------------------------------------------ *
  * Motion
  *
- * Noot is rigged, not scaled. Every pose is built from translation and
- * rotation of real parts — the two arms, the two feet and the body — so he
- * walks, swings and waves instead of being squashed as one blob. There is
- * deliberately no `scale()` on the body anywhere in this file: nothing about
- * the mascot ever changes size. (The eye blink is the sole exception, and it
- * only flattens the eyeballs.)
+ * Noot animates as ONE piece. The earlier rig split the arms and feet off
+ * as rectangular slices of the shading path; the moment a limb rotated, the
+ * straight slice edges stopped lining up with the torso and read as hard
+ * "cuts" at the shoulders and ankles. So there are no limb groups any more.
  *
- * Two coordinate systems are in play:
- *   .noot-root              sits outside the normalising transform -> 240-viewBox units
- *   .noot-arm / .noot-foot  sit inside scale(0.19)                 -> artwork units
- * so a limb needs roughly 5.3x the number for the same visual distance.
+ * Every pose is whole-body: a ground-anchored bob, tilt, hop or lean with a
+ * whisper of squash-and-stretch (never more than a few percent, always back
+ * to 1:1 at rest), plus the face (blink, brows, mouth) and the accessories
+ * (notes, sparkles). This is how a cut-out character stays on-model: the
+ * silhouette is never broken, only carried.
+ *
+ * Easing: one decelerating curve for everything that settles, one gentle
+ * overshoot for the "lands" (hop, tap, switch). Both are shared with the UI.
  * ------------------------------------------------------------------ */
 
 .noot-root {
+  --noot-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --noot-ease-land: cubic-bezier(0.34, 1.3, 0.64, 1);
+
   transform-box: view-box;
+  /* The feet. Squash from here keeps Noot planted instead of floating. */
   transform-origin: 120px 226px;
   will-change: transform;
 }
 
-/*
- * The joint pivot is baked into the markup (see NootRig), so each limb group's
- * own origin is already the shoulder or the ankle. No transform-box needed —
- * on a group it would report the union of its children and put the pivot in
- * the wrong place entirely.
- */
-.noot-arm,
-.noot-foot {
-  transform-origin: 0 0;
-  /* Eases limbs back to rest when a pose ends instead of snapping. */
-  transition: transform 240ms cubic-bezier(0.33, 1, 0.68, 1);
-}
+/* ---------------- resting / listening ---------------- */
 
-/* ---------------- walk cycle ---------------- */
-
-@keyframes noot-walk-body {
+/* Idle: a slow breath. Nothing else — a resting character should be calm. */
+@keyframes noot-breathe {
   0%,
   100% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) scale(1, 1);
+  }
+  50% {
+    transform: translateY(-1.5px) scale(0.994, 1.008);
+  }
+}
+
+/* Play: nodding to the beat, weight shifting side to side. */
+@keyframes noot-groove {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1.4deg) scale(1.012, 0.988);
   }
   25% {
-    transform: translateY(-2.4px) rotate(1deg);
+    transform: translateY(-4px) rotate(0deg) scale(0.99, 1.012);
   }
   50% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(1.4deg) scale(1.012, 0.988);
   }
   75% {
-    transform: translateY(-2.4px) rotate(-1deg);
+    transform: translateY(-4px) rotate(0deg) scale(0.99, 1.012);
   }
 }
 
-@keyframes noot-swing-l {
+/* Hover: perks up and leans in a little, like he noticed you. */
+@keyframes noot-perk {
   0%,
   100% {
-    transform: rotate(12deg);
+    transform: translateY(0) rotate(0deg) scale(1, 1);
   }
   50% {
-    transform: rotate(-7deg);
+    transform: translateY(-3px) rotate(1.6deg) scale(0.992, 1.01);
   }
 }
 
-@keyframes noot-swing-r {
-  0%,
-  100% {
-    transform: rotate(-12deg);
-  }
-  50% {
-    transform: rotate(7deg);
-  }
-}
+/* ---------------- reactions ---------------- */
 
-@keyframes noot-step-l {
-  0% {
-    transform: translate(0px, 0px) rotate(0deg);
-  }
-  15% {
-    transform: translate(5px, -30px) rotate(-6deg);
-  }
-  30% {
-    transform: translate(9px, -8px) rotate(-2deg);
-  }
-  45%,
-  100% {
-    transform: translate(0px, 0px) rotate(0deg);
-  }
-}
-
-@keyframes noot-step-r {
-  0%,
-  50% {
-    transform: translate(0px, 0px) rotate(0deg);
-  }
-  65% {
-    transform: translate(-5px, -30px) rotate(6deg);
-  }
-  80% {
-    transform: translate(-9px, -8px) rotate(2deg);
-  }
-  95%,
-  100% {
-    transform: translate(0px, 0px) rotate(0deg);
-  }
-}
-
-/* ---------------- gestures ---------------- */
-
-/* The screen-right arm pivots at its shoulder; negative angles raise it. */
-@keyframes noot-wave {
-  0% {
-    transform: rotate(0deg);
-  }
-  14% {
-    transform: rotate(-48deg);
-  }
-  27% {
-    transform: rotate(-32deg);
-  }
-  40% {
-    transform: rotate(-50deg);
-  }
-  53% {
-    transform: rotate(-32deg);
-  }
-  66% {
-    transform: rotate(-46deg);
-  }
-  80% {
-    transform: rotate(-8deg);
-  }
-  100% {
-    transform: rotate(0deg);
-  }
-}
-
-@keyframes noot-cheer-l {
-  0% {
-    transform: rotate(0deg);
-  }
-  22% {
-    transform: rotate(32deg);
-  }
-  45% {
-    transform: rotate(24deg);
-  }
-  68% {
-    transform: rotate(34deg);
-  }
-  100% {
-    transform: rotate(0deg);
-  }
-}
-
-@keyframes noot-cheer-r {
-  0% {
-    transform: rotate(0deg);
-  }
-  22% {
-    transform: rotate(-32deg);
-  }
-  45% {
-    transform: rotate(-24deg);
-  }
-  68% {
-    transform: rotate(-34deg);
-  }
-  100% {
-    transform: rotate(0deg);
-  }
-}
-
-@keyframes noot-droop-arm-l {
-  0%,
-  100% {
-    transform: rotate(0deg);
-  }
-  40% {
-    transform: rotate(-14deg);
-  }
-}
-
-@keyframes noot-droop-arm-r {
-  0%,
-  100% {
-    transform: rotate(0deg);
-  }
-  40% {
-    transform: rotate(14deg);
-  }
-}
-
-/* ---------------- body moves ---------------- */
-
+/* Win: crouch, jump, land with a squash, a small second hop, settle. */
 @keyframes noot-hop {
   0% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg) scale(1, 1);
   }
-  16% {
-    transform: translateY(4px) rotate(0deg);
+  14% {
+    transform: translateY(3px) rotate(0deg) scale(1.05, 0.94);
   }
   40% {
-    transform: translateY(-24px) rotate(-3deg);
-  }
-  62% {
-    transform: translateY(0) rotate(0deg);
-  }
-  76% {
-    transform: translateY(-9px) rotate(2deg);
-  }
-  90%,
-  100% {
-    transform: translateY(0) rotate(0deg);
-  }
-}
-
-@keyframes noot-double-hop {
-  0% {
-    transform: translateY(0) rotate(0deg);
-  }
-  10% {
-    transform: translateY(5px) rotate(0deg);
-  }
-  28% {
-    transform: translateY(-28px) rotate(-5deg);
-  }
-  44% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(-26px) rotate(-3deg) scale(0.965, 1.045);
   }
   58% {
-    transform: translateY(-22px) rotate(5deg);
+    transform: translateY(0) rotate(0deg) scale(1.06, 0.94);
   }
-  74% {
-    transform: translateY(0) rotate(0deg);
+  72% {
+    transform: translateY(-9px) rotate(2deg) scale(0.985, 1.02);
   }
   86% {
-    transform: translateY(-7px) rotate(-2deg);
+    transform: translateY(0) rotate(0deg) scale(1.02, 0.98);
   }
   100% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg) scale(1, 1);
   }
 }
 
+/* Streak: two full jumps, alternating tilt. */
+@keyframes noot-double-hop {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+  9% {
+    transform: translateY(4px) rotate(0deg) scale(1.05, 0.94);
+  }
+  28% {
+    transform: translateY(-30px) rotate(-5deg) scale(0.965, 1.045);
+  }
+  42% {
+    transform: translateY(0) rotate(0deg) scale(1.06, 0.94);
+  }
+  58% {
+    transform: translateY(-24px) rotate(5deg) scale(0.97, 1.04);
+  }
+  72% {
+    transform: translateY(0) rotate(0deg) scale(1.05, 0.95);
+  }
+  84% {
+    transform: translateY(-6px) rotate(-1.5deg) scale(0.99, 1.012);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+}
+
+/* Lose: the shoulders drop — a sink and a small hangdog tilt. */
 @keyframes noot-droop {
   0% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg) scale(1, 1);
   }
-  30% {
-    transform: translateY(3px) rotate(-2.5deg);
+  35% {
+    transform: translateY(4px) rotate(-2.5deg) scale(1.025, 0.975);
   }
-  62% {
-    transform: translateY(4px) rotate(2deg);
+  65% {
+    transform: translateY(4px) rotate(1.5deg) scale(1.02, 0.98);
   }
   100% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg) scale(1, 1);
   }
 }
 
+/* Timeout: a slower, heavier slump that lingers before he straightens. */
 @keyframes noot-slump {
   0% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg) scale(1, 1);
   }
-  45% {
-    transform: translateY(5px) rotate(-1.5deg);
-  }
-  75% {
-    transform: translateY(5px) rotate(1.5deg);
+  40%,
+  70% {
+    transform: translateY(6px) rotate(-1.5deg) scale(1.035, 0.965);
   }
   100% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg) scale(1, 1);
   }
 }
 
-@keyframes noot-shake {
+/* Skip: a quick sidestep and back. */
+@keyframes noot-sidestep {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg) scale(1, 1);
+  }
+  22% {
+    transform: translateX(-7px) rotate(-3.5deg) scale(1.01, 0.99);
+  }
+  50% {
+    transform: translateX(5px) rotate(3deg) scale(1.01, 0.99);
+  }
+  75% {
+    transform: translateX(-2px) rotate(-1deg) scale(1, 1);
+  }
+}
+
+/* Tap: a happy little pop. */
+@keyframes noot-bounce {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  28% {
+    transform: translateY(4px) scale(1.06, 0.94);
+  }
+  62% {
+    transform: translateY(-12px) scale(0.97, 1.035);
+  }
+  84% {
+    transform: translateY(0) scale(1.03, 0.975);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+/*
+ * Switch: the colour change. A crouch, a hop with a side-to-side tip, and a
+ * landing while the palette cross-fades under him, so the recolour reads as
+ * a deliberate little trick rather than a swap.
+ */
+@keyframes noot-switch {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+  16% {
+    transform: translateY(4px) rotate(0deg) scale(1.05, 0.94);
+  }
+  42% {
+    transform: translateY(-26px) rotate(-7deg) scale(0.965, 1.045);
+  }
+  60% {
+    transform: translateY(-18px) rotate(7deg) scale(0.975, 1.03);
+  }
+  80% {
+    transform: translateY(0) rotate(-1.5deg) scale(1.05, 0.95);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+}
+
+/* ---------------- variants ---------------- */
+
+/*
+ * Reaction pools. Each event has 2–3 gestures with the same timing, easing
+ * and amplitude ceiling; Mascot.tsx picks one at random with no immediate
+ * repeat, and drops a one-shot "life sign" into idle every 6–12 s.
+ */
+
+/* idle life sign: a weight shift, left then right, back to centre */
+@keyframes noot-sway {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg) scale(1, 1);
+  }
+  22% {
+    transform: translateX(-5px) rotate(-3deg) scale(1.01, 0.99);
+  }
+  50% {
+    transform: translateX(0) rotate(0deg) scale(0.995, 1.01);
+  }
+  76% {
+    transform: translateX(5px) rotate(3deg) scale(1.01, 0.99);
+  }
+}
+
+/* idle life sign: lean and look off to one side, then come back */
+@keyframes noot-peek {
   0%,
   100% {
     transform: translateX(0) rotate(0deg);
   }
-  20% {
-    transform: translateX(-6px) rotate(-4deg);
-  }
-  45% {
-    transform: translateX(5px) rotate(3.5deg);
-  }
-  70% {
-    transform: translateX(-3px) rotate(-2deg);
-  }
-}
-
-@keyframes noot-bounce {
-  0% {
-    transform: translateY(0) rotate(0deg);
-  }
-  26% {
-    transform: translateY(5px) rotate(0deg);
-  }
-  56% {
-    transform: translateY(-11px) rotate(0deg);
+  18%,
+  68% {
+    transform: translateX(-4px) rotate(-6deg);
   }
   82% {
-    transform: translateY(1px) rotate(0deg);
-  }
-  100% {
-    transform: translateY(0) rotate(0deg);
+    transform: translateX(1px) rotate(1.5deg);
   }
 }
-
-/*
- * The colour change: Noot hops, tips side to side and flicks both arms up
- * while the palette cross-fades under him, so the recolour lands as a little
- * trick. No scaling — he does not change size to change colour.
- */
-@keyframes noot-switch {
-  0% {
-    transform: translateY(0) rotate(0deg);
-  }
-  16% {
-    transform: translateY(5px) rotate(0deg);
-  }
-  40% {
-    transform: translateY(-26px) rotate(-7deg);
-  }
-  60% {
-    transform: translateY(-18px) rotate(7deg);
-  }
-  80% {
-    transform: translateY(0) rotate(-2deg);
-  }
-  100% {
-    transform: translateY(0) rotate(0deg);
-  }
-}
-
-@keyframes noot-switch-glow {
+@keyframes noot-look-aside {
   0%,
   100% {
-    filter: none;
+    transform: translate(0, 0);
   }
-  45% {
-    filter: brightness(1.12) saturate(1.25);
+  16%,
+  70% {
+    transform: translate(-18px, 4px);
+  }
+}
+
+/* idle life sign: two small bops, as if a tune came to mind */
+@keyframes noot-bop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  20% {
+    transform: translateY(-5px) scale(0.985, 1.02);
+  }
+  38% {
+    transform: translateY(0) scale(1.02, 0.98);
+  }
+  58% {
+    transform: translateY(-4px) scale(0.99, 1.015);
+  }
+  76% {
+    transform: translateY(0) scale(1.015, 0.985);
+  }
+}
+
+/* play: bounce on the beat */
+@keyframes noot-bop-beat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1.02, 0.98);
+  }
+  50% {
+    transform: translateY(-6px) scale(0.985, 1.02);
+  }
+}
+
+/* play: lean side to side with the bar */
+@keyframes noot-sway-beat {
+  0%,
+  100% {
+    transform: translateX(-4px) rotate(-3.5deg) scale(1.01, 0.99);
+  }
+  50% {
+    transform: translateX(4px) rotate(3.5deg) scale(1.01, 0.99);
+  }
+}
+
+/* win: a hop with a twist at the top */
+@keyframes noot-twist {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+  12% {
+    transform: translateY(3px) rotate(0deg) scale(1.06, 0.93);
+  }
+  38% {
+    transform: translateY(-30px) rotate(-9deg) scale(0.96, 1.05);
+  }
+  52% {
+    transform: translateY(-26px) rotate(8deg) scale(0.97, 1.04);
+  }
+  68% {
+    transform: translateY(0) rotate(0deg) scale(1.07, 0.93);
+  }
+  82% {
+    transform: translateY(-4px) rotate(-1.5deg) scale(0.99, 1.01);
+  }
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+}
+
+/* lose: a small head shake, then a slump */
+@keyframes noot-headshake {
+  0% {
+    transform: rotate(0deg) scale(1, 1);
+  }
+  14% {
+    transform: rotate(-4deg) scale(1, 1);
+  }
+  30% {
+    transform: rotate(4deg) scale(1, 1);
+  }
+  46% {
+    transform: rotate(-3deg) scale(1, 1);
+  }
+  60% {
+    transform: rotate(2deg) scale(1, 1);
+  }
+  78%,
+  100% {
+    transform: translateY(2px) rotate(0deg) scale(1.03, 0.97);
   }
 }
 
 /* ---------------- accents ---------------- */
 
-@keyframes noot-blink {
+/*
+ * Saccades. Eyes settle on a spot, hold, then dart to the next — never
+ * drift. Units are artwork units (the pupils sit inside scale(0.19)).
+ */
+@keyframes noot-look {
   0%,
-  90%,
-  100% {
-    transform: scaleY(1);
+  26% {
+    transform: translate(0, 0);
   }
-  93.5%,
-  95.5% {
-    transform: scaleY(0.08);
+  28%,
+  48% {
+    transform: translate(14px, 3px);
+  }
+  50%,
+  70% {
+    transform: translate(-11px, 5px);
+  }
+  72%,
+  100% {
+    transform: translate(0, 0);
   }
 }
 
@@ -605,15 +620,15 @@
 @keyframes noot-spark-pop {
   0% {
     opacity: 0;
-    transform: rotate(-30deg);
+    transform: rotate(-30deg) scale(0.6);
   }
   35% {
     opacity: 1;
-    transform: rotate(0deg);
+    transform: rotate(0deg) scale(1);
   }
   100% {
     opacity: 0;
-    transform: rotate(25deg);
+    transform: rotate(25deg) scale(0.8);
   }
 }
 
@@ -621,71 +636,89 @@
  * Pose bindings
  * ------------------------------------------------------------------ */
 
-.noot-eye {
-  animation: noot-blink 5.2s ease-in-out infinite;
+.noot-pupil {
+  animation: noot-look 9s steps(1, end) infinite;
+}
+/* Eyes shut or squinting: hold the pupils still so nothing pokes through. */
+.mascot[data-pose='win'] .noot-pupil,
+.mascot[data-pose='streak'] .noot-pupil,
+.mascot[data-pose='timeout'] .noot-pupil,
+.mascot[data-pose='lose'] .noot-pupil {
+  animation: none;
 }
 
-/* --- idle: strolling on the spot --- */
+/* --- idle: breathe, with occasional life signs --- */
 .mascot[data-pose='idle'] .noot-root {
-  animation: noot-walk-body 1.5s ease-in-out infinite;
+  animation: noot-breathe 3.4s ease-in-out infinite;
 }
-.mascot[data-pose='idle'] .noot-arm-l {
-  animation: noot-swing-l 1.5s ease-in-out infinite;
+.mascot[data-pose='idle'][data-variant='sway'] .noot-root {
+  animation: noot-sway 2.2s ease-in-out both;
 }
-.mascot[data-pose='idle'] .noot-arm-r {
-  animation: noot-swing-r 1.5s ease-in-out infinite;
+.mascot[data-pose='idle'][data-variant='peek'] .noot-root {
+  animation: noot-peek 2.2s var(--noot-ease-out) both;
 }
-.mascot[data-pose='idle'] .noot-foot-l {
-  animation: noot-step-l 1.5s ease-in-out infinite;
+.mascot[data-pose='idle'][data-variant='peek'] .noot-pupil {
+  animation: noot-look-aside 2.2s var(--noot-ease-out) both;
 }
-.mascot[data-pose='idle'] .noot-foot-r {
-  animation: noot-step-r 1.5s ease-in-out infinite;
+.mascot[data-pose='idle'][data-variant='bop'] .noot-root {
+  animation: noot-bop 1.8s ease-in-out both;
 }
 
-/* --- play: the same walk, up-tempo, with notes --- */
+/* --- play: grooving, with notes (three grooves) --- */
 .mascot[data-pose='play'] .noot-root {
-  animation: noot-walk-body 0.9s ease-in-out infinite;
+  animation: noot-groove 1.1s ease-in-out infinite;
 }
-.mascot[data-pose='play'] .noot-arm-l {
-  animation: noot-swing-l 0.9s ease-in-out infinite;
+.mascot[data-pose='play'][data-variant='bop'] .noot-root {
+  animation: noot-bop-beat 0.55s ease-in-out infinite;
 }
-.mascot[data-pose='play'] .noot-arm-r {
-  animation: noot-swing-r 0.9s ease-in-out infinite;
-}
-.mascot[data-pose='play'] .noot-foot-l {
-  animation: noot-step-l 0.9s ease-in-out infinite;
-}
-.mascot[data-pose='play'] .noot-foot-r {
-  animation: noot-step-r 0.9s ease-in-out infinite;
+.mascot[data-pose='play'][data-variant='sway'] .noot-root {
+  animation: noot-sway-beat 1.1s ease-in-out infinite;
 }
 .mascot[data-pose='play'] .noot-notes {
   opacity: 1;
 }
 .mascot[data-pose='play'] .noot-note-1 {
-  animation: noot-note-float-l 1.8s ease-out infinite;
+  animation: noot-note-float-l 1.8s var(--noot-ease-out) infinite;
 }
 .mascot[data-pose='play'] .noot-note-2 {
-  animation: noot-note-float-r 1.8s ease-out 0.9s infinite;
+  animation: noot-note-float-r 1.8s var(--noot-ease-out) 0.9s infinite;
+}
+.mascot[data-pose='play'] .noot-mouth {
+  transform: scale(1.08, 1.12);
 }
 
-/* --- win / streak: hop with both arms up --- */
+/* --- win / streak: a laugh — lower lids up, brows up, smile opens --- */
 .mascot[data-pose='win'] .noot-root {
-  animation: noot-hop 1.5s cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: noot-hop 1.4s var(--noot-ease-out) both;
+}
+.mascot[data-pose='win'][data-variant='twist'] .noot-root {
+  animation: noot-twist 1.4s var(--noot-ease-out) both;
+}
+.mascot[data-pose='win'][data-variant='double'] .noot-root {
+  animation: noot-double-hop 1.4s var(--noot-ease-out) both;
 }
 .mascot[data-pose='streak'] .noot-root {
-  animation: noot-double-hop 1.8s cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: noot-double-hop 1.8s var(--noot-ease-out) both;
 }
-.mascot[data-pose='win'] .noot-arm-l {
-  animation: noot-cheer-l 1.5s ease-in-out both;
+.mascot[data-pose='win'] .noot-eye,
+.mascot[data-pose='streak'] .noot-eye {
+  transform: scaleY(0.5);
 }
-.mascot[data-pose='win'] .noot-arm-r {
-  animation: noot-cheer-r 1.5s ease-in-out both;
+.mascot[data-pose='win'] .noot-mouth,
+.mascot[data-pose='streak'] .noot-mouth {
+  transform: scale(1.7, 2.1);
 }
-.mascot[data-pose='streak'] .noot-arm-l {
-  animation: noot-cheer-l 1.8s ease-in-out both;
+.mascot[data-pose='win'] .noot-brow-l,
+.mascot[data-pose='streak'] .noot-brow-l,
+.mascot[data-pose='tap'] .noot-brow-l,
+.mascot[data-pose='hover'] .noot-brow-l {
+  transform: translateY(-14px) rotate(-6deg);
 }
-.mascot[data-pose='streak'] .noot-arm-r {
-  animation: noot-cheer-r 1.8s ease-in-out both;
+.mascot[data-pose='win'] .noot-brow-r,
+.mascot[data-pose='streak'] .noot-brow-r,
+.mascot[data-pose='tap'] .noot-brow-r,
+.mascot[data-pose='hover'] .noot-brow-r {
+  transform: translateY(-14px) rotate(6deg);
 }
 .mascot[data-pose='win'] .noot-sparks,
 .mascot[data-pose='streak'] .noot-sparks {
@@ -693,144 +726,130 @@
 }
 .mascot[data-pose='win'] .noot-spark-1,
 .mascot[data-pose='streak'] .noot-spark-1 {
-  animation: noot-spark-pop 0.9s ease-out 0.18s infinite;
+  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.18s infinite;
 }
 .mascot[data-pose='win'] .noot-spark-2,
 .mascot[data-pose='streak'] .noot-spark-2 {
-  animation: noot-spark-pop 0.9s ease-out 0.36s infinite;
+  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.36s infinite;
 }
 .mascot[data-pose='win'] .noot-spark-3,
 .mascot[data-pose='streak'] .noot-spark-3 {
-  animation: noot-spark-pop 0.9s ease-out 0.54s infinite;
-}
-.mascot[data-pose='win'] .noot-eye,
-.mascot[data-pose='streak'] .noot-eye,
-.mascot[data-pose='win'] .noot-mouth-smile,
-.mascot[data-pose='streak'] .noot-mouth-smile {
-  opacity: 0;
-}
-.mascot[data-pose='win'] .noot-eye-happy,
-.mascot[data-pose='streak'] .noot-eye-happy,
-.mascot[data-pose='win'] .noot-mouth-open,
-.mascot[data-pose='streak'] .noot-mouth-open {
-  opacity: 1;
+  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.54s infinite;
 }
 
-/* --- lose / timeout: shoulders down --- */
+/* --- lose: brows knit, smile turns over --- */
 .mascot[data-pose='lose'] .noot-root {
-  animation: noot-droop 1.2s ease-out both;
+  animation: noot-droop 1.2s var(--noot-ease-out) both;
 }
-.mascot[data-pose='timeout'] .noot-root {
-  animation: noot-slump 1.6s ease-out both;
+.mascot[data-pose='lose'][data-variant='shake'] .noot-root {
+  animation: noot-headshake 1.2s var(--noot-ease-out) both;
 }
-.mascot[data-pose='lose'] .noot-arm-l,
-.mascot[data-pose='timeout'] .noot-arm-l {
-  animation: noot-droop-arm-l 1.2s ease-out both;
+.mascot[data-pose='lose'] .noot-mouth {
+  transform: translateY(10px) rotate(180deg) scale(0.72, 0.6);
 }
-.mascot[data-pose='lose'] .noot-arm-r,
-.mascot[data-pose='timeout'] .noot-arm-r {
-  animation: noot-droop-arm-r 1.2s ease-out both;
-}
-.mascot[data-pose='lose'] .noot-mouth-smile,
-.mascot[data-pose='timeout'] .noot-mouth-smile,
-.mascot[data-pose='skip'] .noot-mouth-smile {
-  opacity: 0;
-}
-.mascot[data-pose='lose'] .noot-mouth-sad {
-  opacity: 1;
-}
-.mascot[data-pose='timeout'] .noot-mouth-flat,
-.mascot[data-pose='skip'] .noot-mouth-flat {
-  opacity: 1;
+.mascot[data-pose='lose'] .noot-eye {
+  transform-origin: 50% 88%;
+  transform: scaleY(0.82);
 }
 .mascot[data-pose='lose'] .noot-brow-l,
 .mascot[data-pose='timeout'] .noot-brow-l {
-  transform: rotate(16deg);
+  transform: translateY(-4px) rotate(14deg);
 }
 .mascot[data-pose='lose'] .noot-brow-r,
 .mascot[data-pose='timeout'] .noot-brow-r {
-  transform: rotate(-16deg);
+  transform: translateY(-4px) rotate(-14deg);
+}
+
+/* --- timeout: heavy lids, flat mouth --- */
+.mascot[data-pose='timeout'] .noot-root {
+  animation: noot-slump 1.7s var(--noot-ease-out) both;
 }
 .mascot[data-pose='timeout'] .noot-eye {
-  animation: none;
+  transform-origin: 50% 88%;
+  transform: scaleY(0.5);
+}
+.mascot[data-pose='timeout'] .noot-mouth {
+  transform: scale(0.9, 0.3);
+}
+
+/* --- skip: a quick sidestep, small mouth --- */
+.mascot[data-pose='skip'] .noot-root {
+  animation: noot-sidestep 0.6s var(--noot-ease-out) both;
+}
+.mascot[data-pose='skip'] .noot-mouth {
+  transform: scale(0.8, 0.5);
+}
+
+/* --- hover --- */
+.mascot[data-pose='hover'] .noot-root {
+  animation: noot-perk 1.6s ease-in-out infinite;
+}
+.mascot[data-pose='hover'] .noot-mouth {
+  transform: scale(1.1, 1.15);
+}
+
+/* --- tap --- */
+.mascot[data-pose='tap'] .noot-root {
+  animation: noot-bounce 0.5s var(--noot-ease-land) both;
+}
+.mascot[data-pose='tap'] .noot-eye {
   transform: scaleY(0.55);
 }
-
-/* --- skip: a quick sidestep --- */
-.mascot[data-pose='skip'] .noot-root {
-  animation: noot-shake 0.7s ease-in-out both;
-}
-.mascot[data-pose='skip'] .noot-foot-l {
-  animation: noot-step-l 0.7s ease-in-out both;
-}
-.mascot[data-pose='skip'] .noot-foot-r {
-  animation: noot-step-r 0.7s ease-in-out both;
+.mascot[data-pose='tap'] .noot-mouth {
+  transform: scale(1.5, 1.8);
 }
 
-/* --- hover: Noot waves --- */
-.mascot[data-pose='hover'] .noot-root {
-  animation: noot-walk-body 1.6s ease-in-out infinite;
-}
-.mascot[data-pose='hover'] .noot-arm-r {
-  animation: noot-wave 1.6s ease-in-out infinite;
-}
-.mascot[data-pose='hover'] .noot-arm-l {
-  animation: noot-swing-l 1.6s ease-in-out infinite;
-}
-
-/* --- tap: a happy little bounce --- */
-.mascot[data-pose='tap'] .noot-root {
-  animation: noot-bounce 0.52s cubic-bezier(0.33, 1, 0.68, 1) both;
-}
-.mascot[data-pose='tap'] .noot-arm-l {
-  animation: noot-cheer-l 0.52s ease-out both;
-}
-.mascot[data-pose='tap'] .noot-arm-r {
-  animation: noot-cheer-r 0.52s ease-out both;
-}
-
-/* --- switch: the colour-change trick --- */
+/*
+ * --- switch: the colour change as a performance ---
+ * Anticipation (crouch) -> hop -> the palette cross-fades at the apex, so
+ * he lands already wearing the new colour -> settle. The delay puts the
+ * recolour mid-air; the duration ends it just before the landing squash.
+ */
 .mascot[data-pose='switch'] {
-  transition-duration: 420ms;
+  transition-delay: 280ms;
+  transition-duration: 300ms;
 }
 .mascot[data-pose='switch'] .noot-root {
-  animation: noot-switch 0.9s cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: noot-switch 0.9s var(--noot-ease-out) both;
 }
-.mascot[data-pose='switch'] .noot {
-  animation: noot-switch-glow 0.9s ease-in-out;
+.mascot[data-pose='switch'] .noot-eye {
+  transform: scaleY(0.6);
 }
-.mascot[data-pose='switch'] .noot-arm-l {
-  animation: noot-cheer-l 0.9s ease-in-out both;
-}
-.mascot[data-pose='switch'] .noot-arm-r {
-  animation: noot-cheer-r 0.9s ease-in-out both;
+.mascot[data-pose='switch'] .noot-mouth {
+  transform: scale(1.45, 1.7);
 }
 .mascot[data-pose='switch'] .noot-sparks {
   opacity: 1;
 }
 .mascot[data-pose='switch'] .noot-spark-1 {
-  animation: noot-spark-pop 0.6s ease-out 0.15s 1;
+  animation: noot-spark-pop 0.6s var(--noot-ease-out) 0.3s 1;
 }
 .mascot[data-pose='switch'] .noot-spark-2 {
-  animation: noot-spark-pop 0.6s ease-out 0.28s 1;
+  animation: noot-spark-pop 0.6s var(--noot-ease-out) 0.4s 1;
 }
 .mascot[data-pose='switch'] .noot-spark-3 {
-  animation: noot-spark-pop 0.6s ease-out 0.4s 1;
+  animation: noot-spark-pop 0.6s var(--noot-ease-out) 0.5s 1;
 }
 
 /* ------------------------------------------------------------------ *
- * Reduced motion — stand still, keep the colour cross-fade.
+ * Reduced motion — stand still, keep the colour cross-fade and the
+ * expression (a static face is still communication).
  * ------------------------------------------------------------------ */
 
 @media (prefers-reduced-motion: reduce) {
   .noot-root,
   .noot,
   .noot-eye,
-  .noot-arm,
-  .noot-foot,
+  .noot-pupil,
   .noot-note,
   .noot-spark {
     animation: none !important;
+  }
+
+  .noot-root,
+  .noot-pupil,
+  .noot-note,
+  .noot-spark {
     transform: none !important;
   }
 
@@ -840,21 +859,19 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Sizing — one size everywhere. The mascot must never rescale between
- * game states, so there is deliberately no result-state override here.
+ * Sizing — one size per breakpoint, identical in every game state.
  * ------------------------------------------------------------------ */
 
-@media (width >= 960px) {
+@media (width >= 720px) {
   .mascot {
-    width: 168px;
-    height: 168px;
-    margin-top: 0;
+    width: 264px;
+    height: 264px;
   }
 }
 
-@media (width >= 960px) and (height <= 760px) {
+@media (width >= 720px) and (height <= 760px) {
   .mascot {
-    width: 132px;
-    height: 132px;
+    width: 208px;
+    height: 208px;
   }
 }

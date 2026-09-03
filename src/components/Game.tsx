@@ -226,6 +226,7 @@ export function Game() {
   const startModeRef = useRef<StartMode>(loadStartMode())
   const clipTimerRef = useRef<ClipTimerHandle | null>(null)
   const playbackBarRef = useRef<HTMLDivElement | null>(null)
+  const levelSwitchRef = useRef<HTMLDivElement | null>(null)
   const playbackSecondsRef = useRef(0)
   const enabledStagesRef = useRef<number[]>(loadEnabledStages())
   const difficultyRef = useRef<Difficulty>('easy')
@@ -334,6 +335,7 @@ export function Game() {
     activeState.stageIndex,
     activeState.playbackSeconds,
   )
+  const roundHasAudio = Boolean(activeState.round && hasPlayableAudio(activeState.round))
 
   function writePlaybackBar(seconds: number) {
     playbackSecondsRef.current = seconds
@@ -507,6 +509,26 @@ export function Game() {
   useLayoutEffect(() => {
     writePlaybackBar(activeState.playbackSeconds)
   }, [activeState.playbackSeconds, activeState.stageIndex, difficulty, enabledStages])
+
+  /*
+   * The level indicator is measured, not computed: segments size to their
+   * labels on narrow screens, so the pill takes the active button's real
+   * left/width and glides between them.
+   */
+  useLayoutEffect(() => {
+    const host = levelSwitchRef.current
+    if (!host) return
+    const place = () => {
+      const active = host.querySelector<HTMLButtonElement>('button.is-active')
+      if (!active) return
+      host.style.setProperty('--ind-x', `${active.offsetLeft}px`)
+      host.style.setProperty('--ind-w', `${active.offsetWidth}px`)
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [difficulty])
 
   useEffect(() => {
     if (!activeState.round || catalogLoading) return
@@ -1264,10 +1286,9 @@ export function Game() {
     const nextIndex = roundsRef.current[difficulty].stageIndex + 1
     const isLastStage = nextIndex >= activeStages.length
 
-    // Mid-round skip only reveals more of the clip — keep the streak.
-    // Streak breaks only when the round is actually lost (last skip / final miss).
+    // Skipping is neutral: it never counts as a win and never breaks the
+    // streak. Only a confirmed wrong guess on the last stage does that.
     if (isLastStage) {
-      noteStreakFail()
       setMascotLoseReason('timeout')
     } else {
       setMascotSkip(true)
@@ -1388,6 +1409,24 @@ export function Game() {
       : 1
 
   const showResult = activeState.status === 'won' || activeState.status === 'lost'
+  const isCatalogEmpty = catalogLoading && !activeState.round
+  const headline =
+    activeState.status === 'won'
+      ? 'Nailed it.'
+      : activeState.status === 'lost'
+        ? 'Not this time.'
+        : isCatalogEmpty
+          ? 'Tuning in.'
+          : 'Hear the clip. Name the track.'
+  const subline =
+    activeState.status === 'won'
+      ? 'Keep it going.'
+      : activeState.status === 'lost'
+        ? 'Here is what it was.'
+        : isCatalogEmpty
+          ? 'Finding songs for you.'
+          : 'Each guess unlocks a longer clip.'
+  const attemptNumber = Math.min(activeState.stageIndex + 1, activeStages.length)
   const mascotIntent = resolveMascotIntent({
     switching: mascotSwitch,
     skipPulse: mascotSkip,
@@ -1433,99 +1472,116 @@ export function Game() {
 
   return (
     <div className="app-shell" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
-      <div className="game-layout">
-          <header className="game-topbar">
-            <h1 className="wordmark">
-              <img
-                className="wordmark-icon"
-                src="/app-icons/noot-app-icon.png"
-                alt=""
-                aria-hidden="true"
-              />
-              <span>SongGuessr</span>
-            </h1>
-            <div className="topbar-actions">
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={toggleTheme}
-                aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              >
-                {resolvedTheme === 'dark' ? <SunIcon /> : <MoonIcon />}
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setSettingsOpen(true)}
-                aria-label="Open settings"
-              >
-                <GearIcon />
-              </button>
-            </div>
-          </header>
-
-          <aside className="rail rail-left">
+      <div className="room">
+        <header className="room-bar">
+          <div className="wordmark">
+            <img
+              className="wordmark-mark"
+              src="/app-icons/noot-app-icon.png"
+              alt=""
+              aria-hidden="true"
+            />
+            <h1 className="wordmark-name">SongGuessr</h1>
+          </div>
+          <div className="bar-actions">
+            <StreakBadge count={streak} bump={streakBump} />
             <button
               type="button"
-              className={`mode-action filter-button${activeFilterTotal > 0 ? ' active-filter' : ''}`}
+              className={`bar-btn filter-btn${activeFilterTotal > 0 ? ' is-active' : ''}`}
               onClick={() => openFilterModal()}
             >
-              <FilterIcon /> Filters{activeFilterTotal > 0 ? ` (${activeFilterTotal})` : ''}
+              <FilterIcon />
+              <span className="bar-label">Filters</span>
+              {activeFilterTotal > 0 ? <span className="filter-count">{activeFilterTotal}</span> : null}
             </button>
             <button
               type="button"
-              className="mode-action"
+              className="bar-btn icon-only"
               onClick={() => {
                 clearRecentTrackIds()
                 void loadAllRounds(catalogFilters)
               }}
+              aria-label="Reroll all songs"
+              title="Reroll"
             >
-              <ReplayIcon /> Reroll all
+              <ReplayIcon />
             </button>
-            <button type="button" className="mode-action" disabled>
-              <FeedbackIcon /> Feedback
+            <button
+              type="button"
+              className="bar-btn icon-only theme-btn"
+              onClick={toggleTheme}
+              aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
+            >
+              {resolvedTheme === 'dark' ? <SunIcon /> : <MoonIcon />}
             </button>
-          </aside>
+            <button
+              type="button"
+              className="bar-btn icon-only"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open settings"
+              title="Settings"
+            >
+              <GearIcon />
+            </button>
+          </div>
+        </header>
 
-          <div className="game-center">
-          <div className={`game-content ${showResult ? 'result-state' : ''}`}>
-            <div className="game-stage">
+        <main className="room-stage">
+          <div
+            ref={levelSwitchRef}
+            className="level-switch"
+            role="group"
+            aria-label="Difficulty"
+          >
+            <span className="level-indicator" aria-hidden="true" />
+            {DIFFICULTIES.map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={level === difficulty ? 'is-active' : ''}
+                aria-pressed={level === difficulty}
+                onClick={() => handleDifficulty(level)}
+                disabled={availabilityCounts !== null && availabilityCounts[level] === 0}
+              >
+                {DIFFICULTY_LABELS[level]}
+              </button>
+            ))}
+          </div>
+
+          <div className="hero">
+            <div className="mascot-ground" data-intent={mascotIntent}>
+              <span className="stage-disc" aria-hidden="true" />
+              <span className="mascot-shadow" aria-hidden="true" />
               <Mascot
                 difficulty={difficulty}
                 intent={mascotIntent}
                 withStreak={mascotWinStreak}
                 loseReason={mascotLoseReason}
               />
-              {!showResult ? (
-                <>
-                  <div className="stage-streak">
-                    <StreakBadge count={streak} bump={streakBump} />
-                  </div>
-                  <p className="play-kicker">Hear a clip. Name the track.</p>
-                </>
-              ) : null}
             </div>
-            <div className="game-board">
+            <h2 className="headline" key={headline}>
+              {headline}
+            </h2>
+            <p className="subline">{subline}</p>
+          </div>
+
+          <section className="deck">
             {catalogLoading && !activeState.round && (
-              <div className="empty-state">
-                <h2>Loading songs...</h2>
-                <p>The song library is loading.</p>
+              <div className="notice" role="status">
+                <span className="spinner" aria-hidden="true" />
+                <p>Loading songs</p>
               </div>
             )}
 
-            {catalogError && !activeState.round && (
-              <div className="empty-state">
-                <div className="empty-icon">{catalogLoading ? '♫' : '!'}</div>
-                <h2>{catalogLoading ? 'Loading songs...' : 'No songs match'}</h2>
-                <p>
-                  {catalogLoading
-                    ? 'The song library is loading.'
-                    : 'Clear filters or try another mix.'}
-                </p>
-                {!catalogLoading && activeFilterTotal > 0 ? (
+            {catalogError && !activeState.round && !catalogLoading && (
+              <div className="notice">
+                <p className="notice-title">No songs match</p>
+                <p>Clear your filters or try another mix.</p>
+                {activeFilterTotal > 0 ? (
                   <button
                     type="button"
-                    className="empty-clear"
+                    className="btn btn-primary"
                     onClick={() => {
                       clearAllFilters()
                       setCatalogError(null)
@@ -1538,81 +1594,78 @@ export function Game() {
             )}
 
             {activeState.round && !showResult && (
-              <div className="round-panel">
-                <div className="difficulty-tabs" role="group" aria-label="Difficulty">
-                  {DIFFICULTIES.map((level) => (
-                    <button
-                      key={level}
-                      type="button"
-                      className={`${level} ${level === difficulty ? 'active' : ''}`}
-                      onClick={() => handleDifficulty(level)}
-                      disabled={availabilityCounts !== null && availabilityCounts[level] === 0}
-                    >
-                      {DIFFICULTY_LABELS[level]}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="stage-track" aria-label="Stage progress">
-                  {ALL_STAGES.map((stage) => {
-                    const enabled = enabledStages.includes(stage)
-                    const stagePosition = activeStages.indexOf(stage)
-                    const isCurrent = enabled && stagePosition === activeState.stageIndex
-                    const isPassed = enabled && stagePosition >= 0 && stagePosition < activeState.stageIndex
-                    const isLastEnabled =
-                      enabled && stage === activeStages[activeStages.length - 1]
-                    return (
-                      <span
-                        key={stage}
-                        className={[
-                          enabled ? 'enabled' : 'disabled',
-                          isPassed ? 'passed' : '',
-                          isCurrent ? 'current' : '',
-                          isLastEnabled ? 'last-enabled' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        style={{ flexGrow: enabled ? stageSegmentWeight(stage) : 0 }}
-                        aria-hidden={!enabled}
-                      />
-                    )
-                  })}
-                  <div
-                    className="stage-unlocked-progress"
-                    style={{ width: `${unlockedProgress}%` }}
-                  />
-                  <div
-                    ref={playbackBarRef}
-                    className="stage-playback-progress"
-                    style={{ width: `${playbackProgress}%` }}
-                  />
-                </div>
-
-                <div className="player-area">
+              <div className="round">
+                <div
+                  className={[
+                    'transport',
+                    isPlaying ? 'is-playing' : '',
+                    isLoadingClip ? 'is-loading' : '',
+                    !roundHasAudio ? 'no-audio' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
                   <button
                     type="button"
-                    className={[
-                      'play-button',
-                      isPlaying ? 'playing' : '',
-                      isLoadingClip ? 'loading' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
+                    className="play-control"
                     onClick={() => void playClip()}
+                    disabled={!roundHasAudio && !isPlaying && !isLoadingClip}
                     aria-label={
                       isLoadingClip
                         ? 'Cancel loading clip'
                         : `Play ${currentStageEndpoint} second clip`
                     }
                   >
-                    <span className="pulse-ring" />
                     <PlayControlIcon
                       state={isLoadingClip ? 'loading' : isPlaying ? 'pause' : 'play'}
                     />
-                    <span className="stage-chip" key={currentStageEndpoint}>
-                      {formatStageValue(currentStageEndpoint)}s
-                    </span>
                   </button>
+
+                  <div className="meter">
+                    <div className="meter-row">
+                      <p className="meter-label">
+                        Try {attemptNumber} of {activeStages.length}
+                      </p>
+                      <span className="clip-length" key={currentStageEndpoint}>
+                        <b>{formatStageValue(currentStageEndpoint)}</b>
+                        <span>s</span>
+                      </span>
+                    </div>
+                    <div className="stage-track" aria-label="Stage progress">
+                      {ALL_STAGES.map((stage) => {
+                        const enabled = enabledStages.includes(stage)
+                        const stagePosition = activeStages.indexOf(stage)
+                        const isCurrent = enabled && stagePosition === activeState.stageIndex
+                        const isPassed = enabled && stagePosition >= 0 && stagePosition < activeState.stageIndex
+                        const isLastEnabled =
+                          enabled && stage === activeStages[activeStages.length - 1]
+                        return (
+                          <span
+                            key={stage}
+                            className={[
+                              enabled ? 'enabled' : 'disabled',
+                              isPassed ? 'passed' : '',
+                              isCurrent ? 'current' : '',
+                              isLastEnabled ? 'last-enabled' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            style={{ flexGrow: enabled ? stageSegmentWeight(stage) : 0 }}
+                            aria-hidden={!enabled}
+                          />
+                        )
+                      })}
+                      <div
+                        className="stage-unlocked-progress"
+                        style={{ width: `${unlockedProgress}%` }}
+                      />
+                      <div
+                        ref={playbackBarRef}
+                        className="stage-playback-progress"
+                        style={{ width: `${playbackProgress}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <form className="guess-form" onSubmit={handleGuessSubmit}>
@@ -1670,15 +1723,11 @@ export function Game() {
                     )}
                   </div>
                   {selectedTrack ? (
-                    <button type="submit" className="guess-button">
+                    <button type="submit" className="btn btn-primary guess-button">
                       Guess
                     </button>
                   ) : (
-                    <button
-                      type="button"
-                      className="skip-button"
-                      onClick={handleSkip}
-                    >
+                    <button type="button" className="btn btn-quiet skip-button" onClick={handleSkip}>
                       <SkipIcon />
                       Skip
                     </button>
@@ -1686,236 +1735,233 @@ export function Game() {
                 </form>
 
                 {audioError && (
-                  <p className="audio-error" role="alert">
+                  <p className="inline-alert" role="alert">
                     {audioError}
                   </p>
                 )}
 
                 {activeState.wrongGuesses.length > 0 && (
-                  <div className="wrong-guesses">
+                  <ul className="misses" aria-label="Wrong guesses">
                     {activeState.wrongGuesses.map((guess) => (
-                      <span key={guess}>{guess}</span>
+                      <li key={guess}>{guess}</li>
                     ))}
-                  </div>
+                  </ul>
                 )}
               </div>
             )}
 
             {showResult && activeState.answer && (
-              <div className={`result-panel ${activeState.status}`}>
-                <div className="result-artwork-wrap">
-                  <button
-                    type="button"
-                    className={`result-play-toggle${isPlaying ? ' playing' : ' paused'}`}
-                    onClick={() => toggleRevealPlayback()}
-                    aria-label={isPlaying ? 'Pause song' : 'Play song'}
-                  >
-                    {activeState.answer.albumArt ? (
-                      <img
-                        className="artwork"
-                        src={activeState.answer.albumArt}
-                        alt=""
-                        width={142}
-                        height={142}
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="artwork fallback">♫</div>
+              <div className={`result ${activeState.status}`}>
+                <div className="track-row">
+                  <div className="result-artwork-wrap">
+                    <button
+                      type="button"
+                      className={`result-play-toggle${isPlaying ? ' playing' : ' paused'}`}
+                      onClick={() => toggleRevealPlayback()}
+                      aria-label={isPlaying ? 'Pause song' : 'Play song'}
+                    >
+                      {activeState.answer.albumArt ? (
+                        <img
+                          className="artwork"
+                          src={activeState.answer.albumArt}
+                          alt=""
+                          width={72}
+                          height={72}
+                          decoding="async"
+                        />
+                      ) : (
+                        <div className="artwork fallback">♫</div>
+                      )}
+                      <span className="result-play-glyph" aria-hidden="true">
+                        <PlayControlIcon state={isPlaying ? 'pause' : 'play'} />
+                      </span>
+                    </button>
+                    {activeState.status === 'won' && (
+                      <>
+                        <div className="success-ring success-ring-one" />
+                        <div className="success-ring success-ring-two" />
+                        <Confetti />
+                      </>
                     )}
-                    <span className="result-play-glyph" aria-hidden="true">
-                      <PlayControlIcon state={isPlaying ? 'pause' : 'play'} />
-                    </span>
-                  </button>
-                  {activeState.status === 'won' && (
-                    <>
-                      <div className="success-ring success-ring-one" />
-                      <div className="success-ring success-ring-two" />
-                      <Confetti />
-                    </>
-                  )}
+                  </div>
+                  <div className="track-meta">
+                    <p className="track-kicker">
+                      {activeState.status === 'won' ? `Guessed in ${guessSeconds}s` : 'The answer'}
+                    </p>
+                    <h3 className="track-title">{activeState.answer.title}</h3>
+                    <p className="track-artist">{activeState.answer.artist}</p>
+                  </div>
                 </div>
-                <div className="result-kicker">
-                  {activeState.status === 'won' ? 'Correct' : 'Nice try'}
-                </div>
-                <h2>{activeState.answer.title}</h2>
-                <p className="result-artist">{activeState.answer.artist}</p>
-                <a
-                  className="result-source-link"
-                  href={`https://open.spotify.com/track/${activeState.answer.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open in Spotify
-                </a>
+
                 {audioError && (
-                  <p className="audio-error" role="alert">
+                  <p className="inline-alert" role="alert">
                     {audioError}
                   </p>
                 )}
-                <div className="result-stamp">
-                  {activeState.status === 'won'
-                    ? `Guessed in ${guessSeconds}s!`
-                    : 'Lost!'}
-                </div>
+
                 <div className="result-actions">
+                  {autoRerollCountdown === null ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary result-next-button"
+                      onClick={() => startNextSong()}
+                    >
+                      Next song <NextSongIcon />
+                    </button>
+                  ) : (
+                    <div className="countdown" role="status">
+                      <span>Next song in {autoRerollCountdown}s</span>
+                      <button type="button" className="btn btn-text" onClick={clearAutoReroll}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                   {activeState.status === 'lost' && (
                     <button
                       type="button"
-                      className="result-action result-retry-button"
+                      className="btn btn-quiet result-retry-button"
                       onClick={() => retryRound()}
                     >
                       <RetryIcon /> Retry
                     </button>
                   )}
-                  {autoRerollCountdown === null && (
-                    <button
-                      type="button"
-                      className="result-action result-next-button primary"
-                      onClick={() => startNextSong()}
-                    >
-                      Next song <NextSongIcon />
-                    </button>
-                  )}
+                  <a
+                    className="btn btn-text"
+                    href={`https://open.spotify.com/track/${activeState.answer.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in Spotify
+                  </a>
                 </div>
-                {autoRerollCountdown !== null && (
-                  <div className="auto-reroll-countdown" role="status">
-                    <span>Next song in {autoRerollCountdown}s</span>
-                    <button type="button" onClick={clearAutoReroll}>
-                      Cancel
-                    </button>
-                  </div>
-                )}
               </div>
             )}
-            </div>
-          </div>
-          </div>
-
-          <aside className="rail rail-right">
-                <SpotifyConnect
-                  isConnected={spotify.isConnected}
-                  isPremium={spotify.isPremium}
-                  displayName={spotify.session?.displayName}
-                  connecting={spotify.connecting}
-                  authError={spotify.authError}
-                  onConnect={() => void spotify.connect()}
-                  onDisconnect={spotify.disconnect}
-                />
-
-                <div>
-                  <p className="eyebrow">
-                    <WaveformIcon /> Song start
-                  </p>
-                  <div className="start-modes">
-                    <button
-                      type="button"
-                      className={`setting-value ${startMode === 'intro' ? 'active-setting' : ''}`}
-                      disabled={controlsDisabled || !spotify.canUseStartModes}
-                      onClick={() => handleStartMode('intro')}
-                    >
-                      From the start
-                    </button>
-                    <button
-                      type="button"
-                      className={`setting-value ${startMode === 'hook' ? 'active-setting' : ''}`}
-                      disabled={controlsDisabled || !spotify.canUseStartModes}
-                      onClick={() => handleStartMode('hook')}
-                    >
-                      Main hook
-                    </button>
-                  </div>
-                  <p className="setting-note">
-                    {spotify.canUseStartModes
-                      ? 'Play from the intro or chorus.'
-                      : 'Connect Spotify above to unlock.'}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="eyebrow">
-                    <StopwatchIcon /> Stages
-                  </p>
-                  <div className="stage-pills">
-                    {ALL_STAGES.map((stage) => {
-                      const enabled = enabledStages.includes(stage)
-                      const isCurrent = enabled && activeStages[activeState.stageIndex] === stage
-                      return (
-                        <button
-                          key={stage}
-                          type="button"
-                          className={[
-                            'stage-pill',
-                            enabled ? 'enabled' : '',
-                            isCurrent ? 'current' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          disabled={controlsDisabled}
-                          aria-pressed={enabled}
-                          aria-label={
-                            enabled ? `Remove ${stage} second stage` : `Add ${stage} second stage`
-                          }
-                          onClick={() => toggleStage(stage)}
-                        >
-                          {formatStageLabel(stage)}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="eyebrow">
-                    <AutoRerollIcon /> Auto reroll
-                  </p>
-                  <button
-                    type="button"
-                    className={`setting-value auto-reroll-toggle ${autoReroll ? 'active-setting' : ''}`}
-                    disabled={controlsDisabled}
-                    onClick={() => setAutoReroll((value) => !value)}
-                  >
-                    Auto reroll
-                    <span className="auto-reroll-state">{autoReroll ? 'On' : 'Off'}</span>
-                    <span className="toggle-track">
-                      <span />
-                    </span>
-                  </button>
-                </div>
-
-                <div className="volume-control">
-                  <div className="volume-header">
-                    <p className="eyebrow">
-                      <VolumeIcon /> Volume
-                    </p>
-                    <span className="volume-value">{Math.round(volume * 100)}%</span>
-                  </div>
-                  <div className="volume-slider-row">
-                    <button
-                      type="button"
-                      className="volume-reset"
-                      aria-label="Reset volume to 100%"
-                      onClick={() => setVolume(1)}
-                    >
-                      <ResetIcon />
-                    </button>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={volume}
-                      aria-label="Volume"
-                      style={{ '--volume-percent': `${volume * 100}%` } as CSSProperties}
-                      onChange={(event) => setVolume(Number(event.target.value))}
-                    />
-                  </div>
-                </div>
-          </aside>
+          </section>
+        </main>
       </div>
 
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}>
-        <div className="settings-panel">
-          <div>
+        <div className="settings-sheet-body">
+          <SpotifyConnect
+            isConnected={spotify.isConnected}
+            isPremium={spotify.isPremium}
+            displayName={spotify.session?.displayName}
+            connecting={spotify.connecting}
+            authError={spotify.authError}
+            onConnect={() => void spotify.connect()}
+            onDisconnect={spotify.disconnect}
+          />
+
+          <div className="settings-section">
+            <p className="eyebrow">
+              <WaveformIcon /> Song start
+            </p>
+            <div className="two-up">
+              <button
+                type="button"
+                className={`setting-value ${startMode === 'intro' ? 'active-setting' : ''}`}
+                disabled={controlsDisabled || !spotify.canUseStartModes}
+                onClick={() => handleStartMode('intro')}
+              >
+                From the start
+              </button>
+              <button
+                type="button"
+                className={`setting-value ${startMode === 'hook' ? 'active-setting' : ''}`}
+                disabled={controlsDisabled || !spotify.canUseStartModes}
+                onClick={() => handleStartMode('hook')}
+              >
+                Main hook
+              </button>
+            </div>
+            <p className="setting-note">
+              {spotify.canUseStartModes
+                ? 'Play from the intro or chorus.'
+                : 'Connect Spotify above to unlock.'}
+            </p>
+          </div>
+
+          <div className="settings-section">
+            <p className="eyebrow">
+              <StopwatchIcon /> Stages
+            </p>
+            <div className="stage-pills">
+              {ALL_STAGES.map((stage) => {
+                const enabled = enabledStages.includes(stage)
+                const isCurrent = enabled && activeStages[activeState.stageIndex] === stage
+                return (
+                  <button
+                    key={stage}
+                    type="button"
+                    className={[
+                      'stage-pill',
+                      enabled ? 'enabled' : '',
+                      isCurrent ? 'current' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    disabled={controlsDisabled}
+                    aria-pressed={enabled}
+                    aria-label={
+                      enabled ? `Remove ${stage} second stage` : `Add ${stage} second stage`
+                    }
+                    onClick={() => toggleStage(stage)}
+                  >
+                    {formatStageLabel(stage)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <p className="eyebrow">
+              <AutoRerollIcon /> Auto reroll
+            </p>
+            <button
+              type="button"
+              className={`setting-value auto-reroll-toggle ${autoReroll ? 'active-setting' : ''}`}
+              disabled={controlsDisabled}
+              onClick={() => setAutoReroll((value) => !value)}
+            >
+              Auto reroll
+              <span className="auto-reroll-state">{autoReroll ? 'On' : 'Off'}</span>
+              <span className="toggle-track">
+                <span />
+              </span>
+            </button>
+          </div>
+
+          <div className="settings-section volume-control">
+            <div className="volume-header">
+              <p className="eyebrow">
+                <VolumeIcon /> Volume
+              </p>
+              <span className="volume-value">{Math.round(volume * 100)}%</span>
+            </div>
+            <div className="volume-slider-row">
+              <button
+                type="button"
+                className="volume-reset"
+                aria-label="Reset volume to 100%"
+                onClick={() => setVolume(1)}
+              >
+                <ResetIcon />
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={volume}
+                aria-label="Volume"
+                style={{ '--volume-percent': `${volume * 100}%` } as CSSProperties}
+                onChange={(event) => setVolume(Number(event.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="settings-section">
             <p className="eyebrow">Theme</p>
             <div className="theme-pills">
               <button
@@ -1940,6 +1986,15 @@ export function Game() {
                 Dark
               </button>
             </div>
+          </div>
+
+          <div className="settings-section">
+            <p className="eyebrow">
+              <FeedbackIcon /> Feedback
+            </p>
+            <button type="button" className="setting-value" disabled>
+              Coming soon
+            </button>
           </div>
         </div>
       </SettingsSheet>

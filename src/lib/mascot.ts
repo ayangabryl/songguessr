@@ -24,19 +24,19 @@ export type MascotIntent =
  * `noot.css` — Game.tsx and Mascot.tsx schedule their state resets off them.
  */
 export const MASCOT_DURATION_MS: Record<MascotIntent, number> = {
-  idle: 1500,
-  play: 900,
-  win: 1500,
+  idle: 3400,
+  play: 1100,
+  win: 1400,
   lose: 1200,
-  skip: 700,
+  skip: 600,
   streak: 1800,
   switch: 900,
   hover: 1600,
-  tap: 520,
+  tap: 500,
 }
 
 /** Timeout is a slower, heavier version of `lose`. */
-export const MASCOT_TIMEOUT_MS = 1600
+export const MASCOT_TIMEOUT_MS = 1700
 
 export type MascotLoseReason = 'wrong' | 'timeout' | 'skip'
 
