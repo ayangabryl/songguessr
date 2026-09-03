@@ -1,0 +1,96 @@
+/*
+  Token sheet: <project>
+  Owner: layout (space, radius, layers), typography (type), colour (colour), motion (motion).
+  Rule: components read tokens only. Any literal outside this file needs a one-line reason beside it.
+  Every colour pair used for text or UI carries its measured contrast ratio in a comment.
+*/
+
+:root {
+  /* Space: 4 px base, 8 px rhythm. Use the step names, never intermediate values. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* Radius: one shape language. Inner radius = outer radius - padding (concentric). */
+  --r-0: 0px;
+  --r-1: 6px;     /* small controls, chips */
+  --r-2: 12px;    /* inputs, buttons */
+  --r-3: 20px;    /* cards, panels */
+  --r-4: 28px;    /* sheets, stage */
+  --r-pill: 999px;
+
+  /* Type: two families at most. Scale ratio 1.25 from 16 px; adjust only the ratio. */
+  --font-sans: <family>, ui-sans-serif, system-ui, sans-serif;
+  --font-display: <family>, var(--font-sans);
+  --font-mono: <family>, ui-monospace, monospace;
+  --fs-0: 0.8rem;    /* 12.8 px  meta, labels */
+  --fs-1: 0.875rem;  /* 14 px    secondary */
+  --fs-2: 1rem;      /* 16 px    body */
+  --fs-3: 1.25rem;   /* 20 px    lead */
+  --fs-4: 1.5625rem; /* 25 px    h3 */
+  --fs-5: 1.953rem;  /* 31 px    h2 */
+  --fs-6: 2.441rem;  /* 39 px    h1 */
+  --fs-7: 3.052rem;  /* 49 px    display */
+  --lh-tight: 1.1;
+  --lh-snug: 1.25;
+  --lh-body: 1.5;
+  --measure: 64ch;
+
+  /* Colour: one hue variable per palette; everything else is a formula of it. Light system. */
+  --hue: <0-360>;
+  --bg: oklch(0.985 0.004 var(--hue));
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.965 0.006 var(--hue));
+  --line: oklch(0.90 0.008 var(--hue));
+  --text: oklch(0.22 0.012 var(--hue));      /* on --bg: <ratio> */
+  --text-2: oklch(0.45 0.012 var(--hue));    /* on --bg: <ratio> */
+  --text-3: oklch(0.56 0.012 var(--hue));    /* on --bg: <ratio>, meta only */
+  --accent: oklch(0.55 0.16 var(--hue));
+  --on-accent: oklch(0.99 0 0);              /* on --accent: <ratio> */
+  --accent-soft: oklch(0.93 0.05 var(--hue));
+  --focus: oklch(0.60 0.18 var(--hue));
+
+  /* Motion: one duration ramp, two easings, one spring. */
+  --dur-1: 120ms;  /* state change: hover, pressed */
+  --dur-2: 200ms;  /* small move, fade, swap */
+  --dur-3: 320ms;  /* panel, sheet, layout change */
+  --dur-4: 520ms;  /* scene, hero, character */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-land: linear(0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 18.9%, 0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%, 0.991 45.7%, 1.006 50.1%, 1.015 55%, 1.017 63.9%, 1.001);
+
+  /* Layers */
+  --z-content: 0;
+  --z-control: 10;
+  --z-overlay: 20;
+  --z-toast: 30;
+}
+
+[data-theme="dark"] {
+  /* Dark is a second system, not an inversion: lower chroma, lighter accent, softer lines. */
+  --bg: oklch(0.17 0.008 var(--hue));
+  --surface: oklch(0.21 0.008 var(--hue));
+  --surface-2: oklch(0.25 0.008 var(--hue));
+  --line: oklch(0.30 0.008 var(--hue));
+  --text: oklch(0.95 0.006 var(--hue));      /* on --bg: <ratio> */
+  --text-2: oklch(0.74 0.008 var(--hue));    /* on --bg: <ratio> */
+  --text-3: oklch(0.62 0.008 var(--hue));    /* on --bg: <ratio> */
+  --accent: oklch(0.72 0.14 var(--hue));
+  --on-accent: oklch(0.15 0.02 var(--hue));  /* on --accent: <ratio> */
+  --accent-soft: oklch(0.30 0.06 var(--hue));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --dur-4: 0ms;
+  }
+}
