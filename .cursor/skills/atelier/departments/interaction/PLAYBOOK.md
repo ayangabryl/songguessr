@@ -133,7 +133,7 @@ Forms
 8. On a failed submit, move focus to the first invalid field and announce the error count in a live region. `[source: WCAG 4.1.3; house]`
 
 Gestures and touch
-9. Targets are 44 by 44 px minimum; WCAG 2.2 accepts 24 by 24 px as the floor, the studio does not. `[source: Apple HIG; WCAG 2.5.8, 2023; house]`
+9. Targets are 44 by 44 px minimum; WCAG 2.2 accepts 24 by 24 px as the floor, the studio does not. `[source: Apple HIG; WCAG 2.5.8, 2023; house]` The inline-text-link exemption only holds for a link whose used display is inline; a flex or grid parent blockifies its children, so every new link placed in a flex row (a nav, a header, a meta line) needs a real `min-height` and `min-width` hit area. Check the link's ancestry, not just its own rule; `measure.mjs` reports the failure as a small target, which does not point back at the parent. `[house; found three times in casework/hacker-news-rethink]`
 10. 8 px minimum gap between adjacent targets. `[source: Material 3 accessibility]`
 11. Every swipe (path gesture) and every drag has a visible single-tap alternative. `[source: WCAG 2.5.1; WCAG 2.5.7, 2023]`
 12. Long press is never the only path to a function. `[source: WCAG 2.5.7, 2023; house]`
