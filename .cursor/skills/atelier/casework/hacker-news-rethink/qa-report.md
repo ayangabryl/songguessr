@@ -154,6 +154,8 @@ Mobile density note: 390x844m dropped from loop 2's 14 rows to 13 after adding t
 | G Copy | 0.5 | 10 | footer rewritten (S4); nav labels are HN's own words, lower case, per words desk |
 | H Accessibility | 1.5 | 10 | 0 targets under floor after the nav/login fix; theme toggle has a correct dynamic `aria-label` on every viewport |
 | I Performance | 1.0 | 9 | unchanged from loop 2: no lazy-loading or fetch priority hint on `items.json` |
-| Weighted average | | **9.62** | (10×2.0 + 10×1.5 + 10×1.5 + 10×1.0 + 10×1.0 + 10×1.5 + 10×1.0 + 10×0.5 + 10×1.5 + 9×1.0) / 13.0 = 125/13 = 9.62 |
+| Weighted average | | **9.54** | (10×2.0 + 10×1.5 + 10×1.5 + 10×1.0 + 10×1.0 + 10×1.5 + 10×1.0 + 10×0.5 + 10×1.5 + 9×1.0) / 13.0 = 124/13 = 9.54 |
 
-Decision: **ship**. J at 10, K at 10, weighted average 9.62 (up from loop 2's 9.54 — E moved from a disputed pass to a clean one, and the IA/legibility/prominence findings are fixed with no regression elsewhere), no category under 7, zero open S1.
+Decision: **ship**. J at 10, K at 10, weighted average 9.54, no category under 7, zero open S1.
+
+**The number did not move, and that is itself a finding**: loop 2 scored 9.54 with five real defects still in the build (a removed IA, an illegible band step, an orphaned label, an over-prominent control, a rhythm nit) because every one of them sat in a category this checklist was already scoring 10 — J and K measure density and structural difference, not whether the header quietly deleted a whole layer of the site; A measures contrast pass/fail, not whether a passing pair is visually distinguishable enough to carry the idea; H measures target-size and labelling, not visual hierarchy. The checklist's numbers were not wrong, they were just not asking these five questions. The direction desk's audit caught what the measured categories structurally cannot.
