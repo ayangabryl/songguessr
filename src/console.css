@@ -19,7 +19,7 @@
   --page-x: var(--space-12);
   --ruler-inset: var(--space-6);
   --line-y: 14px;
-  --figure: 120px;
+  --figure: 144px;
   --control: 56px;
   --cover: 72px;
   display: flex;
@@ -71,9 +71,20 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  /* A fixed distance from the bar, so the console never moves between round and result. */
-  padding: var(--space-16) 0 0;
+  padding: var(--space-8) 0 0;
   min-height: 0;
+}
+/*
+ * The console sits in the middle of the room; the session slot below it has
+ * a fixed minimum height whether or not rounds have been played, so nothing
+ * above it moves between the first round and the tenth.
+ */
+.console-group {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-6);
 }
 
 .stage-head {
@@ -92,7 +103,7 @@
 .numeral {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--fs-d2);
+  font-size: var(--fs-d3);
   line-height: 1;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -156,10 +167,11 @@
   background: var(--accent-strong);
   transition: width var(--dur-4) var(--ease-out);
 }
+/* The playhead is a needle in ink, so it reads against the accent span it crosses. */
 .ruler-head {
-  top: calc(var(--line-y) - 7px);
-  height: 16px;
-  border-right: 2px solid var(--accent-strong);
+  top: calc(var(--line-y) - 9px);
+  height: 20px;
+  border-right: 2px solid var(--text);
   opacity: 0;
   transition: opacity var(--dur-2) var(--ease-out);
 }
@@ -258,7 +270,9 @@
 .figure {
   position: absolute;
   bottom: calc(100% - var(--line-y) + 1px);
-  left: clamp(calc(var(--figure) / 2), var(--pos), calc(100% - var(--figure) / 2));
+  /* The figure may lean into the room's margins, so it centres on the end stops too. */
+  --lean: calc(var(--ruler-inset) + var(--page-x));
+  left: clamp(calc(var(--figure) / 2 - var(--lean)), var(--pos), calc(100% - var(--figure) / 2 + var(--lean)));
   width: var(--figure);
   height: var(--figure);
   transform: translateX(-50%);
@@ -296,7 +310,8 @@
 .answer-cover {
   position: absolute;
   bottom: calc(100% - var(--line-y) + var(--space-3));
-  left: clamp(calc(var(--cover) / 2), var(--pos), calc(100% - var(--cover) / 2));
+  --lean: calc(var(--ruler-inset) + var(--page-x) - var(--space-2));
+  left: clamp(calc(var(--cover) / 2 - var(--lean)), var(--pos), calc(100% - var(--cover) / 2 + var(--lean)));
   transform: translateX(-50%);
   z-index: 3;
   animation: coverIn var(--dur-3) var(--ease-land) both;
@@ -430,7 +445,9 @@
  * Session: each finished round leaves its ruler as a signature
  * ------------------------------------------------------------------ */
 .session {
+  min-height: 148px;
   padding: var(--space-10) var(--ruler-inset) 0;
+  box-sizing: border-box;
 }
 .session-title {
   margin: 0 0 var(--space-3);
@@ -558,8 +575,13 @@
     width: 40px;
   }
   .console .stage {
-    justify-content: flex-start;
     padding-top: var(--space-6);
+  }
+  .console-group {
+    flex: 0 0 auto;
+  }
+  .session {
+    min-height: 0;
   }
   .numeral {
     font-size: var(--fs-d0);

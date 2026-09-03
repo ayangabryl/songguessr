@@ -83,6 +83,7 @@ html[data-theme='light'] #root {
   --fs-d0: 2.25rem;
   --fs-d1: 2.75rem;
   --fs-d2: 3.5rem;
+  --fs-d3: 4.5rem;
 
   --dur-1: 160ms;
   --dur-2: 260ms;
