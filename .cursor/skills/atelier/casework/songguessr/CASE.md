@@ -20,7 +20,7 @@ A Heardle-shaped game (clip grows with every miss, name the track) whose users s
 Nine findings, two S1: the playhead was invisible (accent on accent, found only when the demo was recorded) and the character stood below the line whenever miss notes were present (positioned against the notes' box). Both fixed. The blind stranger called the structures different and the first console "a good idea left half-empty"; loop 2 centred the instrument, reserved the session slot so nothing shifts, and enlarged the figure and numeral. All measured checks pass at both viewports; weighted score 9.0.
 
 ## Before and after
-Before: `/opt/cursor/artifacts/vitrine_light_easy_desktop.png`. After: `/opt/cursor/artifacts/console/qa_idle_light_1440.png`, `/opt/cursor/artifacts/console/flow_won_light_1440.png`, `/opt/cursor/artifacts/console/flowm2_won_light_390.png`. Recording: `/opt/cursor/artifacts/songguessr_console_round_flow.mp4`.
+Before: `/opt/cursor/artifacts/vitrine_light_easy_desktop.png`. After: `/opt/cursor/artifacts/console/qa_idle_light_1440.png`, `/opt/cursor/artifacts/console/flow_won_light_1440.png`, `/opt/cursor/artifacts/console/flowm2_won_light_390.png`. Recording: `/opt/cursor/artifacts/songguessr_console_demo_v2.mp4`.
 
 ## What the skill learned
 1. A maker cannot see a playhead that is the same colour as the span it crosses; the motion audit counts animations but does not look at them. Record the demo before the QA report, not after.
