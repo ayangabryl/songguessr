@@ -43,5 +43,19 @@
   ],
   "vars": {
     "ADMIN_PASSWORD": "wizard123"
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SITTING",
+        "class_name": "SittingRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "sitting_v1",
+      "new_sqlite_classes": ["SittingRoom"]
+    }
+  ]
 }

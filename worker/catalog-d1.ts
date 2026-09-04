@@ -6,6 +6,8 @@ import {
   type CatalogKind,
   type CountryCode,
 } from '../shared/catalog-meta'
+import { MIX_SINGER_LIMIT, uniqueArtistsByFame } from '../shared/catalog-artists'
+import { isSpotifyArtistPortrait } from './album-art'
 import { mapRequestedPoolTier, poolTierCaseSql } from './difficulty'
 import {
   EMPTY_CATALOG_FILTERS,
@@ -1127,82 +1129,97 @@ export interface CatalogArtistHit {
   popularity?: number | null
 }
 
-async function attachAlbumArtFromTracks(
-  db: D1Database,
-  hits: CatalogArtistHit[],
-): Promise<CatalogArtistHit[]> {
-  const missing = hits.filter((hit) => !hit.imageUrl)
-  if (missing.length === 0) return hits
+function portraitOrNull(url?: string | null): string | null {
+  return isSpotifyArtistPortrait(url) ? url ?? null : null
+}
 
-  const likes = missing.map(() => `lower(artist) LIKE ? ESCAPE '\\'`).join(' OR ')
-  const bind = missing.map((hit) => likePattern(hit.name.toLowerCase()))
+function collectionTrackClause(collections: CatalogKind[]): { sql: string; params: SqlValue[] } {
+  if (collections.length === 0) return { sql: '', params: [] }
+  const placeholders = collections.map(() => '?').join(', ')
+  return {
+    sql: ` AND (
+      catalog IN (${placeholders})
+      OR EXISTS (
+        SELECT 1 FROM track_collections tc
+        WHERE tc.track_id = tracks.id AND tc.collection_id IN (${placeholders})
+      )
+    )`,
+    params: [...collections, ...collections],
+  }
+}
+
+async function portraitsForNames(
+  db: D1Database,
+  names: Array<{ name: string; popularity?: number | null }>,
+): Promise<CatalogArtistHit[]> {
+  if (names.length === 0) return []
+  const placeholders = names.map(() => '?').join(', ')
+  const bind = names.map((item) => item.name.toLowerCase())
+  let byName = new Map<string, CatalogArtistHit>()
   try {
     const result = await db
       .prepare(
-        `SELECT artist, album_art AS albumArt FROM tracks
-         WHERE album_art IS NOT NULL AND album_art != '' AND (${likes})
-         ORDER BY popularity IS NULL, popularity DESC
-         LIMIT 80`,
+        `SELECT id, name, country, popularity, image_url AS imageUrl FROM artists
+         WHERE whitelisted = 1 AND lower(name) IN (${placeholders})`,
       )
       .bind(...bind)
-      .all<{ artist: string; albumArt: string | null }>()
-
-    const byName = new Map<string, string>()
+      .all<{
+        id: string
+        name: string
+        country: string | null
+        popularity: number | null
+        imageUrl: string | null
+      }>()
     for (const row of result.results ?? []) {
-      if (!row.albumArt) continue
-      for (const token of row.artist.split(',').map((part) => part.trim().toLowerCase())) {
-        if (!token || byName.has(token)) continue
-        byName.set(token, row.albumArt)
-      }
-    }
-    for (const hit of hits) {
-      if (hit.imageUrl) continue
-      hit.imageUrl = byName.get(hit.name.toLowerCase()) ?? null
+      byName.set(row.name.toLowerCase(), {
+        id: row.id,
+        name: row.name,
+        country: row.country,
+        popularity: row.popularity,
+        imageUrl: portraitOrNull(row.imageUrl),
+      })
     }
   } catch {
-    // Older local DBs may lack album_art; Mix falls back to initials.
+    try {
+      const result = await db
+        .prepare(
+          `SELECT id, name, country, popularity FROM artists
+           WHERE whitelisted = 1 AND lower(name) IN (${placeholders})`,
+        )
+        .bind(...bind)
+        .all<{ id: string; name: string; country: string | null; popularity: number | null }>()
+      for (const row of result.results ?? []) {
+        byName.set(row.name.toLowerCase(), {
+          id: row.id,
+          name: row.name,
+          country: row.country,
+          popularity: row.popularity,
+        })
+      }
+    } catch {
+      byName = new Map()
+    }
   }
-  return hits
+  return names.map((item) => {
+    const known = byName.get(item.name.toLowerCase())
+    if (!known) return { name: item.name, popularity: item.popularity ?? null }
+    return {
+      ...known,
+      popularity: known.popularity ?? item.popularity ?? null,
+    }
+  })
 }
 
 export async function searchCatalogArtists(
   env: Env,
   query: string,
-  limit = 5,
+  limit = MIX_SINGER_LIMIT,
   collections: CatalogKind[] = [],
 ): Promise<CatalogArtistHit[]> {
   const db = requireDb(env)
   const normalized = query.trim().toLowerCase()
-  const cap = Math.min(Math.max(limit, 1), 5)
+  const cap = Math.min(Math.max(limit, 1), MIX_SINGER_LIMIT)
   const scopedCollections = collections.filter(isCatalogKind)
-
-  if (!normalized) {
-    try {
-      const popular = await db
-        .prepare(
-          `SELECT artist, album_art AS albumArt FROM tracks
-           WHERE album_art IS NOT NULL AND album_art != ''
-           ORDER BY popularity IS NULL, popularity DESC
-           LIMIT 80`,
-        )
-        .all<{ artist: string; albumArt: string | null }>()
-      const fromTracks: CatalogArtistHit[] = []
-      const seenPopular = new Set<string>()
-      for (const row of popular.results ?? []) {
-        if (!row.albumArt) continue
-        for (const token of row.artist.split(',').map((part) => part.trim()).filter(Boolean)) {
-          const key = token.toLowerCase()
-          if (seenPopular.has(key)) continue
-          seenPopular.add(key)
-          fromTracks.push({ name: token, imageUrl: row.albumArt })
-          if (fromTracks.length >= cap) return fromTracks
-        }
-      }
-      if (fromTracks.length > 0) return fromTracks
-    } catch {
-      // Fall through to the artists table.
-    }
-  }
 
   async function fromArtistsTable(): Promise<CatalogArtistHit[]> {
     const withImages = `SELECT id, name, country, popularity, image_url AS imageUrl FROM artists
@@ -1230,7 +1247,7 @@ export async function searchCatalogArtists(
         name: row.name,
         country: row.country,
         popularity: row.popularity,
-        imageUrl: row.imageUrl,
+        imageUrl: portraitOrNull(row.imageUrl),
       }))
     } catch {
       const result = await db
@@ -1246,128 +1263,78 @@ export async function searchCatalogArtists(
     }
   }
 
-  const seen = new Set<string>()
-  const hits: CatalogArtistHit[] = []
-
-  try {
-    for (const row of await fromArtistsTable()) {
-      const name = row.name?.trim()
-      if (!name) continue
-      const key = name.toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      hits.push(row)
-    }
-  } catch {
-    // Older local DBs may not have artists; fall through to track names.
-  }
-
-  if (hits.length > 0) {
-    return attachAlbumArtFromTracks(db, hits.slice(0, cap))
-  }
-
-  if (hits.length === 0) {
+  async function famousFromTracks(): Promise<CatalogArtistHit[]> {
     const trackPattern = normalized ? likePattern(normalized) : '%'
-    const collectionClause =
+    const scoped = collectionTrackClause(!normalized ? scopedCollections : [])
+    const catalogOnly =
       !normalized && scopedCollections.length > 0
-        ? (() => {
-            const placeholders = scopedCollections.map(() => '?').join(', ')
-            return {
-              sql: ` AND (
-                catalog IN (${placeholders})
-                OR EXISTS (
-                  SELECT 1 FROM track_collections tc
-                  WHERE tc.track_id = tracks.id AND tc.collection_id IN (${placeholders})
-                )
-              )`,
-              params: [...scopedCollections, ...scopedCollections] as SqlValue[],
-            }
-          })()
+        ? {
+            sql: ` AND catalog IN (${scopedCollections.map(() => '?').join(', ')})`,
+            params: [...scopedCollections] as SqlValue[],
+          }
         : { sql: '', params: [] as SqlValue[] }
 
-    let trackResult: { results?: Array<{ artist: string }> }
+    type TrackArtistRow = { artist: string; artistPopularity: number | null; trackPopularity: number | null }
+    let rows: TrackArtistRow[] = []
     try {
-      trackResult = await db
+      const result = await db
         .prepare(
-          `SELECT artist FROM tracks
-           WHERE lower(artist) LIKE ? ESCAPE '\\'${collectionClause.sql}
-           ORDER BY popularity IS NULL, popularity DESC
-           LIMIT 200`,
+          `SELECT artist, artist_popularity AS artistPopularity, popularity AS trackPopularity FROM tracks
+           WHERE lower(artist) LIKE ? ESCAPE '\\'${scoped.sql}
+           ORDER BY artist_popularity IS NULL, artist_popularity DESC, popularity IS NULL, popularity DESC
+           LIMIT 400`,
         )
-        .bind(trackPattern, ...collectionClause.params)
-        .all<{ artist: string }>()
+        .bind(trackPattern, ...scoped.params)
+        .all<TrackArtistRow>()
+      rows = result.results ?? []
     } catch {
-      const catalogOnly =
-        !normalized && scopedCollections.length > 0
-          ? {
-              sql: ` AND catalog IN (${scopedCollections.map(() => '?').join(', ')})`,
-              params: [...scopedCollections] as SqlValue[],
-            }
-          : { sql: '', params: [] as SqlValue[] }
-      trackResult = await db
-        .prepare(
-          `SELECT artist FROM tracks
-           WHERE lower(artist) LIKE ? ESCAPE '\\'${catalogOnly.sql}
-           ORDER BY popularity IS NULL, popularity DESC
-           LIMIT 200`,
-        )
-        .bind(trackPattern, ...catalogOnly.params)
-        .all<{ artist: string }>()
-    }
-
-    const counts = new Map<string, { name: string; count: number }>()
-    for (const row of trackResult.results ?? []) {
-      for (const token of row.artist.split(',').map((part) => part.trim()).filter(Boolean)) {
-        if (normalized && !token.toLowerCase().includes(normalized)) continue
-        const key = token.toLowerCase()
-        const current = counts.get(key)
-        if (current) current.count += 1
-        else counts.set(key, { name: token, count: 1 })
-      }
-    }
-
-    const ranked = [...counts.values()]
-      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
-      .slice(0, cap)
-
-    let portraits = new Map<string, CatalogArtistHit>()
-    try {
-      if (ranked.length > 0) {
-        const placeholders = ranked.map(() => '?').join(', ')
+      try {
         const result = await db
           .prepare(
-            `SELECT id, name, country, popularity, image_url AS imageUrl FROM artists
-             WHERE whitelisted = 1 AND lower(name) IN (${placeholders})`,
+            `SELECT artist, popularity AS artistPopularity, popularity AS trackPopularity FROM tracks
+             WHERE lower(artist) LIKE ? ESCAPE '\\'${catalogOnly.sql}
+             ORDER BY popularity IS NULL, popularity DESC
+             LIMIT 400`,
           )
-          .bind(...ranked.map((item) => item.name.toLowerCase()))
-          .all<{
-            id: string
-            name: string
-            country: string | null
-            popularity: number | null
-            imageUrl: string | null
-          }>()
-        for (const row of result.results ?? []) {
-          portraits.set(row.name.toLowerCase(), {
-            id: row.id,
-            name: row.name,
-            country: row.country,
-            popularity: row.popularity,
-            imageUrl: row.imageUrl,
-          })
-        }
+          .bind(trackPattern, ...catalogOnly.params)
+          .all<TrackArtistRow>()
+        rows = result.results ?? []
+      } catch {
+        const result = await db
+          .prepare(
+            `SELECT artist FROM tracks
+             WHERE lower(artist) LIKE ? ESCAPE '\\'
+             LIMIT 400`,
+          )
+          .bind(trackPattern)
+          .all<{ artist: string }>()
+        rows = (result.results ?? []).map((row) => ({
+          artist: row.artist,
+          artistPopularity: null,
+          trackPopularity: null,
+        }))
       }
-    } catch {
-      portraits = new Map()
     }
 
-    for (const item of ranked) {
-      const known = portraits.get(item.name.toLowerCase())
-      hits.push(known ?? { name: item.name })
-    }
+    const ranked = uniqueArtistsByFame(
+      rows
+        .filter((row) => !normalized || row.artist.toLowerCase().includes(normalized))
+        .map((row) => ({
+          artist: row.artist,
+          artistPopularity: row.artistPopularity ?? row.trackPopularity,
+        })),
+      cap,
+    )
+    return portraitsForNames(db, ranked)
   }
 
-  return attachAlbumArtFromTracks(db, hits.slice(0, cap))
+  if (normalized) {
+    const named = await fromArtistsTable()
+    if (named.length > 0) return named.slice(0, cap)
+    return famousFromTracks()
+  }
+
+  return famousFromTracks()
 }
 
 export async function insertTracks(

@@ -36,6 +36,13 @@ import {
 } from './spotify-auth'
 import { hydrateArtistPortraits } from './artist-images'
 import type { Difficulty, Env } from './types'
+import {
+  makeSittingCode,
+  normalizeSittingCode,
+  sittingErrorMessage,
+} from '../shared/sitting'
+
+export { SittingRoom } from './sitting-room'
 
 export const DEFAULT_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
 
@@ -111,6 +118,59 @@ app.use('/api/*', cors())
 app.use('/api/*', async (c, next) => {
   await next()
   c.header('X-Robots-Tag', 'noindex, nofollow')
+})
+
+function sittingStub(env: Env, code: string) {
+  return env.SITTING.get(env.SITTING.idFromName(code))
+}
+
+app.post('/api/sitting', async (c) => {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const bytes = new Uint8Array(4)
+    crypto.getRandomValues(bytes)
+    const code = makeSittingCode(bytes)
+    const response = await sittingStub(c.env, code).fetch(
+      new Request('https://sitting/open', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code }),
+      }),
+    )
+    if (response.ok) return c.json({ code })
+  }
+  return c.json({ error: 'server', message: sittingErrorMessage('server') }, 503)
+})
+
+app.get('/api/sitting/:code/ws', (c) => {
+  const code = normalizeSittingCode(c.req.param('code'))
+  if (!code) {
+    return c.json({ error: 'bad-code', message: sittingErrorMessage('bad-code') }, 400)
+  }
+  const inbound = new URL(c.req.url)
+  const outbound = new URL('https://sitting/ws')
+  outbound.search = inbound.search
+  outbound.searchParams.set('code', code)
+  return sittingStub(c.env, code).fetch(
+    new Request(outbound.toString(), {
+      method: 'GET',
+      headers: c.req.raw.headers,
+    }),
+  )
+})
+
+app.get('/api/sitting/:code', async (c) => {
+  const code = normalizeSittingCode(c.req.param('code'))
+  if (!code) {
+    return c.json({ error: 'bad-code', message: sittingErrorMessage('bad-code') }, 400)
+  }
+  const infoUrl = new URL('https://sitting/info')
+  const playerId = c.req.query('playerId')
+  if (playerId) infoUrl.searchParams.set('playerId', playerId)
+  const response = await sittingStub(c.env, code).fetch(new Request(infoUrl.toString()))
+  return new Response(response.body, {
+    status: response.status,
+    headers: response.headers,
+  })
 })
 
 const ROBOTS_TXT = `User-agent: *
@@ -323,13 +383,8 @@ app.get('/api/catalog/artists', async (c) => {
     const query = c.req.query('q') ?? ''
     const filters = parseCatalogFilters(c)
     const artists = await searchCatalogArtists(c.env, query, 5, filters.collections)
-    c.executionCtx.waitUntil(
-      hydrateArtistPortraits(
-        c.env.DB,
-        artists.map((artist) => ({ ...artist })),
-      ).catch(() => undefined),
-    )
-    return c.json({ artists })
+    const withFaces = await hydrateArtistPortraits(c.env.DB, artists)
+    return c.json({ artists: withFaces })
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {
       return catalogUnavailable(c, error)
@@ -501,9 +556,12 @@ app.post('/api/guess', async (c) => {
         const guessed = await findTrackById(c.env, body.guessedTrackId)
         correct = guessed !== undefined && songIdentityKey(guessed) === songIdentityKey(track)
       }
-    } else {
+    }
+    if (!correct) {
       const guess = body.guess?.trim() ?? ''
-      correct = checkGuess(guess, track.title, track.artist).correct
+      if (guess) {
+        correct = checkGuess(guess, track.title, track.artist).correct
+      }
     }
 
     const shouldReveal = reveal || correct
@@ -550,6 +608,12 @@ export default {
   fetch: async (request: Request, env: Env, ctx: ExecutionContext) => {
     const wwwRedirect = redirectWwwToApex(request)
     if (wwwRedirect) return wwwRedirect
+
+    if (request.headers.get('Upgrade') === 'websocket') {
+      const sittingSocket = await upgradeSittingSocket(request, env)
+      if (sittingSocket) return sittingSocket
+    }
+
     const adminResponse = await handleAdminRequest(request, env, adminApp, ctx)
     if (adminResponse) return applySeoHeaders(request, adminResponse)
 
@@ -561,4 +625,15 @@ export default {
     return applySeoHeaders(request, await env.ASSETS.fetch(request))
   },
   scheduled: handleScheduled,
+}
+
+async function upgradeSittingSocket(request: Request, env: Env): Promise<Response | null> {
+  const inbound = new URL(request.url)
+  const match = inbound.pathname.match(/^\/api\/sitting\/([^/]+)\/ws$/)
+  if (!match) return null
+  const code = normalizeSittingCode(match[1] ?? '')
+  if (!code) {
+    return Response.json({ error: 'bad-code', message: sittingErrorMessage('bad-code') }, 400)
+  }
+  return sittingStub(env, code).fetch(request)
 }

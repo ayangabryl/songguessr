@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '../hooks/useModalFocus'
 import { CountryFlag } from '../../shared/country-flag'
 import { NotoEmoji } from '../../shared/noto-emoji'
 import { countryDisplayName } from '../../shared/iso-countries'
@@ -12,7 +13,8 @@ import {
   type EraFilter,
   type GenreFilter,
 } from '../lib/filters'
-import { fetchCatalogArtists, peekCatalogArtists } from '../lib/api'
+import { fetchCatalogArtists, isArtistPortrait, peekCatalogArtists } from '../lib/api'
+import { mergeSingerRows } from '../../shared/catalog-artists'
 import { DIFFICULTY_LABELS } from '../lib/game-state'
 import type { CatalogArtist, CatalogCollection, CatalogRegion, Difficulty } from '../lib/api'
 
@@ -24,6 +26,9 @@ function singerInitials(name: string): string {
 function singerFaceUrl(url?: string | null): string | null {
   if (!url) return null
   if (!/^https:\/\//i.test(url)) return null
+  // Only a portrait is a face. Album art borrowed from one of the artist's
+  // tracks is a different singer's picture as often as it is theirs.
+  if (!isArtistPortrait(url)) return null
   return url
 }
 
@@ -93,6 +98,9 @@ export function FilterModal({
   const [singerHits, setSingerHits] = useState<CatalogArtist[]>(() => peekCatalogArtists('') ?? [])
   const [showSingerWait, setShowSingerWait] = useState(false)
   const [singerLookup, setSingerLookup] = useState(false)
+  const singerMemory = useRef(new Map<string, CatalogArtist>())
+  const panelRef = useRef<HTMLDivElement>(null)
+  useModalFocus(open && variant === 'sheet', panelRef, onClose)
 
   useEffect(() => {
     if (!open) {
@@ -100,24 +108,14 @@ export function FilterModal({
       setSingerQuery('')
       setShowSingerWait(false)
       setSingerLookup(false)
-      return
     }
-
-    if (variant !== 'sheet') return
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, onClose, variant])
+  }, [open])
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    const exact = peekCatalogArtists(singerQuery)
-    const popular = peekCatalogArtists('') ?? []
+    const exact = peekCatalogArtists(singerQuery, draftCollections)
+    const popular = peekCatalogArtists('', draftCollections) ?? []
     const immediate = exact ?? singersMatching(popular, singerQuery)
     const lookingUp = Boolean(singerQuery.trim() && immediate.length === 0 && !exact)
     setSingerLookup(lookingUp)
@@ -135,7 +133,7 @@ export function FilterModal({
 
     const debounce = singerQuery.trim() ? 140 : 0
     const timer = window.setTimeout(() => {
-      void fetchCatalogArtists(singerQuery).then((hits) => {
+      void fetchCatalogArtists(singerQuery, draftCollections).then((hits) => {
         if (cancelled) return
         setSingerHits(hits)
         setShowSingerWait(false)
@@ -148,7 +146,7 @@ export function FilterModal({
       window.clearTimeout(timer)
       if (waitTimer !== null) window.clearTimeout(waitTimer)
     }
-  }, [open, singerQuery])
+  }, [open, singerQuery, draftCollections])
 
   const visibleCountries = useMemo(() => {
     const listed = regions.filter((region) => (region.count ?? 0) > 0)
@@ -175,15 +173,21 @@ export function FilterModal({
     () => new Set(draftArtists.map((name) => name.toLowerCase())),
     [draftArtists],
   )
-  const displayedSingers = useMemo(() => {
-    const rows = [...singerHits]
-    for (const name of [...draftArtists].reverse()) {
-      if (!rows.some((hit) => hit.name.toLowerCase() === name.toLowerCase())) {
-        rows.unshift({ name })
+
+  useEffect(() => {
+    for (const hit of singerHits) {
+      const key = hit.name.toLowerCase()
+      const prev = singerMemory.current.get(key)
+      if (isArtistPortrait(hit.imageUrl) || !prev || !isArtistPortrait(prev.imageUrl)) {
+        singerMemory.current.set(key, hit)
       }
     }
-    return rows
-  }, [singerHits, draftArtists])
+  }, [singerHits])
+
+  const displayedSingers = useMemo(
+    () => mergeSingerRows(singerHits, draftArtists, singerMemory.current),
+    [singerHits, draftArtists],
+  )
 
   if (!open) return null
 
@@ -518,10 +522,12 @@ export function FilterModal({
   return (
     <div className="sheet-overlay" onClick={onClose}>
       <div
+        ref={panelRef}
         className="filter-sheet mix-sheet"
         role="dialog"
         aria-modal="true"
         aria-labelledby="filter-title"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         {panel}

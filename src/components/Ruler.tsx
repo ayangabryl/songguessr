@@ -83,7 +83,12 @@ export function Ruler(props: RulerProps) {
       data-status={status}
       data-playing={isPlaying || undefined}
     >
-      <div className="ruler-draw" role="img" aria-label={describeRuler(props)}>
+      <div
+        className="ruler-draw"
+        role="img"
+        aria-label={describeRuler(props)}
+        data-slop-ok="3: each mark is a spent try at a stop, not ornament; the whole ruler is one labelled image, so the marks are aria-hidden on purpose"
+      >
         <div className="ruler-line" aria-hidden="true" />
         <div
           className="ruler-fill"

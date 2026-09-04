@@ -80,6 +80,7 @@ import { useSpotify } from '../hooks/useSpotify'
 import { progressAtElapsedSeconds } from '../lib/stage-progress'
 import { loadRecentExcludes, rememberTrack, clearRecentTrackIds } from '../lib/recent-tracks'
 import { incrementStreak, loadStreak, resetStreak } from '../lib/streak'
+import { formatScoreValue, roundPoints } from '../lib/score'
 import {
   applyResolvedTheme,
   loadThemePreference,
@@ -92,18 +93,16 @@ import type { MascotIntent } from '../lib/mascot'
 import { MASCOT_DURATION_MS } from '../lib/mascot'
 import {
   AutoRerollIcon,
-  FeedbackIcon,
   FilterIcon,
   GearIcon,
-  MoonIcon,
   NextSongIcon,
   PlayControlIcon,
   ReplayIcon,
   ResetIcon,
   RetryIcon,
+  SitIcon,
   SkipIcon,
   StopwatchIcon,
-  SunIcon,
   VolumeIcon,
   WaveformIcon,
 } from './Icons'
@@ -111,7 +110,12 @@ import { SpotifyConnect } from './SpotifyConnect'
 import { Mascot } from './Mascot'
 import { SettingsSheet } from './SettingsSheet'
 import { StreakBadge } from './StreakBadge'
+import { SittingTally } from './SittingTally'
+import { SittingSheet } from './SittingSheet'
+import { LeaderboardCard } from './LeaderboardCard'
+import { ScoreBeat } from './ScoreBeat'
 import { Ruler, stopPosition } from './Ruler'
+import { useSitting } from '../hooks/useSitting'
 
 const FilterModal = lazy(() =>
   import('./FilterModal').then((mod) => ({ default: mod.FilterModal })),
@@ -120,6 +124,8 @@ const FilterModal = lazy(() =>
 type PlaybackMode = 'idle' | 'clip' | 'reveal'
 
 const REVEAL_PLAYBACK_MS = 45_000
+/** Matches `--dur-3` in game-shell.css. One shake for a rejected guess. */
+const MISS_SHAKE_MS = 420
 
 
 function resolveMascotIntent(input: {
@@ -134,6 +140,22 @@ function resolveMascotIntent(input: {
   if (input.skipPulse) return 'skip'
   if (input.isPlaying) return 'play'
   return 'idle'
+}
+
+function pointsForResult(status: ShellStatus, solvedStage: number, stages: number[]): number {
+  switch (status) {
+    case 'won':
+      return roundPoints({ status: 'won', solvedStage, stages })
+    case 'lost':
+      return roundPoints({ status: 'lost', solvedStage: null, stages })
+    case 'idle':
+    case 'playing':
+      return 0
+    default: {
+      const exhaustive: never = status
+      return exhaustive
+    }
+  }
 }
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard', 'expert', 'impossible']
@@ -153,6 +175,7 @@ interface SessionEntry {
   albumArt?: string
   status: 'won' | 'lost'
   solvedStage: number | null
+  points: number
   stages: number[]
   marks: RoundMark[]
 }
@@ -224,8 +247,11 @@ export function Game() {
   const playbackModeRef = useRef<PlaybackMode>('idle')
   const revealEndedHandlerRef = useRef<(() => void) | null>(null)
   const streakBumpTimeoutRef = useRef<number | null>(null)
+  const scoreBumpTimeoutRef = useRef<number | null>(null)
   const mascotSwitchTimeoutRef = useRef<number | null>(null)
   const mascotSkipTimeoutRef = useRef<number | null>(null)
+  const missPulseTimeoutRef = useRef<number | null>(null)
+  const closingRoundRef = useRef(false)
 
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -271,12 +297,20 @@ export function Game() {
   const [draftPreviewCount, setDraftPreviewCount] = useState(0)
   const [streak, setStreak] = useState(loadStreak)
   const [session, setSession] = useState<SessionEntry[]>([])
+  const [sittingTotal, setSittingTotal] = useState(0)
+  const [scoreDelta, setScoreDelta] = useState(0)
+  const [scoreBump, setScoreBump] = useState(false)
   const [streakBump, setStreakBump] = useState(false)
   const [themePreference, setThemePreference] = useState<ThemePreference>(loadThemePreference)
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(loadThemePreference()))
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sitOpen, setSitOpen] = useState(false)
+  const [sitCopied, setSitCopied] = useState(false)
+  const [sitCopyFailed, setSitCopyFailed] = useState(false)
+  const sitting = useSitting()
   const [mascotSwitch, setMascotSwitch] = useState(false)
   const [mascotSkip, setMascotSkip] = useState(false)
+  const [missPulse, setMissPulse] = useState(false)
   const [mascotLoseReason, setMascotLoseReason] = useState<'wrong' | 'timeout' | 'skip'>('wrong')
   const [mascotWinStreak, setMascotWinStreak] = useState(false)
 
@@ -371,6 +405,7 @@ export function Game() {
   }
 
   function applyRound(level: Difficulty, round: GameRound) {
+    closingRoundRef.current = false
     rememberTrack(round.trackId, round.songKey)
     warmRoundAudio(round)
     setRounds((current) => ({
@@ -680,8 +715,10 @@ export function Game() {
       if (clipLoadingDelayRef.current) window.clearTimeout(clipLoadingDelayRef.current)
       if (autoRerollIntervalRef.current) window.clearInterval(autoRerollIntervalRef.current)
       if (streakBumpTimeoutRef.current) window.clearTimeout(streakBumpTimeoutRef.current)
+      if (scoreBumpTimeoutRef.current) window.clearTimeout(scoreBumpTimeoutRef.current)
       if (mascotSwitchTimeoutRef.current) window.clearTimeout(mascotSwitchTimeoutRef.current)
       if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
+      if (missPulseTimeoutRef.current) window.clearTimeout(missPulseTimeoutRef.current)
     }
   }, [])
 
@@ -727,6 +764,7 @@ export function Game() {
   }
 
   function retryRound(level: Difficulty = difficulty) {
+    closingRoundRef.current = false
     stopClip()
     clearAutoReroll()
     clearSearchSelection()
@@ -1156,21 +1194,30 @@ export function Game() {
   }
 
   async function revealAnswer(level: Difficulty) {
+    if (closingRoundRef.current) return
+    closingRoundRef.current = true
     const round = roundsRef.current[level].round
-    if (!round) return
+    if (!round) {
+      closingRoundRef.current = false
+      return
+    }
     void activateSpotifyElement()
-    const result = await submitGuess(round, { reveal: true })
-    const state = roundsRef.current[level]
-    const lastStage = activeStages[state.stageIndex] ?? activeStages[activeStages.length - 1] ?? 15
-    const marks = [...state.marks, { stage: lastStage, kind: 'skip' as const }]
-    updateRound(level, {
-      status: 'lost',
-      answer: result.answer,
-      marks,
-    })
-    recordSession(result.answer, 'lost', null, marks)
-    noteStreakFail()
-    void playReveal(round)
+    try {
+      const result = await submitGuess(round, { reveal: true })
+      const state = roundsRef.current[level]
+      const lastStage = activeStages[state.stageIndex] ?? activeStages[activeStages.length - 1] ?? 15
+      const marks = [...state.marks, { stage: lastStage, kind: 'skip' as const }]
+      updateRound(level, {
+        status: 'lost',
+        answer: result.answer,
+        marks,
+      })
+      recordSession(result.answer, 'lost', null, marks)
+      noteStreakFail()
+      void playReveal(round)
+    } catch {
+      closingRoundRef.current = false
+    }
   }
 
   function recordSession(
@@ -1180,6 +1227,20 @@ export function Game() {
     marks: RoundMark[],
   ) {
     if (!answer) return
+    const points = roundPoints({ status, solvedStage, stages: activeStages })
+    setSittingTotal((total) => total + points)
+    sitting.reportScore(points)
+    setScoreDelta(points)
+    if (points > 0) {
+      setScoreBump(true)
+      if (scoreBumpTimeoutRef.current) window.clearTimeout(scoreBumpTimeoutRef.current)
+      scoreBumpTimeoutRef.current = window.setTimeout(() => {
+        setScoreBump(false)
+        scoreBumpTimeoutRef.current = null
+      }, 600)
+    } else {
+      setScoreBump(false)
+    }
     setSession((current) =>
       [
         {
@@ -1189,6 +1250,7 @@ export function Game() {
           albumArt: answer.albumArt,
           status,
           solvedStage,
+          points,
           stages: activeStages,
           marks,
         },
@@ -1227,10 +1289,15 @@ export function Game() {
     if (!round || shellStatus !== 'playing') return
 
     void activateSpotifyElement()
-    const guessResult = await submitGuess(round, { guessedTrackId: result.id })
+    const guessResult = await submitGuess(round, {
+      guessedTrackId: result.id,
+      guess: `${result.title} ${result.artist}`,
+    })
     clearSearchSelection()
 
     if (guessResult.correct) {
+      if (closingRoundRef.current) return
+      closingRoundRef.current = true
       noteStreakWin()
       const solvedAt = Date.now()
       updateRound(difficulty, {
@@ -1251,6 +1318,8 @@ export function Game() {
     const marks = [...activeState.marks, { stage: stageEndpoint, kind: 'miss' as const, label }]
 
     if (nextIndex >= activeStages.length) {
+      if (closingRoundRef.current) return
+      closingRoundRef.current = true
       noteStreakFail()
       const reveal = await submitGuess(round, { reveal: true })
       setMascotLoseReason('wrong')
@@ -1274,6 +1343,12 @@ export function Game() {
       unlockedSeconds: stageEndpoint,
       playbackSeconds: stageEndpoint,
     })
+    setMissPulse(true)
+    if (missPulseTimeoutRef.current) window.clearTimeout(missPulseTimeoutRef.current)
+    missPulseTimeoutRef.current = window.setTimeout(() => {
+      setMissPulse(false)
+      missPulseTimeoutRef.current = null
+    }, MISS_SHAKE_MS)
   }
 
   function advanceStageAfterSkip(level: Difficulty = difficulty) {
@@ -1426,14 +1501,8 @@ export function Game() {
   const lastStage = activeStages[activeStages.length - 1] ?? 15
   const numeralStage =
     activeState.status === 'lost' ? lastStage : currentStageEndpoint
-  const readout =
-    activeState.status === 'won'
-      ? 'Named at'
-      : activeState.status === 'lost'
-        ? 'Not this time'
-        : isCatalogEmpty
-          ? 'Finding songs'
-          : `Try ${Math.min(activeState.stageIndex + 1, activeStages.length)} of ${activeStages.length}`
+  const headStatus = isCatalogEmpty ? 'Finding songs' : null
+  const thisRoundPoints = pointsForResult(activeState.status, currentStageEndpoint, activeStages)
   const firstRun = session.length === 0 && streak === 0 && activeState.marks.length === 0
   const figurePosition = showResult
     ? stopPosition(activeStages, activeState.status === 'won' ? currentStageEndpoint : lastStage)
@@ -1463,9 +1532,40 @@ export function Game() {
     saveThemePreference(next)
   }
 
-  function toggleTheme() {
-    handleThemePreference(resolvedTheme === 'dark' ? 'light' : 'dark')
+  async function copySitLink() {
+    if (!sitting.inviteUrl) return
+    setSitCopyFailed(false)
+    try {
+      await navigator.clipboard.writeText(sitting.inviteUrl)
+      setSitCopied(true)
+      window.setTimeout(() => setSitCopied(false), 1600)
+    } catch {
+      let copied = false
+      try {
+        const field = document.createElement('textarea')
+        field.value = sitting.inviteUrl
+        field.setAttribute('readonly', '')
+        field.style.position = 'fixed'
+        field.style.left = '-9999px'
+        document.body.appendChild(field)
+        field.select()
+        copied = document.execCommand('copy')
+        field.remove()
+      } catch {
+        copied = false
+      }
+      if (copied) {
+        setSitCopied(true)
+        window.setTimeout(() => setSitCopied(false), 1600)
+        return
+      }
+      setSitCopyFailed(true)
+    }
   }
+
+  useEffect(() => {
+    if (sitting.inviteCode) setSitOpen(true)
+  }, [sitting.inviteCode])
 
   useEffect(() => {
     const apply = () => {
@@ -1480,6 +1580,16 @@ export function Game() {
     media.addEventListener('change', onChange)
     return () => media.removeEventListener('change', onChange)
   }, [themePreference])
+
+  const tableBoardProps = sitting.live
+    ? {
+        players: sitting.players,
+        youId: sitting.playerId,
+        message: sitting.status === 'error' ? sitting.message : null,
+        bump: scoreBump,
+        delta: scoreDelta,
+      }
+    : null
 
   return (
     <div className="app-shell console" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
@@ -1507,56 +1617,76 @@ export function Game() {
           </div>
 
           <div className="bar-actions">
-            <StreakBadge count={streak} bump={streakBump} />
-            <button
-              type="button"
-              className={`bar-btn filter-btn${activeFilterTotal > 0 ? ' is-active' : ''}`}
-              onClick={() => openFilterModal()}
-              aria-label="Open mix"
-            >
-              <FilterIcon />
-              <span className="bar-label">Mix</span>
-              {activeFilterTotal > 0 ? <span className="filter-count">{activeFilterTotal}</span> : null}
-            </button>
-            <button
-              type="button"
-              className="bar-btn icon-only"
-              onClick={() => {
-                clearRecentTrackIds()
-                void loadAllRounds(catalogFilters)
-              }}
-              aria-label="Reroll all songs"
-              title="Reroll"
-            >
-              <ReplayIcon />
-            </button>
-            <button
-              type="button"
-              className="bar-btn icon-only theme-btn"
-              onClick={toggleTheme}
-              aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
-            >
-              {resolvedTheme === 'dark' ? <SunIcon /> : <MoonIcon />}
-            </button>
-            <button
-              type="button"
-              className="bar-btn icon-only"
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Open settings"
-              title="Settings"
-            >
-              <GearIcon />
-            </button>
+            <div className="bar-readouts">
+              {streak > 0 ? <StreakBadge count={streak} bump={streakBump} /> : null}
+              <SittingTally total={sittingTotal} delta={scoreDelta} bump={scoreBump} />
+            </div>
+            <div className="bar-tools">
+              <button
+                type="button"
+                className={`bar-btn sit-btn${sitting.live ? ' is-active' : ''}`}
+                onClick={() => setSitOpen(true)}
+                aria-label={
+                  sitting.live
+                    ? `Table ${sitting.code ?? ''}, ${sitting.players.length} playing`
+                    : 'Table'
+                }
+              >
+                <SitIcon />
+                {sitting.live && sitting.code ? (
+                  <span className="sit-code-chip">{sitting.code}</span>
+                ) : (
+                  <span className="bar-label">Table</span>
+                )}
+                {sitting.live ? <span className="filter-count">{sitting.players.length}</span> : null}
+              </button>
+              <button
+                type="button"
+                className={`bar-btn filter-btn${activeFilterTotal > 0 ? ' is-active' : ''}`}
+                onClick={() => openFilterModal()}
+                aria-label={
+                  activeFilterTotal > 0
+                    ? `Mix, ${activeFilterTotal} ${activeFilterTotal === 1 ? 'filter' : 'filters'} on`
+                    : 'Open mix'
+                }
+              >
+                <FilterIcon />
+                <span className="bar-label">Mix</span>
+                {activeFilterTotal > 0 ? <span className="filter-count">{activeFilterTotal}</span> : null}
+              </button>
+              <button
+                type="button"
+                className="bar-btn icon-only"
+                onClick={() => {
+                  clearRecentTrackIds()
+                  void loadAllRounds(catalogFilters)
+                }}
+                aria-label="Reroll all songs"
+                title="Reroll"
+              >
+                <ReplayIcon />
+              </button>
+              <button
+                type="button"
+                className="bar-btn icon-only"
+                onClick={() => setSettingsOpen(true)}
+                aria-label="Open settings"
+                title="Settings"
+              >
+                <GearIcon />
+              </button>
+            </div>
           </div>
         </header>
 
         <main className="stage" data-intent={mascotIntent}>
           <div className="console-group">
           <div className="stage-head">
+            {headStatus && !showResult ? (
             <p className="readout" role="status">
-              {readout}
+              {headStatus}
             </p>
+            ) : null}
             <p className="numeral" key={`${activeState.status}-${numeralStage}`} aria-hidden="true">
               <b>{formatStageValue(numeralStage)}</b>
               <span>s</span>
@@ -1668,7 +1798,7 @@ export function Game() {
                 </button>
 
                 <form className="guess-form" onSubmit={handleGuessSubmit}>
-                  <div className={`search-wrap ${selectedTrack ? 'selected' : ''}`}>
+                  <div className={`search-wrap${selectedTrack ? ' selected' : ''}${missPulse ? ' is-miss' : ''}`}>
                     <span className="search-icon" aria-hidden="true" />
                     <input
                       value={searchQuery}
@@ -1732,6 +1862,13 @@ export function Game() {
 
             {showResult && activeState.answer && (
               <div className={`result ${activeState.status}`}>
+                <ScoreBeat
+                  status={activeState.status === 'won' ? 'won' : 'lost'}
+                  points={thisRoundPoints}
+                  solvedStage={activeState.status === 'won' ? currentStageEndpoint : null}
+                  stages={activeStages}
+                  teach={session.length <= 1}
+                />
                 <div className="track-meta">
                   <h2 className="track-title">{activeState.answer.title}</h2>
                   <p className="track-artist">{activeState.answer.artist}</p>
@@ -1774,36 +1911,70 @@ export function Game() {
           </section>
           </div>
 
-          <section className="session" aria-label="This sitting">
+          <section
+            className={`session${session.length === 0 ? ' is-empty' : ''}`}
+            aria-label={session.length > 0 ? 'This sitting' : undefined}
+            aria-hidden={session.length === 0}
+          >
             {session.length > 0 ? (
               <>
-              <h2 className="session-title">This sitting</h2>
-              <ul className="session-list">
-                {session.map((entry) => (
-                  <li key={entry.id} className={`session-row ${entry.status}`}>
-                    <Ruler
-                      size="signature"
-                      stages={entry.stages}
-                      stageIndex={entry.stages.length}
-                      marks={entry.marks}
-                      status={entry.status}
-                      solvedStage={entry.solvedStage}
-                    />
-                    <span className="session-time">
-                      {entry.status === 'won' && entry.solvedStage != null ? `${formatStageValue(entry.solvedStage)} s` : '—'}
-                    </span>
-                    <span className="session-track">
-                      <strong>{entry.title}</strong>
-                      <small>{entry.artist}</small>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                <h2 className="session-title">
+                  This sitting
+                  <span className="session-total" aria-hidden="true">
+                    {sittingTotal}
+                  </span>
+                </h2>
+                <ul className="session-list">
+                  {session.map((entry) => (
+                    <li key={entry.id} className={`session-row ${entry.status}`}>
+                      <Ruler
+                        size="signature"
+                        stages={entry.stages}
+                        stageIndex={entry.stages.length}
+                        marks={entry.marks}
+                        status={entry.status}
+                        solvedStage={entry.solvedStage}
+                      />
+                      <span className="session-time">
+                        {formatScoreValue(entry.points)}
+                      </span>
+                      <span className="session-track">
+                        <strong>{entry.title}</strong>
+                        <small>{entry.artist}</small>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </>
             ) : null}
           </section>
         </main>
       </div>
+
+      <SittingSheet
+        open={sitOpen}
+        onClose={() => setSitOpen(false)}
+        name={sitting.name}
+        onName={sitting.setName}
+        joinCode={sitting.joinCode}
+        onJoinCode={sitting.setJoinCode}
+        query={sitting.query}
+        onQuery={sitting.setQuery}
+        status={sitting.status}
+        code={sitting.code}
+        inviteUrl={sitting.inviteUrl}
+        message={sitting.message}
+        slow={sitting.slow}
+        pending={sitting.pending}
+        friends={sitting.friends}
+        board={tableBoardProps ? <LeaderboardCard {...tableBoardProps} /> : null}
+        onHost={() => void sitting.host(sittingTotal)}
+        onJoin={() => void sitting.join(sitting.joinCode, sittingTotal)}
+        onLeave={sitting.leave}
+        onCopy={() => void copySitLink()}
+        copied={sitCopied}
+        copyFailed={sitCopyFailed}
+      />
 
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}>
         <div className="settings-sheet-body">
@@ -1885,8 +2056,9 @@ export function Game() {
             </p>
             <button
               type="button"
-              className={`setting-value auto-reroll-toggle ${autoReroll ? 'active-setting' : ''}`}
+              className="settings-switch"
               disabled={controlsDisabled}
+              aria-pressed={autoReroll}
               onClick={() => setAutoReroll((value) => !value)}
             >
               Auto reroll
@@ -1953,19 +2125,17 @@ export function Game() {
             </div>
           </div>
 
-          <div className="settings-section">
-            <p className="eyebrow">
-              <FeedbackIcon /> Feedback
-            </p>
-            <button type="button" className="setting-value" disabled>
-              Coming soon
-            </button>
-          </div>
         </div>
       </SettingsSheet>
 
       {filterModalOpen ? (
-      <Suspense fallback={null}>
+      <Suspense fallback={
+        <div className="sheet-overlay" role="status" aria-label="Opening mix">
+          <div className="filter-sheet mix-sheet">
+            <p className="filter-empty">Opening mix</p>
+          </div>
+        </div>
+      }>
         <FilterModal
           open={filterModalOpen}
           difficulty={difficulty}

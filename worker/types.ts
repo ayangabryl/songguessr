@@ -61,4 +61,5 @@ export interface Env {
   AUDIO_BUCKET: R2Bucket
   DB: D1Database
   ASSETS?: Fetcher
+  SITTING: DurableObjectNamespace
 }

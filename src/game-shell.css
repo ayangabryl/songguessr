@@ -146,9 +146,12 @@ html[data-theme='light'] #root {
   --text-3: oklch(0.53 0.014 var(--hue));
 
   /*
-   * Light mode reverses the accent: a deep, saturated fill with white ink
-   * (>= 4.5:1 for every hue, measured), so the play control and the primary
-   * button read as objects, not as tinted pills. Medium's yellow cannot go
+   * Light mode reverses the accent: a deep, saturated fill with white ink, so
+   * the play control and the primary button read as objects, not as tinted
+   * pills. White on each hue, re-measured 2026-09-04: 150 4.57:1, 50 4.56:1,
+   * 25 4.54:1, 300 4.59:1. The previous lightnesses measured 4.47, 4.47, 4.45
+   * and 4.49 - under the floor on every hue, while this comment claimed they
+   * cleared it. Medium's yellow cannot go
    * deep without turning to mustard, so it keeps a light fill with dark ink.
    */
   --accent: oklch(var(--accent-l-light) 0.15 var(--hue));
@@ -165,7 +168,7 @@ html[data-theme='light'] #root {
 
 .app-shell[data-difficulty='easy'] {
   --hue: 150;
-  --accent-l-light: 0.55;
+  --accent-l-light: 0.545;
   --accent-rgb: 104, 202, 128;
 }
 .app-shell[data-difficulty='medium'] {
@@ -175,17 +178,17 @@ html[data-theme='light'] #root {
 }
 .app-shell[data-difficulty='hard'] {
   --hue: 50;
-  --accent-l-light: 0.58;
+  --accent-l-light: 0.575;
   --accent-rgb: 247, 148, 90;
 }
 .app-shell[data-difficulty='expert'] {
   --hue: 25;
-  --accent-l-light: 0.585;
+  --accent-l-light: 0.58;
   --accent-rgb: 254, 139, 131;
 }
 .app-shell[data-difficulty='impossible'] {
   --hue: 300;
-  --accent-l-light: 0.58;
+  --accent-l-light: 0.575;
   --accent-rgb: 191, 155, 252;
 }
 .app-shell[data-theme='light'][data-difficulty='medium'] {
@@ -202,6 +205,18 @@ button,
 input {
   font-family: var(--font);
   font-synthesis: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .app-shell {
@@ -243,11 +258,20 @@ input {
 .bar-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
+}
+.bar-readouts,
+.bar-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 .bar-btn {
-  height: 40px;
-  min-width: 40px;
+  /* One row, one height: the level segments beside these are 44, and at 768 the
+     4 px difference read as two different kinds of control in the same bar. */
+  height: 44px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 0 16px;
   display: inline-flex;
   align-items: center;
@@ -257,10 +281,14 @@ input {
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-2);
-  font-size: var(--fs-2);
+  font-family: var(--font);
+  font-size: var(--fs-1);
   font-weight: 600;
+  line-height: 1;
+  overflow: hidden;
   cursor: pointer;
   white-space: nowrap;
+  box-sizing: border-box;
   transition: background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
     border-color var(--dur-2) var(--ease-out), transform var(--dur-1) var(--ease-out);
 }
@@ -272,7 +300,7 @@ input {
   transform: scale(0.96);
 }
 .bar-btn.icon-only {
-  width: 40px;
+  width: 44px;
   padding: 0;
 }
 .bar-btn:focus-visible,
@@ -295,26 +323,403 @@ input {
   padding: 0 5px;
   display: inline-grid;
   place-items: center;
+  align-self: center;
+  box-sizing: border-box;
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--text);
   font-size: var(--fs-0);
   font-weight: 700;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+
+/* Sitting score — a total with a unit, not a run. No flame.
+   Same operator face as Mix: Open Runde, 44 px. Display serif stays on the stage. */
+.sitting-tally {
+  position: relative;
+  height: 44px;
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: visible;
+}
+.sitting-tally.is-empty {
+  color: var(--text-3);
+}
+.sitting-tally b {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  line-height: 1;
+}
+.sitting-tally > span {
+  font-family: inherit;
+  font-size: inherit;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-3);
+}
+.sitting-tally-fly {
+  position: absolute;
+  left: var(--space-3);
+  top: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text);
+  pointer-events: none;
+  animation: scoreFloat var(--dur-4) var(--ease-out) both;
+}
+@keyframes scoreFloat {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+
+.sit-form,
+.sit-friends {
+  display: grid;
+  gap: var(--space-2);
+}
+.sit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.settings-sheet:has(.sit-stack) .settings-sheet-body {
+  gap: 0;
+}
+.sit-field {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-3);
+  font-size: var(--fs-1);
+}
+.sit-field span {
+  color: var(--text-3);
+}
+.sit-field input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-2);
+}
+.sit-field input:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.sit-error {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-1);
+}
+.sit-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-1);
+}
+.sit-host {
+  width: 100%;
+}
+.sit-or {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-3);
+  font-size: var(--fs-1);
+}
+.sit-or::before,
+.sit-or::after {
+  content: '';
+  height: 1px;
+  background: var(--hairline);
+}
+.sit-join {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  align-items: end;
+}
+.sit-join .sit-field {
+  min-width: 0;
+}
+.sit-join-go {
+  height: 44px;
+  padding: 0 var(--space-5);
+}
+.btn.sit-join-go {
+  height: 44px;
+}
+.sit-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+.sit-actions .btn {
+  height: 44px;
+  padding: 0 var(--space-4);
+}
+.sit-code {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-4);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: var(--text);
+  user-select: all;
+}
+.sit-invite {
+  display: block;
+  margin-top: var(--space-2);
+  word-break: break-all;
+  user-select: all;
+  color: var(--text-2);
+}
+.sit-live {
+  display: grid;
+  gap: var(--space-3);
+}
+.sit-friends-label {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-1);
+}
+.sit-friends {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+}
+.sit-history {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.sit-floor {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-1);
+  max-width: 36ch;
+}
+.sit-friend-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+}
+.sit-friend {
+  width: 100%;
+  height: 44px;
+  padding: 0 var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+}
+.sit-friend:hover {
+  background: var(--surface);
+}
+.sit-friend strong {
+  font-size: var(--fs-2);
+  font-weight: 600;
+}
+.sit-friend small {
+  font-family: var(--font);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.sit-board {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.sit-sheet-board {
+  margin: 0;
+}
+.sit-board-count {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-1);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.sit-empty {
+  margin: 0;
+  min-height: 44px;
+  display: grid;
+  align-content: center;
+  color: var(--text-3);
+  font-size: var(--fs-2);
+}
+.sit-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+}
+.sit-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.75rem 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--r-pill);
+  box-sizing: border-box;
+}
+.sit-row.is-overtaking::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--surface-2);
+  opacity: 0;
+  pointer-events: none;
+  animation: sitOvertake var(--dur-4) var(--ease-out);
+}
+.sit-row > * {
+  position: relative;
+  z-index: 1;
+}
+@keyframes sitOvertake {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.sit-row.is-you .sit-name {
+  color: var(--text);
+}
+.sit-rank {
+  font-family: var(--font);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.sit-name {
+  font-size: var(--fs-2);
+  font-weight: 600;
+  color: var(--text);
+}
+.sit-name i {
+  margin-left: var(--space-2);
+  font-style: italic;
+  font-weight: 400;
+  font-size: var(--fs-1);
+  color: var(--text-2);
+}
+.sit-row.is-away .sit-name {
+  color: var(--text-3);
+}
+.sit-pts {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+.sit-pts b {
+  font-family: var(--font);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sit-pts > span {
+  font-family: var(--font);
+  font-size: var(--fs-1);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.sit-pts-rest {
+  font-family: var(--font-display);
+  font-size: var(--fs-2);
+  font-style: italic;
+  color: var(--text-3);
+}
+.sit-fly {
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-family: var(--font);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  pointer-events: none;
+  animation: scoreFloat var(--dur-4) var(--ease-out) both;
+}
+.sit-code-chip {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  color: inherit;
 }
 
 /* Streak — the flame is the label. */
 .streak-badge {
-  height: 40px;
+  height: 44px;
   padding: 0 var(--space-3) 0 var(--space-1);
-  margin-right: 4px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-0);
   border-radius: var(--r-pill);
   color: var(--text);
-  font-size: var(--fs-2);
-  font-weight: 700;
+  font-size: var(--fs-1);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   transition: color var(--dur-2) var(--ease-out);
 }
@@ -394,8 +799,12 @@ input {
 .level-switch {
   position: relative;
   width: min(100%, 600px);
-  padding: var(--space-1);
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
   display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
   background: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
@@ -404,11 +813,11 @@ input {
 }
 .level-indicator {
   position: absolute;
-  top: var(--space-1);
-  bottom: var(--space-1);
+  top: 0;
+  bottom: 0;
   left: 0;
   width: var(--ind-w, 20%);
-  transform: translateX(var(--ind-x, var(--space-1)));
+  transform: translateX(var(--ind-x, 0px));
   border-radius: var(--r-pill);
   background: var(--raise);
   box-shadow: var(--shadow-raise);
@@ -418,14 +827,14 @@ input {
   position: relative;
   z-index: 1;
   flex: 1 1 0;
-  height: 44px;
+  height: 100%;
   min-width: 0;
   padding: 0 8px;
   border: 0;
   border-radius: var(--r-pill);
   background: transparent;
   color: var(--text-2);
-  font-size: var(--fs-2);
+  font-size: var(--fs-1);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -530,7 +939,7 @@ input {
   transform: translateX(6%);
 }
 .loading-icon {
-  animation: spin 0.9s linear infinite;
+  animation: spin var(--dur-4) linear infinite;
 }
 @keyframes spin {
   100% {
@@ -566,9 +975,10 @@ input {
 .btn:active {
   transform: scale(0.97);
 }
-.btn:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 2px;
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 .btn-primary {
   background: var(--accent);
@@ -578,9 +988,7 @@ input {
   filter: brightness(1.06);
 }
 .btn-quiet {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  background: var(--surface);
   border-color: var(--hairline);
   color: var(--text);
 }
@@ -623,9 +1031,7 @@ input {
   padding: 0 var(--space-5) 0 var(--space-12);
   border-radius: 999px;
   border: 1px solid var(--hairline);
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  background: var(--surface);
   color: var(--text);
   font-size: 1rem;
   font-weight: 500;
@@ -642,6 +1048,23 @@ input {
 }
 .search-wrap.selected input {
   border-color: var(--accent-strong);
+}
+.search-wrap.is-miss input {
+  animation: missNudge var(--dur-3) var(--ease-out);
+}
+@keyframes missNudge {
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  100% {
+    transform: none;
+  }
 }
 .search-wrap .search-icon {
   position: absolute;
@@ -819,7 +1242,7 @@ input {
   border-radius: 50%;
   border: 2px solid var(--hairline-strong);
   border-top-color: var(--text);
-  animation: spin 0.8s linear infinite;
+  animation: spin var(--dur-4) linear infinite;
 }
 
 /* ------------------------------------------------------------------ *
@@ -832,7 +1255,7 @@ input {
   display: flex;
   justify-content: flex-end;
   background: var(--scrim);
-  animation: fadeIn var(--dur-2) ease both;
+  animation: fadeIn var(--dur-2) var(--ease-out) both;
 }
 @keyframes fadeIn {
   from {
@@ -840,14 +1263,23 @@ input {
   }
 }
 .settings-sheet {
+  box-sizing: border-box;
   width: min(100%, 400px);
   height: 100%;
   padding: 20px 24px 32px;
-  overflow: auto;
+  overflow: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
   background: var(--canvas);
   color: var(--text);
   border-left: 1px solid var(--hairline);
   animation: slideIn var(--dur-3) var(--ease-out) both;
+  display: flex;
+  flex-direction: column;
+}
+.settings-sheet:focus,
+.filter-sheet:focus {
+  outline: none;
 }
 @keyframes slideIn {
   from {
@@ -892,8 +1324,14 @@ input {
   transform: scale(0.94);
 }
 .settings-sheet-body {
-  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   gap: 24px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
 }
 
 .filter-sheet.mix-sheet {
@@ -912,9 +1350,35 @@ input {
 .mix-sheet-head {
   padding: 20px 24px 0;
 }
+.mix-sheet .settings-sheet-head h2 {
+  font-size: var(--fs-2);
+}
+.mix-chip {
+  height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.mix-search-input,
+.filter-region-search {
+  height: 44px;
+  padding: 0 var(--space-4);
+  box-sizing: border-box;
+  font-size: var(--fs-1);
+  font-weight: 500;
+}
 .mix-sheet-body {
   min-height: 0;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
   overscroll-behavior: contain;
   padding: var(--space-4) 24px;
   display: flex;
@@ -937,17 +1401,6 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-.mix-chip {
-  height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  color: var(--text);
-  font-size: var(--fs-1);
-  font-weight: 600;
-  cursor: pointer;
 }
 .mix-chip.is-on {
   background: var(--accent);
@@ -972,12 +1425,6 @@ input {
   font-weight: 600;
   color: var(--text-2);
 }
-.mix-search-input,
-.filter-region-search {
-  height: 40px;
-  padding: 0 var(--space-4);
-  box-sizing: border-box;
-}
 .mix-singers {
   display: grid;
   gap: var(--space-1);
@@ -989,7 +1436,8 @@ input {
   align-items: center;
   gap: var(--space-3);
   border: 0;
-  border-radius: calc(var(--r-4) - var(--space-2));
+  /* The face is a 40px circle inset 4px, so the row's corner is 20 + 4 = 24. */
+  border-radius: var(--r-4);
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -1010,7 +1458,9 @@ input {
 .mix-singer-face.is-fallback {
   display: grid;
   place-items: center;
-  font-size: var(--fs-0);
+  /* fs-0 is 11px, under the 12px floor. These initials are the whole picture
+     when an artist has no portrait, so they are read, not decoration. */
+  font-size: var(--fs-1);
   font-weight: 700;
   color: var(--text-2);
 }
@@ -1040,6 +1490,15 @@ input {
 .mix-singer-skel-row:nth-child(4) .mix-singer-skel-bar {
   width: 55%;
 }
+.icon-btn {
+  padding: var(--space-1);
+  border: 0;
+  background: transparent;
+  /* A round close button in a sheet of pills: five radii in one overlay is one
+     shape language too many. */
+  border-radius: var(--r-pill);
+}
+
 .filter-footer {
   display: flex;
   gap: var(--space-2);
@@ -1050,14 +1509,51 @@ input {
 .filter-footer .filter-done {
   height: 44px;
   padding: 0 var(--space-4);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 1;
+  box-sizing: border-box;
+  border-width: 1px;
+  border-style: solid;
 }
 .filter-footer .filter-done {
   flex: 1 1 auto;
+  border-color: transparent;
 }
 .filter-options {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
+}
+.filter-options button {
+  height: 44px;
+  min-height: 44px;
+  min-width: 72px;
+  padding: 0 var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 1;
+  box-sizing: border-box;
+  transition: background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+.filter-flag {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  object-fit: contain;
+  display: block;
 }
 .filter-group {
   margin: 0;
@@ -1147,9 +1643,25 @@ input {
   gap: 8px;
 }
 
-.auto-reroll-toggle {
-  justify-content: flex-start !important;
-  padding-right: 8px !important;
+.settings-switch {
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.settings-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .auto-reroll-state {
   margin-left: auto;
@@ -1159,34 +1671,35 @@ input {
   text-transform: none;
   color: var(--text-3);
 }
-.setting-value.active-setting .auto-reroll-state {
-  color: color-mix(in srgb, var(--on-accent) 75%, transparent);
-}
 .toggle-track {
-  width: 34px;
-  height: 20px;
+  box-sizing: border-box;
+  width: 40px;
+  height: 24px;
   padding: 2px;
   display: flex;
   align-items: center;
   flex: none;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: oklch(from var(--surface-2) l 0 h);
   border: 1px solid var(--hairline);
 }
 .toggle-track > span {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: var(--text-3);
+  background: var(--text);
   transition: transform var(--dur-2) var(--ease-land), background var(--dur-2) var(--ease-out);
 }
-.active-setting .toggle-track {
-  background: color-mix(in srgb, var(--on-accent) 22%, transparent);
+.settings-switch[aria-pressed='true'] .toggle-track {
+  background: var(--accent);
   border-color: transparent;
 }
-.active-setting .toggle-track > span {
+.settings-switch[aria-pressed='true'] .toggle-track > span {
   background: var(--on-accent);
-  transform: translateX(14px);
+  transform: translateX(16px);
+}
+.settings-switch[aria-pressed='true'] .auto-reroll-state {
+  color: var(--text-2);
 }
 
 .spotify-connect {
@@ -1212,6 +1725,7 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 6px;
 }
 .stage-pill {
   flex: 1 1 0;
@@ -1265,6 +1779,51 @@ input {
   align-items: center;
   gap: 12px;
 }
+.volume-slider-row input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.volume-slider-row input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--volume-percent, 100%),
+    color-mix(in oklch, var(--text) 16%, var(--canvas)) var(--volume-percent, 100%)
+  );
+}
+.volume-slider-row input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--text) 16%, var(--canvas));
+}
+.volume-slider-row input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.volume-slider-row input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 0;
+}
+.volume-slider-row input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 0;
+}
 .volume-reset {
   width: 20px;
   height: 20px;
@@ -1316,24 +1875,18 @@ input {
 .modal-desc {
   color: var(--text-2);
 }
+.filter-helper {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 500;
+  line-height: 1.45;
+}
 .filter-group legend {
   color: var(--text-2);
   font-size: var(--fs-1);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
-}
-.filter-options button {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--hairline);
-  background: var(--surface);
-  color: var(--text-2);
-  font-size: var(--fs-1);
-  font-weight: 600;
-  transition: background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
-    border-color var(--dur-2) var(--ease-out), transform var(--dur-1) var(--ease-out);
 }
 .filter-options button:hover {
   background: var(--surface-2);
@@ -1358,7 +1911,7 @@ input {
 .filter-done {
   background: var(--accent);
   color: var(--on-accent);
-  border: 0;
+  border: 1px solid var(--accent);
   border-radius: 999px;
 }
 .filter-empty {
@@ -1375,6 +1928,23 @@ input {
  * Responsive
  * ------------------------------------------------------------------ */
 
+/* Packed laptop widths: labels clip. */
+@media (width < 1100px) {
+  .bar-label {
+    display: none;
+  }
+  .bar-btn.filter-btn:not(.is-active),
+  .bar-btn.sit-btn:not(.is-active) {
+    width: 44px;
+    padding: 0;
+  }
+  .bar-btn.filter-btn.is-active,
+  .bar-btn.sit-btn.is-active {
+    width: auto;
+    padding: 0 var(--space-3);
+  }
+}
+
 /* Short laptop windows (browser chrome eats ~140px): keep the whole round above the fold. */
 
 @media (width < 720px) {
@@ -1387,36 +1957,50 @@ input {
   /* Touch: every bar control and level segment is a 44 pt target. */
   .bar-btn {
     height: 44px;
+    min-height: 44px;
     min-width: 44px;
   }
   .bar-btn.icon-only,
-  .bar-btn.filter-btn {
+  .bar-btn.filter-btn:not(.is-active),
+  .bar-btn.sit-btn:not(.is-active) {
     width: 44px;
     padding: 0;
+  }
+  .bar-btn.filter-btn.is-active,
+  .bar-btn.sit-btn.is-active {
+    width: auto;
+    min-width: 44px;
+    padding: 0 var(--space-3);
   }
   .streak-badge {
     height: 44px;
   }
+  .sitting-tally {
+    height: 44px;
+    padding: 0 var(--space-2);
+    margin-right: 0;
+  }
   .level-switch button {
     height: 44px;
   }
-  /* Theme lives in Settings too; the bar keeps only what the round needs. */
-  .bar-btn.theme-btn {
-    display: none;
-  }
   .bar-actions {
-    gap: 2px;
+    gap: var(--space-3);
+  }
+  .bar-readouts,
+  .bar-tools {
+    gap: var(--space-1);
   }
   .streak-badge {
     margin-right: 0;
     padding: 0 8px 0 4px;
   }
   .level-switch {
-    padding: var(--space-1);
+    padding: 0;
+    height: 44px;
   }
   .level-indicator {
-    top: var(--space-1);
-    bottom: var(--space-1);
+    top: 0;
+    bottom: 0;
   }
   .level-switch button {
     flex: 1 1 auto;
@@ -1485,7 +2069,46 @@ input {
 .streak-badge.bump {
     animation: none !important;
   }
+  .sitting-tally {
+    animation: none;
+  }
+  .sitting-tally-fly,
+  .sit-fly,
+  .score-beat b,
+  .score-beat span,
+  .sit-row.is-overtaking::before,
+  .console[data-status='won'] .points-delta:not(.is-zero) {
+    animation: none !important;
+  }
+  .search-wrap.is-miss input {
+    animation: none !important;
+    border-color: var(--text-3);
+  }
   .level-indicator {
     transition: none !important;
+  }
+  .spinner,
+  .loading-icon {
+    animation: none !important;
+  }
+}
+
+/*
+ * Touch. Measured at 390 with a coarse pointer, the mix sheet had 14 of its 43
+ * controls under 44 px: the option pills at 36, the close button at 36 and the
+ * singer search at 40. Nothing here changes on a mouse, where 32 is the floor.
+ */
+@media (pointer: coarse), (width < 640px) {
+  .filter-options button {
+    min-height: 44px;
+  }
+  .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-grid;
+    place-items: center;
+  }
+  .filter-region-search {
+    height: 44px;
   }
 }

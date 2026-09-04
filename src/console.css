@@ -52,24 +52,34 @@
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
+}
+.console .bar-readouts,
+.console .bar-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 .console .level-switch {
   width: auto;
-  padding: var(--space-1);
+  height: 44px;
+  padding: 0;
   border-radius: var(--r-pill);
 }
 .console .level-indicator {
-  top: var(--space-1);
-  bottom: var(--space-1);
+  top: 0;
+  bottom: 0;
   border-radius: var(--r-pill);
 }
 .console .level-switch button {
   flex: 0 0 auto;
-  height: 32px;
+  height: 100%;
   padding: 0 var(--space-4);
   font-size: var(--fs-1);
   border-radius: var(--r-pill);
+}
+.console .bar-btn {
+  font-size: var(--fs-1);
 }
 
 /* ------------------------------------------------------------------ *
@@ -79,35 +89,108 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  padding: var(--space-8) 0 0;
+  gap: var(--space-8);
+  padding: var(--space-6) 0 0;
   min-height: 0;
 }
 /*
- * The console sits in the middle of the room; the session slot below it has
- * a fixed minimum height whether or not rounds have been played, so nothing
- * above it moves between the first round and the tenth.
+ * The round is content-sized. Leftover height belongs to `.session`, which is
+ * always in the tree, so play does not jump when the first signature appears.
+ * Growing `.stage-ruler` with `1fr` left leftover in the auto rows (the line
+ * stayed at the top of a stretched ruler; play sat on the floor). Do not
+ * put flex-grow back on the ruler.
+ *
+ * Grouping is one gap token, not a painted card. A previous stadium on this
+ * node was the container the client named and rejected.
  */
 .console-group {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: var(--space-6);
+  justify-content: flex-start;
+  gap: var(--space-8);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  box-sizing: border-box;
 }
 
+/*
+ * The clip length is the big figure. The ruler is the map of tries.
+ * A previous “Try N of 6” beside the figure repeated the ruler, so it left.
+ */
 .stage-head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--space-4);
   padding: 0 var(--ruler-inset);
+  box-sizing: border-box;
+}
+.stage-head .numeral {
+  order: -1;
+}
+
+@media (min-width: 1024px) and (min-height: 760px) {
+  .console .stage {
+    gap: var(--space-8);
+    padding-top: var(--space-6);
+  }
+  .console-group {
+    gap: var(--space-8);
+  }
 }
 .readout {
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
   font-size: var(--fs-2);
   font-weight: 500;
   color: var(--text-2);
+}
+.points-delta {
+  display: inline-block;
+  font-family: var(--font);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.points-delta.is-zero {
+  font-family: var(--font);
+  font-size: var(--fs-2);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.console[data-status='won'] .points-delta:not(.is-zero) {
+  animation: pointsScore var(--dur-4) var(--ease-out) both;
+}
+@keyframes pointsScore {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.86);
+  }
+  58% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pointsMiss {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .console[data-status='won'] .readout,
 .console[data-status='lost'] .readout {
@@ -157,9 +240,12 @@
   position: relative;
   overflow: visible;
   display: grid;
+  flex: 0 0 auto;
+  align-content: start;
   /* An empty first row is the lane the figure and the cover stand in. */
   grid-template-rows: calc(var(--figure) + var(--space-2)) auto auto;
   padding: 0 var(--ruler-inset);
+  box-sizing: border-box;
 }
 .stage-ruler > .ruler {
   grid-row: 2;
@@ -423,6 +509,7 @@
   align-items: stretch;
   min-height: 96px;
   padding: 0 var(--ruler-inset);
+  box-sizing: border-box;
 }
 .transport-row {
   display: grid;
@@ -473,6 +560,38 @@
   gap: var(--space-4) var(--space-8);
   padding-top: var(--space-2);
 }
+.score-beat {
+  grid-column: 1 / -1;
+  margin: 0;
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+.score-beat b {
+  font-family: var(--font-display);
+  font-size: var(--fs-d1);
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  animation: pointsScore var(--dur-4) var(--ease-land) both;
+}
+.score-beat[data-status='lost'] b {
+  color: var(--text-3);
+  animation: pointsMiss var(--dur-3) var(--ease-out) both;
+}
+.score-beat span {
+  font-size: var(--fs-2);
+  font-weight: 600;
+  color: var(--text);
+  animation: resultReadout var(--dur-3) var(--ease-out) both;
+}
+.score-beat small {
+  font-size: var(--fs-1);
+  font-weight: 500;
+  color: var(--text-3);
+  max-width: 36ch;
+}
 .console .track-meta {
   min-width: 0;
 }
@@ -486,6 +605,11 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.console .result-actions .btn:not(.btn-text) {
+  height: 48px;
+  min-height: 48px;
+  box-sizing: border-box;
+}
 .console .result .inline-alert {
   grid-column: 1 / -1;
 }
@@ -494,13 +618,34 @@
  * Session: each finished round leaves its ruler as a signature
  * ------------------------------------------------------------------ */
 .session {
-  min-height: 148px;
-  padding: var(--space-10) var(--ruler-inset) 0;
+  /* Title + three signature rows. Empty or full, same floor, so play does not move. */
+  --session-floor: calc(var(--space-8) + (36px + var(--space-2)) * 3);
+  flex: 1 1 auto;
+  min-height: var(--session-floor);
+  padding: var(--space-8) var(--ruler-inset) 0;
   box-sizing: border-box;
+}
+.session.is-empty {
+  pointer-events: none;
 }
 .session-title {
   margin: 0 0 var(--space-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
   font-size: var(--fs-1);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.session-total {
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
+.session-total::before {
+  content: '·';
+  margin-right: var(--space-2);
   font-weight: 500;
   color: var(--text-3);
 }
@@ -613,7 +758,7 @@
   }
   .console .level-switch button {
     flex: 1 0 auto;
-    height: 44px;
+    height: 100%;
     padding: 0 var(--space-3);
   }
   .console .bar-btn .bar-label {
@@ -621,7 +766,11 @@
   }
   .console .bar-btn {
     padding: 0;
-    width: 40px;
+    width: 44px;
+  }
+  .console .bar-btn.sit-btn.is-active {
+    width: auto;
+    padding: 0 var(--space-3);
   }
   .console .stage {
     padding-top: var(--space-6);
@@ -630,6 +779,7 @@
     flex: 0 0 auto;
   }
   .session {
+    flex: 0 0 auto;
     min-height: 0;
   }
   .numeral {
@@ -677,6 +827,31 @@
   }
 }
 
+@media (max-width: 719px) {
+  .console .bar {
+    grid-template-columns: 1fr;
+  }
+  .console .bar .wordmark {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .console .bar-actions {
+    grid-row: 2;
+    grid-column: 1;
+    justify-self: end;
+    max-width: 100%;
+    gap: var(--space-3);
+  }
+  .console .bar-readouts,
+  .console .bar-tools {
+    gap: var(--space-1);
+  }
+  .console .level-switch {
+    grid-row: 3;
+    grid-column: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .figure,
   .ruler-fill,
@@ -687,6 +862,9 @@
   .ruler-mark,
   .answer-cover,
   .numeral,
+  .points-delta,
+  .score-beat b,
+  .score-beat span,
   .ruler-notes li,
   .transport-row,
   .session-row {

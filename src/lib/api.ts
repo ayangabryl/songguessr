@@ -116,16 +116,30 @@ export async function fetchCollections(): Promise<CatalogCollection[]> {
 const artistListCache = new Map<string, CatalogArtist[]>()
 const artistListInflight = new Map<string, Promise<CatalogArtist[]>>()
 
-function artistListKey(query: string): string {
-  return query.trim().toLowerCase()
+function artistListKey(query: string, collections: CatalogKind[] = []): string {
+  const scope = [...collections].sort().join(',')
+  return `${query.trim().toLowerCase()}|${scope}`
+}
+
+/*
+ * Spotify image ids carry their kind in the prefix: ab676161 is an artist
+ * portrait, ab67616d is album art. A track's cover is not a picture of the
+ * singer, and two artists on the same track resolve to the same cover - which
+ * is how Shakira and Burna Boy came to share a face in the mix sheet.
+ */
+export function isArtistPortrait(url?: string | null): boolean {
+  return Boolean(url && /ab676161/i.test(url))
 }
 
 function hasSpotifyArtistFace(artist: CatalogArtist): boolean {
-  return Boolean(artist.imageUrl && /ab676161/i.test(artist.imageUrl))
+  return isArtistPortrait(artist.imageUrl)
 }
 
-export function peekCatalogArtists(query = ''): CatalogArtist[] | null {
-  return artistListCache.get(artistListKey(query)) ?? null
+export function peekCatalogArtists(
+  query = '',
+  collections: CatalogKind[] = [],
+): CatalogArtist[] | null {
+  return artistListCache.get(artistListKey(query, collections)) ?? null
 }
 
 export function prefetchCatalogArtists(): Promise<CatalogArtist[]> {
@@ -134,8 +148,9 @@ export function prefetchCatalogArtists(): Promise<CatalogArtist[]> {
 
 export async function fetchCatalogArtists(
   query = '',
+  collections: CatalogKind[] = [],
 ): Promise<CatalogArtist[]> {
-  const key = artistListKey(query)
+  const key = artistListKey(query, collections)
   const cached = artistListCache.get(key)
   const cacheIsComplete = Boolean(
     cached && (query.trim() || cached.some(hasSpotifyArtistFace)),
@@ -149,6 +164,10 @@ export async function fetchCatalogArtists(
     try {
       const params = new URLSearchParams()
       if (query.trim()) params.set('q', query.trim())
+      if (collections.length > 0) {
+        params.set('collections', collections.join(','))
+        params.set('catalogs', collections.join(','))
+      }
       const suffix = params.toString() ? `?${params.toString()}` : ''
       const response = await fetch(`/api/catalog/artists${suffix}`)
       const data = await parseJson<{ artists: CatalogArtist[] }>(response)

@@ -10,6 +10,7 @@ import { SkipForward } from '@phosphor-icons/react/SkipForward'
 import { SpeakerHigh } from '@phosphor-icons/react/SpeakerHigh'
 import { Sun } from '@phosphor-icons/react/Sun'
 import { Timer } from '@phosphor-icons/react/Timer'
+import { UsersThree } from '@phosphor-icons/react/UsersThree'
 import { Waveform } from '@phosphor-icons/react/Waveform'
 import type { Icon, IconProps } from '@phosphor-icons/react/lib'
 
@@ -123,4 +124,8 @@ export function SunIcon() {
 
 export function MoonIcon() {
   return renderIcon(Moon, { className: 'action-icon', size: 22, weight: 'bold' })
+}
+
+export function SitIcon() {
+  return renderIcon(UsersThree, { className: 'action-icon', size: 22, weight: 'bold' })
 }
