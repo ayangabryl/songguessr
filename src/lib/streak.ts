@@ -1,5 +1,25 @@
 const STREAK_KEY = 'songguessr-streak-v1'
 
+/** Consecutive songs named correctly. Not a score. */
+export type StreakEvent = 'win' | 'lose' | 'miss' | 'skip'
+
+export function nextStreak(current: number, event: StreakEvent): number {
+  const count = Math.max(0, Math.floor(current))
+  switch (event) {
+    case 'win':
+      return count + 1
+    case 'lose':
+      return 0
+    case 'miss':
+    case 'skip':
+      return count
+    default: {
+      const exhaustive: never = event
+      return exhaustive
+    }
+  }
+}
+
 function readCount(): number {
   try {
     const raw = localStorage.getItem(STREAK_KEY)
@@ -24,12 +44,13 @@ export function saveStreak(count: number) {
 }
 
 export function incrementStreak(): number {
-  const next = readCount() + 1
+  const next = nextStreak(readCount(), 'win')
   saveStreak(next)
   return next
 }
 
 export function resetStreak(): number {
-  saveStreak(0)
-  return 0
+  const next = nextStreak(readCount(), 'lose')
+  saveStreak(next)
+  return next
 }

@@ -7,6 +7,7 @@ import {
   fetchCollections,
   fetchRandomRound,
   fetchRegions,
+  prefetchCatalogArtists,
   searchTracks,
   submitGuess,
   type CatalogCollection,
@@ -17,14 +18,17 @@ import {
   ERA_OPTIONS,
   GENRE_OPTIONS,
   activeFilterCount,
+  loadArtistFilters,
   loadCollectionFilters,
   loadEraFilters,
   loadGenreFilters,
   loadRegionFilters,
+  saveArtistFilters,
   saveCollectionFilters,
   saveEraFilters,
   saveGenreFilters,
   saveRegionFilters,
+  toggleArtistFilter,
   toggleFilterValue,
   type CatalogFilters,
   type CatalogKind,
@@ -123,13 +127,12 @@ function resolveMascotIntent(input: {
   skipPulse: boolean
   status: ShellStatus
   isPlaying: boolean
-  playPulse: boolean
 }): MascotIntent {
   if (input.switching) return 'switch'
   if (input.status === 'won') return 'win'
   if (input.status === 'lost') return 'lose'
   if (input.skipPulse) return 'skip'
-  if (input.isPlaying || input.playPulse) return 'play'
+  if (input.isPlaying) return 'play'
   return 'idle'
 }
 
@@ -214,6 +217,7 @@ export function Game() {
     genres: loadGenreFilters(),
     countries: loadRegionFilters(),
     collections: loadCollectionFilters(),
+    artists: loadArtistFilters(),
   })
   const prefetchedRef = useRef<Partial<Record<Difficulty, GameRound>>>({})
   const prefetchInFlightRef = useRef<Partial<Record<Difficulty, Promise<void>>>>({})
@@ -222,7 +226,6 @@ export function Game() {
   const streakBumpTimeoutRef = useRef<number | null>(null)
   const mascotSwitchTimeoutRef = useRef<number | null>(null)
   const mascotSkipTimeoutRef = useRef<number | null>(null)
-  const mascotPlayTimeoutRef = useRef<number | null>(null)
 
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -253,6 +256,7 @@ export function Game() {
   const [genreFilters, setGenreFilters] = useState<GenreFilter[]>(loadGenreFilters)
   const [regionFilters, setRegionFilters] = useState<CountryCode[]>(loadRegionFilters)
   const [collectionFilters, setCollectionFilters] = useState<CatalogKind[]>(loadCollectionFilters)
+  const [artistFilters, setArtistFilters] = useState<string[]>(loadArtistFilters)
   const [regions, setRegions] = useState<CatalogRegion[]>([])
   const [collections, setCollections] = useState<CatalogCollection[]>([])
   const [filterModalOpen, setFilterModalOpen] = useState(false)
@@ -260,6 +264,7 @@ export function Game() {
   const [draftGenres, setDraftGenres] = useState<GenreFilter[]>([])
   const [draftCountries, setDraftCountries] = useState<CountryCode[]>([])
   const [draftCollections, setDraftCollections] = useState<CatalogKind[]>([])
+  const [draftArtists, setDraftArtists] = useState<string[]>([])
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<Difficulty, number> | null>(
     null,
   )
@@ -272,7 +277,6 @@ export function Game() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mascotSwitch, setMascotSwitch] = useState(false)
   const [mascotSkip, setMascotSkip] = useState(false)
-  const [mascotPlay, setMascotPlay] = useState(false)
   const [mascotLoseReason, setMascotLoseReason] = useState<'wrong' | 'timeout' | 'skip'>('wrong')
   const [mascotWinStreak, setMascotWinStreak] = useState(false)
 
@@ -282,8 +286,9 @@ export function Game() {
       genres: genreFilters,
       countries: regionFilters,
       collections: collectionFilters,
+      artists: artistFilters,
     }),
-    [eraFilters, genreFilters, regionFilters, collectionFilters],
+    [eraFilters, genreFilters, regionFilters, collectionFilters, artistFilters],
   )
   const draftFilters = useMemo<CatalogFilters>(
     () => ({
@@ -291,8 +296,9 @@ export function Game() {
       genres: draftGenres,
       countries: draftCountries,
       collections: draftCollections,
+      artists: draftArtists,
     }),
-    [draftEras, draftGenres, draftCountries, draftCollections],
+    [draftEras, draftGenres, draftCountries, draftCollections, draftArtists],
   )
   const activeFilterTotal = activeFilterCount(catalogFilters)
 
@@ -622,6 +628,14 @@ export function Game() {
   }, [collectionFilters])
 
   useEffect(() => {
+    saveArtistFilters(artistFilters)
+  }, [artistFilters])
+
+  useEffect(() => {
+    void prefetchCatalogArtists()
+  }, [])
+
+  useEffect(() => {
     void Promise.all([fetchRegions(), fetchCollections()]).then(([nextRegions, nextCollections]) => {
       if (nextRegions.length > 0) setRegions(nextRegions)
       if (nextCollections.length > 0) setCollections(nextCollections)
@@ -668,7 +682,6 @@ export function Game() {
       if (streakBumpTimeoutRef.current) window.clearTimeout(streakBumpTimeoutRef.current)
       if (mascotSwitchTimeoutRef.current) window.clearTimeout(mascotSwitchTimeoutRef.current)
       if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
-      if (mascotPlayTimeoutRef.current) window.clearTimeout(mascotPlayTimeoutRef.current)
     }
   }, [])
 
@@ -682,7 +695,7 @@ export function Game() {
 
     const timeout = window.setTimeout(() => {
       void searchTracks(searchQuery).then((results) => {
-        setSearchResults(results)
+        setSearchResults(results.slice(0, 5))
         setSearchOpen(results.length > 0)
         setHighlightedIndex(-1)
       })
@@ -842,7 +855,6 @@ export function Game() {
       return
     }
 
-    pulseMascotPlay()
     const stageEndpoint = currentStageEndpoint
     const startTimeline =
       activeState.unlockedSeconds >= stageEndpoint ? 0 : activeState.unlockedSeconds
@@ -882,7 +894,6 @@ export function Game() {
 
         endClipLoading()
         setIsPlaying(true)
-        pulseMascotPlay()
         const playbackStart = startTimeline + alreadyElapsedMs / 1000
         updateRound(difficulty, {
           unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
@@ -989,7 +1000,6 @@ export function Game() {
 
       endClipLoading()
       setIsPlaying(true)
-      pulseMascotPlay()
       updateRound(difficulty, {
         unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
         playbackSeconds: startTimeline,
@@ -1159,6 +1169,7 @@ export function Game() {
       marks,
     })
     recordSession(result.answer, 'lost', null, marks)
+    noteStreakFail()
     void playReveal(round)
   }
 
@@ -1283,23 +1294,14 @@ export function Game() {
     })
   }
 
-  function pulseMascotPlay() {
-    setMascotPlay(true)
-    if (mascotPlayTimeoutRef.current) window.clearTimeout(mascotPlayTimeoutRef.current)
-    mascotPlayTimeoutRef.current = window.setTimeout(() => {
-      setMascotPlay(false)
-      mascotPlayTimeoutRef.current = null
-    }, MASCOT_DURATION_MS.play * 2)
-  }
-
   function handleSkip() {
     void activateSpotifyElement()
 
     const nextIndex = roundsRef.current[difficulty].stageIndex + 1
     const isLastStage = nextIndex >= activeStages.length
 
-    // Skipping is neutral: it never counts as a win and never breaks the
-    // streak. Only a confirmed wrong guess on the last stage does that.
+    // A skip mid-round does not change the streak. Using the last skip
+    // ends the song as a loss, and revealAnswer clears the streak.
     if (isLastStage) {
       setMascotLoseReason('timeout')
     } else {
@@ -1383,6 +1385,7 @@ export function Game() {
     setDraftGenres([...genreFilters])
     setDraftCountries([...regionFilters])
     setDraftCollections([...collectionFilters])
+    setDraftArtists([...artistFilters])
     setFilterModalOpen(true)
   }
 
@@ -1391,6 +1394,7 @@ export function Game() {
     setGenreFilters([...draftGenres])
     setRegionFilters([...draftCountries])
     setCollectionFilters([...draftCollections])
+    setArtistFilters([...draftArtists])
     setFilterModalOpen(false)
   }
 
@@ -1399,10 +1403,12 @@ export function Game() {
     setGenreFilters([])
     setRegionFilters([])
     setCollectionFilters([])
+    setArtistFilters([])
     setDraftEras([])
     setDraftGenres([])
     setDraftCountries([])
     setDraftCollections([])
+    setDraftArtists([])
   }
 
   function handleStartMode(mode: StartMode) {
@@ -1436,7 +1442,6 @@ export function Game() {
   const mascotIntent = resolveMascotIntent({
     switching: mascotSwitch,
     skipPulse: mascotSkip,
-    playPulse: mascotPlay,
     status: shellStatus,
     isPlaying,
   })
@@ -1507,9 +1512,10 @@ export function Game() {
               type="button"
               className={`bar-btn filter-btn${activeFilterTotal > 0 ? ' is-active' : ''}`}
               onClick={() => openFilterModal()}
+              aria-label="Open mix"
             >
               <FilterIcon />
-              <span className="bar-label">Filters</span>
+              <span className="bar-label">Mix</span>
               {activeFilterTotal > 0 ? <span className="filter-count">{activeFilterTotal}</span> : null}
             </button>
             <button
@@ -1967,36 +1973,40 @@ export function Game() {
           draftGenres={draftGenres}
           draftCountries={draftCountries}
           draftCollections={draftCollections}
+          draftArtists={draftArtists}
           regions={regions}
           collections={collections}
-        previewCount={draftPreviewCount}
-        onClose={() => setFilterModalOpen(false)}
-        onToggleEra={(era) => setDraftEras((current) => toggleFilterValue(current, era, ERA_OPTIONS))}
-        onToggleGenre={(genre) =>
-          setDraftGenres((current) => toggleFilterValue(current, genre, GENRE_OPTIONS))
-        }
-        onToggleRegion={(country) =>
-          setDraftCountries((current) => toggleFilterValue(current, country, COUNTRY_CODES))
-        }
-        onToggleCollection={(id) =>
-          setDraftCollections((current) =>
-            toggleFilterValue(
-              current,
-              id,
-              collections.map((collection) => collection.id),
-            ),
-          )
-        }
-        onClearEras={() => setDraftEras([])}
-        onClearGenres={() => setDraftGenres([])}
-        onClearRegions={() => setDraftCountries([])}
-        onClearCollections={() => setDraftCollections([])}
-        onClearAll={() => {
-          setDraftEras([])
-          setDraftGenres([])
-          setDraftCountries([])
-          setDraftCollections([])
-        }}
+          previewCount={draftPreviewCount}
+          onClose={() => setFilterModalOpen(false)}
+          onToggleEra={(era) => setDraftEras((current) => toggleFilterValue(current, era, ERA_OPTIONS))}
+          onToggleGenre={(genre) =>
+            setDraftGenres((current) => toggleFilterValue(current, genre, GENRE_OPTIONS))
+          }
+          onToggleRegion={(country) =>
+            setDraftCountries((current) => toggleFilterValue(current, country, COUNTRY_CODES))
+          }
+          onToggleCollection={(id) =>
+            setDraftCollections((current) =>
+              toggleFilterValue(
+                current,
+                id,
+                collections.map((collection) => collection.id),
+              ),
+            )
+          }
+          onToggleArtist={(name) => setDraftArtists((current) => toggleArtistFilter(current, name))}
+          onRemoveArtist={(name) => setDraftArtists((current) => toggleArtistFilter(current, name))}
+          onClearEras={() => setDraftEras([])}
+          onClearGenres={() => setDraftGenres([])}
+          onClearRegions={() => setDraftCountries([])}
+          onClearCollections={() => setDraftCollections([])}
+          onClearAll={() => {
+            setDraftEras([])
+            setDraftGenres([])
+            setDraftCountries([])
+            setDraftCollections([])
+            setDraftArtists([])
+          }}
         onApply={applyFilters}
       />
       </Suspense>

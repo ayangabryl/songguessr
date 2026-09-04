@@ -33,6 +33,7 @@ export interface CatalogFilters {
   genres: GenreFilter[]
   countries: CountryCode[]
   collections: CatalogKind[]
+  artists: string[]
 }
 
 export const ERA_LABELS: Record<EraFilter | 'all', string> = {
@@ -57,6 +58,7 @@ const ERA_KEY = 'songguessr-era-filter'
 const GENRE_KEY = 'songguessr-genre-filter'
 const REGION_KEY = 'songguessr-region-filter'
 const COLLECTION_KEY = 'songguessr-collection-filter'
+const ARTIST_KEY = 'songguessr-artist-filter'
 const LEGACY_ERA_KEY = 'songgussr-era-filter'
 const LEGACY_GENRE_KEY = 'songgussr-genre-filter'
 
@@ -132,6 +134,25 @@ export function saveCollectionFilters(collections: CatalogKind[]) {
   localStorage.setItem(COLLECTION_KEY, JSON.stringify(collections))
 }
 
+export function loadArtistFilters(): string[] {
+  try {
+    const raw = localStorage.getItem(ARTIST_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as string[]
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter((item) => item.length > 0 && item.length <= 80)
+      .slice(0, 12)
+  } catch {
+    return []
+  }
+}
+
+export function saveArtistFilters(artists: string[]) {
+  localStorage.setItem(ARTIST_KEY, JSON.stringify(artists))
+}
+
 export function toggleFilterValue<T extends string>(current: T[], value: T, allValues: readonly T[]): T[] {
   if (current.includes(value)) {
     return current.filter((item) => item !== value)
@@ -141,12 +162,22 @@ export function toggleFilterValue<T extends string>(current: T[], value: T, allV
   )
 }
 
+export function toggleArtistFilter(current: string[], name: string): string[] {
+  const key = name.trim().toLowerCase()
+  if (!key) return current
+  if (current.some((item) => item.toLowerCase() === key)) {
+    return current.filter((item) => item.toLowerCase() !== key)
+  }
+  return [...current, name.trim()].slice(0, 12)
+}
+
 export function activeFilterCount(filters: CatalogFilters): number {
   return (
     filters.eras.length +
     filters.genres.length +
     filters.countries.length +
-    filters.collections.length
+    filters.collections.length +
+    filters.artists.length
   )
 }
 
@@ -162,6 +193,7 @@ export function filtersToSearchParams(filters: CatalogFilters): string {
     params.set('collections', filters.collections.join(','))
     params.set('catalogs', filters.collections.join(','))
   }
+  if (filters.artists.length > 0) params.set('artists', filters.artists.join('|'))
   const query = params.toString()
   return query ? `&${query}` : ''
 }

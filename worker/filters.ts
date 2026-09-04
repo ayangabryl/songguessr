@@ -24,6 +24,7 @@ export interface CatalogFilters {
   genres: GenreFilter[]
   countries: CountryCode[]
   collections: CatalogKind[]
+  artists: string[]
 }
 
 export const EMPTY_CATALOG_FILTERS: CatalogFilters = {
@@ -31,6 +32,7 @@ export const EMPTY_CATALOG_FILTERS: CatalogFilters = {
   genres: [],
   countries: [],
   collections: [],
+  artists: [],
 }
 
 export const ERA_LABELS: Record<EraFilter | 'all', string> = {
@@ -87,6 +89,31 @@ export function parseCollectionFilters(
     }
   }
   return [...seen]
+}
+
+const MAX_ARTIST_FILTERS = 12
+
+export function parseArtistFilters(value: string | undefined): string[] {
+  if (!value?.trim()) return []
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (const part of value.split('|')) {
+    const name = part.trim()
+    if (name.length === 0 || name.length > 80) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    names.push(name)
+    if (names.length >= MAX_ARTIST_FILTERS) break
+  }
+  return names
+}
+
+export function trackArtistNames(artist: string): string[] {
+  return artist
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
 }
 
 export function toggleFilterValue<T extends string>(current: T[], value: T, allValues: readonly T[]): T[] {
@@ -160,11 +187,18 @@ function matchesCollection(track: Track, collection: CatalogKind): boolean {
   return track.collections?.includes(collection) === true
 }
 
+function matchesArtist(track: Track, name: string): boolean {
+  const needle = name.trim().toLowerCase()
+  if (!needle) return false
+  return trackArtistNames(track.artist).some((token) => token.toLowerCase() === needle)
+}
+
 export function trackMatchesFilters(track: Track, filters: CatalogFilters): boolean {
   const eras = filters.eras
   const genres = filters.genres
   const countries = filters.countries
   const collections = filters.collections
+  const artists = filters.artists ?? []
 
   const eraMatch = eras.length === 0 || eras.some((era) => matchesEra(track, era))
   const genreMatch = genres.length === 0 || genres.some((genre) => matchesGenre(track, genre))
@@ -173,8 +207,10 @@ export function trackMatchesFilters(track: Track, filters: CatalogFilters): bool
   const collectionMatch =
     collections.length === 0 ||
     collections.some((collection) => matchesCollection(track, collection))
+  const artistMatch =
+    artists.length === 0 || artists.some((artist) => matchesArtist(track, artist))
 
-  return eraMatch && genreMatch && countryMatch && collectionMatch
+  return eraMatch && genreMatch && countryMatch && collectionMatch && artistMatch
 }
 
 export function filterTracks(tracks: Track[], filters: CatalogFilters): Track[] {

@@ -36,6 +36,14 @@ export interface CatalogCollection {
   trackCount?: number
 }
 
+export interface CatalogArtist {
+  name: string
+  id?: string
+  imageUrl?: string | null
+  country?: string | null
+  popularity?: number | null
+}
+
 export const ALL_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
 export const DEFAULT_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
 
@@ -105,6 +113,59 @@ export async function fetchCollections(): Promise<CatalogCollection[]> {
   }
 }
 
+const artistListCache = new Map<string, CatalogArtist[]>()
+const artistListInflight = new Map<string, Promise<CatalogArtist[]>>()
+
+function artistListKey(query: string): string {
+  return query.trim().toLowerCase()
+}
+
+function hasSpotifyArtistFace(artist: CatalogArtist): boolean {
+  return Boolean(artist.imageUrl && /ab676161/i.test(artist.imageUrl))
+}
+
+export function peekCatalogArtists(query = ''): CatalogArtist[] | null {
+  return artistListCache.get(artistListKey(query)) ?? null
+}
+
+export function prefetchCatalogArtists(): Promise<CatalogArtist[]> {
+  return fetchCatalogArtists('')
+}
+
+export async function fetchCatalogArtists(
+  query = '',
+): Promise<CatalogArtist[]> {
+  const key = artistListKey(query)
+  const cached = artistListCache.get(key)
+  const cacheIsComplete = Boolean(
+    cached && (query.trim() || cached.some(hasSpotifyArtistFace)),
+  )
+  if (cached && cacheIsComplete) return cached
+
+  const inflight = artistListInflight.get(key)
+  if (inflight) return inflight
+
+  const request = (async () => {
+    try {
+      const params = new URLSearchParams()
+      if (query.trim()) params.set('q', query.trim())
+      const suffix = params.toString() ? `?${params.toString()}` : ''
+      const response = await fetch(`/api/catalog/artists${suffix}`)
+      const data = await parseJson<{ artists: CatalogArtist[] }>(response)
+      const artists = data.artists ?? []
+      artistListCache.set(key, artists)
+      return artists
+    } catch {
+      return artistListCache.get(key) ?? []
+    } finally {
+      artistListInflight.delete(key)
+    }
+  })()
+
+  artistListInflight.set(key, request)
+  return request
+}
+
 export async function fetchAvailability(filters: CatalogFilters): Promise<AvailabilityCounts> {
   const query = filtersToSearchParams(filters).replace(/^&/, '')
   const suffix = query ? `?${query}` : ''
@@ -142,7 +203,7 @@ export async function searchTracks(query: string): Promise<SearchResult[]> {
   if (!query.trim()) return []
   const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
   const data = await parseJson<{ results: SearchResult[] }>(response)
-  return data.results
+  return (data.results ?? []).slice(0, 5)
 }
 
 export async function submitGuess(
@@ -169,6 +230,7 @@ export async function submitGuess(
       regions: round.filters.countries,
       collections: round.filters.collections,
       catalogs: round.filters.collections,
+      artists: round.filters.artists,
     }),
   })
   return parseJson<GuessResult>(response)

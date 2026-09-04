@@ -173,6 +173,7 @@
   fill: var(--noot-body);
   transform-box: fill-box;
   transform: translateY(-104%);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .noot-pupil {
@@ -344,7 +345,7 @@
     transform: translateY(4px) rotate(1.5deg) scale(1.02, 0.98);
   }
   100% {
-    transform: translateY(0) rotate(0deg) scale(1, 1);
+    transform: translateY(5px) rotate(-2deg) scale(1.02, 0.98);
   }
 }
 
@@ -358,7 +359,7 @@
     transform: translateY(6px) rotate(-1.5deg) scale(1.035, 0.965);
   }
   100% {
-    transform: translateY(0) rotate(0deg) scale(1, 1);
+    transform: translateY(6px) rotate(-1.5deg) scale(1.035, 0.965);
   }
 }
 
@@ -700,9 +701,11 @@
 .mascot[data-pose='streak'] .noot-root {
   animation: noot-double-hop 1.8s var(--noot-ease-out) both;
 }
-.mascot[data-pose='win'] .noot-eye,
-.mascot[data-pose='streak'] .noot-eye {
-  transform: scaleY(0.5);
+.mascot[data-pose='win'] .noot-lid,
+.mascot[data-pose='streak'] .noot-lid,
+.mascot[data-pose='tap'] .noot-lid,
+.mascot[data-pose='hover'] .noot-lid {
+  transform: translateY(-48%);
 }
 .mascot[data-pose='win'] .noot-mouth,
 .mascot[data-pose='streak'] .noot-mouth {
@@ -726,15 +729,15 @@
 }
 .mascot[data-pose='win'] .noot-spark-1,
 .mascot[data-pose='streak'] .noot-spark-1 {
-  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.18s infinite;
+  animation: noot-spark-pop 0.9s var(--noot-ease-out) both;
 }
 .mascot[data-pose='win'] .noot-spark-2,
 .mascot[data-pose='streak'] .noot-spark-2 {
-  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.36s infinite;
+  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.12s both;
 }
 .mascot[data-pose='win'] .noot-spark-3,
 .mascot[data-pose='streak'] .noot-spark-3 {
-  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.54s infinite;
+  animation: noot-spark-pop 0.9s var(--noot-ease-out) 0.24s both;
 }
 
 /* --- lose: brows knit, smile turns over --- */
@@ -745,11 +748,10 @@
   animation: noot-headshake 1.2s var(--noot-ease-out) both;
 }
 .mascot[data-pose='lose'] .noot-mouth {
-  transform: translateY(10px) rotate(180deg) scale(0.72, 0.6);
+  transform: scale(0.85, 0.4);
 }
-.mascot[data-pose='lose'] .noot-eye {
-  transform-origin: 50% 88%;
-  transform: scaleY(0.82);
+.mascot[data-pose='lose'] .noot-lid {
+  transform: translateY(-82%);
 }
 .mascot[data-pose='lose'] .noot-brow-l,
 .mascot[data-pose='timeout'] .noot-brow-l {
@@ -764,9 +766,8 @@
 .mascot[data-pose='timeout'] .noot-root {
   animation: noot-slump 1.7s var(--noot-ease-out) both;
 }
-.mascot[data-pose='timeout'] .noot-eye {
-  transform-origin: 50% 88%;
-  transform: scaleY(0.5);
+.mascot[data-pose='timeout'] .noot-lid {
+  transform: translateY(-50%);
 }
 .mascot[data-pose='timeout'] .noot-mouth {
   transform: scale(0.9, 0.3);
@@ -792,8 +793,8 @@
 .mascot[data-pose='tap'] .noot-root {
   animation: noot-bounce 0.5s var(--noot-ease-land) both;
 }
-.mascot[data-pose='tap'] .noot-eye {
-  transform: scaleY(0.55);
+.mascot[data-pose='tap'] .noot-lid {
+  transform: translateY(-48%);
 }
 .mascot[data-pose='tap'] .noot-mouth {
   transform: scale(1.5, 1.8);
@@ -812,23 +813,15 @@
 .mascot[data-pose='switch'] .noot-root {
   animation: noot-switch 0.9s var(--noot-ease-out) both;
 }
-.mascot[data-pose='switch'] .noot-eye {
-  transform: scaleY(0.6);
+.mascot[data-pose='switch'] .noot-lid {
+  transform: translateY(-48%);
 }
 .mascot[data-pose='switch'] .noot-mouth {
   transform: scale(1.45, 1.7);
 }
 .mascot[data-pose='switch'] .noot-sparks {
-  opacity: 1;
-}
-.mascot[data-pose='switch'] .noot-spark-1 {
-  animation: noot-spark-pop 0.6s var(--noot-ease-out) 0.3s 1;
-}
-.mascot[data-pose='switch'] .noot-spark-2 {
-  animation: noot-spark-pop 0.6s var(--noot-ease-out) 0.4s 1;
-}
-.mascot[data-pose='switch'] .noot-spark-3 {
-  animation: noot-spark-pop 0.6s var(--noot-ease-out) 0.5s 1;
+  opacity: 0;
+  animation: none;
 }
 
 /* ------------------------------------------------------------------ *

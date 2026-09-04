@@ -103,6 +103,108 @@ export async function fetchSpotifyOembedArtwork(trackId: string): Promise<string
   return oembed?.thumbnailUrl ?? null
 }
 
+/** Spotify artist profile files. Album covers are `ab67616d`; iTunes is never a face. */
+export function isSpotifyArtistPortrait(url: string | null | undefined): boolean {
+  return Boolean(url && /ab676161/i.test(url))
+}
+
+function pickArtistPortrait(urls: Array<string | null | undefined>): string | null {
+  for (const url of urls) {
+    const trimmed = url?.trim()
+    if (trimmed && isSpotifyArtistPortrait(trimmed)) return trimmed
+  }
+  return null
+}
+
+export async function fetchSpotifyArtistOembed(artistId: string): Promise<string | null> {
+  if (!/^[0-9A-Za-z]{22}$/.test(artistId)) return null
+  try {
+    const url = `https://open.spotify.com/oembed?url=${encodeURIComponent(
+      `https://open.spotify.com/artist/${artistId}`,
+    )}`
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': ITUNES_USER_AGENT },
+    })
+    if (!response.ok) return null
+    const data = (await response.json()) as { thumbnail_url?: string }
+    return pickArtistPortrait([data.thumbnail_url])
+  } catch {
+    return null
+  }
+}
+
+/** Public embed page, same path as listen counts. No Web API key. */
+export async function fetchSpotifyArtistEmbedImage(artistId: string): Promise<string | null> {
+  if (!/^[0-9A-Za-z]{22}$/.test(artistId)) return null
+  try {
+    const response = await fetch(`https://open.spotify.com/embed/artist/${encodeURIComponent(artistId)}`, {
+      headers: { Accept: 'text/html', 'User-Agent': ITUNES_USER_AGENT },
+    })
+    if (!response.ok) return null
+    const html = await response.text()
+    const next = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)
+    if (next?.[1]) {
+      try {
+        const data = JSON.parse(next[1]) as {
+          props?: {
+            pageProps?: {
+              state?: {
+                data?: {
+                  entity?: {
+                    visualIdentity?: {
+                      image?: Array<{ url?: string; maxHeight?: number; maxWidth?: number }>
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        const images = data.props?.pageProps?.state?.data?.entity?.visualIdentity?.image ?? []
+        const ranked = [...images].sort((left, right) => {
+          const leftSize = Math.max(left.maxHeight ?? 0, left.maxWidth ?? 0)
+          const rightSize = Math.max(right.maxHeight ?? 0, right.maxWidth ?? 0)
+          return rightSize - leftSize
+        })
+        const fromIdentity = pickArtistPortrait(ranked.map((image) => image.url))
+        if (fromIdentity) return fromIdentity
+      } catch {
+        // Fall through to URL harvest.
+      }
+    }
+    const harvested = [
+      ...html.matchAll(
+        /https:\/\/(?:i\.scdn\.co|image-cdn-[a-z0-9-]+\.spotifycdn\.com)\/image\/ab676161[0-9a-f]+/gi,
+      ),
+    ].map((match) => match[0])
+    return pickArtistPortrait(harvested)
+  } catch {
+    return null
+  }
+}
+
+export async function fetchItunesArtistArtwork(artist: string, market = MARKET): Promise<string | null> {
+  const term = artist.trim()
+  if (!term) return null
+  try {
+    const url = new URL('https://itunes.apple.com/search')
+    url.searchParams.set('term', term)
+    url.searchParams.set('entity', 'album')
+    url.searchParams.set('attribute', 'artistTerm')
+    url.searchParams.set('country', market)
+    url.searchParams.set('limit', '1')
+    const response = await fetch(url.toString(), {
+      headers: { 'User-Agent': ITUNES_USER_AGENT, Accept: 'application/json' },
+    })
+    if (!response.ok) return null
+    const data = (await response.json()) as { results?: Array<{ artworkUrl100?: string }> }
+    const art = data.results?.[0]?.artworkUrl100?.trim()
+    return art ? upgradeItunesArtwork(art) : null
+  } catch {
+    return null
+  }
+}
+
 export async function fetchItunesArtwork(
   title: string,
   artist: string,

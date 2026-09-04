@@ -186,6 +186,12 @@ export function Mascot({ difficulty, intent, withStreak = false, loseReason = 'w
     const brows = Array.from(host.querySelectorAll<SVGElement>('.noot-brow'))
     if (lids.length === 0) return
 
+    const reacting = pose !== 'idle' && pose !== 'play'
+    if (reacting) {
+      for (const lid of lids) lid.getAnimations().forEach((animation) => animation.cancel())
+      return
+    }
+
     let timer: number | null = null
     let disposed = false
 
@@ -211,8 +217,6 @@ export function Mascot({ difficulty, intent, withStreak = false, loseReason = 'w
     }
 
     const schedule = () => {
-      // Sum of two uniforms: most blinks land near 4–5 s, with an occasional
-      // 7 s gap so the rhythm never settles (humans: ~6 s ± 2.4 at rest).
       const wait = 1600 + Math.random() * 2400 + Math.random() * 3600
       timer = window.setTimeout(() => {
         if (disposed) return
@@ -227,7 +231,7 @@ export function Mascot({ difficulty, intent, withStreak = false, loseReason = 'w
       disposed = true
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [])
+  }, [pose])
 
   /**
    * Restart the pose animations without remounting the rig.

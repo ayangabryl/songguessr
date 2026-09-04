@@ -159,6 +159,8 @@ html[data-theme='light'] #root {
   --shadow-pop: 0 1px 2px oklch(0.2 0.01 var(--hue) / 0.08), 0 16px 40px -20px oklch(0.2 0.01 var(--hue) / 0.28);
   --contact-shadow: oklch(0.2 0.02 var(--hue) / 0.3);
   --scrim: oklch(0.2 0.01 var(--hue) / 0.3);
+  --flame: oklch(0.68 0.19 55);
+  --flame-core: oklch(0.84 0.14 85);
 }
 
 .app-shell[data-difficulty='easy'] {
@@ -392,22 +394,22 @@ input {
 .level-switch {
   position: relative;
   width: min(100%, 600px);
-  padding: 4px;
+  padding: var(--space-1);
   display: flex;
   background: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--hairline);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .level-indicator {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
+  top: var(--space-1);
+  bottom: var(--space-1);
   left: 0;
   width: var(--ind-w, 20%);
-  transform: translateX(var(--ind-x, 4px));
-  border-radius: 999px;
+  transform: translateX(var(--ind-x, var(--space-1)));
+  border-radius: var(--r-pill);
   background: var(--raise);
   box-shadow: var(--shadow-raise);
   transition: transform var(--dur-3) var(--ease-land), width var(--dur-3) var(--ease-land), background var(--dur-3) var(--ease-out);
@@ -420,7 +422,7 @@ input {
   min-width: 0;
   padding: 0 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: transparent;
   color: var(--text-2);
   font-size: var(--fs-2);
@@ -671,8 +673,8 @@ input {
   left: 0;
   right: 0;
   max-height: min(42vh, 330px);
-  padding: 6px;
-  border-radius: 24px;
+  padding: var(--space-2);
+  border-radius: var(--r-4);
   background: var(--surface);
   border: 1px solid var(--hairline-strong);
   color: var(--text);
@@ -682,7 +684,8 @@ input {
 .suggestions button {
   padding: 8px 12px;
   gap: 12px;
-  border-radius: 18px;
+  /* Nested highlight: outer 24 − inset 8 = 16. Derived so the curves share a centre. */
+  border-radius: calc(var(--r-4) - var(--space-2));
   transition: background var(--dur-1) var(--ease-out);
 }
 .suggestions button:hover,
@@ -891,6 +894,177 @@ input {
 .settings-sheet-body {
   display: grid;
   gap: 24px;
+}
+
+.filter-sheet.mix-sheet {
+  width: min(100%, 400px);
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  background: var(--canvas);
+  color: var(--text);
+  border-left: 1px solid var(--hairline);
+  animation: slideIn var(--dur-3) var(--ease-out) both;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  box-sizing: border-box;
+}
+.mix-sheet-head {
+  padding: 20px 24px 0;
+}
+.mix-sheet-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4) 24px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.mix-sheet-foot {
+  margin-top: 0;
+  padding: var(--space-3) 24px 32px;
+  border-top: 1px solid var(--hairline);
+  background: var(--canvas);
+}
+.filter-count-line {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--text);
+}
+.mix-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.mix-chip {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  cursor: pointer;
+}
+.mix-chip.is-on {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+.mix-singer-block {
+  display: grid;
+  gap: var(--space-2);
+}
+.mix-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-2);
+  background: var(--canvas);
+  padding-block: var(--space-2);
+}
+.mix-search-label {
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.mix-search-input,
+.filter-region-search {
+  height: 40px;
+  padding: 0 var(--space-4);
+  box-sizing: border-box;
+}
+.mix-singers {
+  display: grid;
+  gap: var(--space-1);
+}
+.mix-singer {
+  min-height: 44px;
+  padding: var(--space-1) var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 0;
+  border-radius: calc(var(--r-4) - var(--space-2));
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.mix-singer:hover,
+.mix-singer.is-on {
+  background: var(--surface-2);
+}
+.mix-singer-face {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: var(--surface-2);
+}
+.mix-singer-face.is-fallback {
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-0);
+  font-weight: 700;
+  color: var(--text-2);
+}
+.mix-singer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+.mix-singer-mark {
+  font-size: var(--fs-0);
+  color: var(--accent-ink);
+}
+.mix-singer-skel-bar {
+  display: block;
+  height: 10px;
+  width: 48%;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+}
+.mix-singer-skel-row:nth-child(2) .mix-singer-skel-bar {
+  width: 62%;
+}
+.mix-singer-skel-row:nth-child(3) .mix-singer-skel-bar {
+  width: 40%;
+}
+.mix-singer-skel-row:nth-child(4) .mix-singer-skel-bar {
+  width: 55%;
+}
+.filter-footer {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-4);
+}
+.filter-footer .filter-clear,
+.filter-footer .filter-done {
+  height: 44px;
+  padding: 0 var(--space-4);
+}
+.filter-footer .filter-done {
+  flex: 1 1 auto;
+}
+.filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.filter-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: var(--space-2);
 }
 .settings-section {
   display: grid;
@@ -1270,14 +1444,16 @@ input {
   .sheet-overlay {
     align-items: flex-end;
   }
-  .settings-sheet {
+  .settings-sheet,
+  .filter-sheet.mix-sheet {
     width: 100%;
     height: auto;
     max-height: 88dvh;
     border-left: 0;
     border-top: 1px solid var(--hairline);
-    border-radius: 28px 28px 0 0;
+    border-radius: var(--r-5) var(--r-5) 0 0;
     animation: sheetUp var(--dur-3) var(--ease-out) both;
+    overflow: hidden;
   }
   @keyframes sheetUp {
     from {

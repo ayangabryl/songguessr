@@ -8,6 +8,7 @@ import {
   getAvailabilityCounts,
   pickRandomTrack,
   searchCatalog,
+  searchCatalogArtists,
 } from './catalog'
 import { getCatalogStats, listCatalogCountries } from './catalog-d1'
 import { listCatalogs } from './catalogs-d1'
@@ -18,6 +19,7 @@ import {
   type CatalogFilters,
   type EraFilter,
   type GenreFilter,
+  parseArtistFilters,
   parseCollectionFilters,
   parseCountryFilters,
   parseEraFilters,
@@ -32,6 +34,7 @@ import {
   fetchSpotifyProfile,
   refreshSpotifyToken,
 } from './spotify-auth'
+import { hydrateArtistPortraits } from './artist-images'
 import type { Difficulty, Env } from './types'
 
 export const DEFAULT_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
@@ -51,6 +54,7 @@ function parseCatalogFilters(c: { req: { query: (key: string) => string | undefi
     genres: parseGenreFilters(c.req.query('genres')),
     countries: parseCountryFilters(c.req.query('countries'), c.req.query('regions')),
     collections: parseCollectionFilters(c.req.query('collections'), c.req.query('catalogs')),
+    artists: parseArtistFilters(c.req.query('artists')),
   }
 }
 
@@ -61,6 +65,7 @@ function parseCatalogFiltersFromBody(body: {
   regions?: string[]
   collections?: string[]
   catalogs?: string[]
+  artists?: string[]
 }): CatalogFilters {
   const countryValues = [...(body.countries ?? []), ...(body.regions ?? [])]
     .map((item) => item.trim().toUpperCase())
@@ -77,6 +82,7 @@ function parseCatalogFiltersFromBody(body: {
     ),
     countries: [...new Set(countryValues)],
     collections: [...new Set(collectionValues)],
+    artists: parseArtistFilters((body.artists ?? []).join('|')),
   }
 }
 
@@ -312,6 +318,26 @@ app.get('/api/catalog/regions', async (c) => {
   }
 })
 
+app.get('/api/catalog/artists', async (c) => {
+  try {
+    const query = c.req.query('q') ?? ''
+    const filters = parseCatalogFilters(c)
+    const artists = await searchCatalogArtists(c.env, query, 5, filters.collections)
+    c.executionCtx.waitUntil(
+      hydrateArtistPortraits(
+        c.env.DB,
+        artists.map((artist) => ({ ...artist })),
+      ).catch(() => undefined),
+    )
+    return c.json({ artists })
+  } catch (error) {
+    if (error instanceof CatalogUnavailableError) {
+      return catalogUnavailable(c, error)
+    }
+    throw error
+  }
+})
+
 app.get('/api/catalog/availability', async (c) => {
   try {
     const filters = parseCatalogFilters(c)
@@ -403,7 +429,7 @@ app.get('/api/random', async (c) => {
 app.get('/api/search', async (c) => {
   try {
     const query = c.req.query('q') ?? ''
-    const results = (await searchCatalog(c.env, query)).map((track) => ({
+    const results = (await searchCatalog(c.env, query, 5)).map((track) => ({
       id: track.id,
       title: track.title,
       artist: track.artist,
@@ -452,6 +478,7 @@ app.post('/api/guess', async (c) => {
       regions?: string[]
       collections?: string[]
       catalogs?: string[]
+      artists?: string[]
     }>()
 
     const difficulty = parseDifficulty(body.difficulty)

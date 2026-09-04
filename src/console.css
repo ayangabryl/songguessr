@@ -19,7 +19,7 @@
   --page-x: var(--space-12);
   --ruler-inset: var(--space-6);
   --line-y: 14px;
-  --figure: 144px;
+  --figure: 160px;
   --control: 56px;
   --cover: 72px;
   display: flex;
@@ -27,7 +27,9 @@
 }
 
 .console-room {
-  width: min(100%, 1600px);
+  /* One sitting on a large monitor, not a stretched billboard. */
+  --room: 1120px;
+  width: min(100%, var(--room));
   min-height: 100dvh;
   margin: 0 auto;
   padding: var(--space-4) var(--page-x) var(--space-8);
@@ -55,12 +57,19 @@
 .console .level-switch {
   width: auto;
   padding: var(--space-1);
+  border-radius: var(--r-pill);
+}
+.console .level-indicator {
+  top: var(--space-1);
+  bottom: var(--space-1);
+  border-radius: var(--r-pill);
 }
 .console .level-switch button {
   flex: 0 0 auto;
   height: 32px;
   padding: 0 var(--space-4);
   font-size: var(--fs-1);
+  border-radius: var(--r-pill);
 }
 
 /* ------------------------------------------------------------------ *
@@ -100,6 +109,22 @@
   font-weight: 500;
   color: var(--text-2);
 }
+.console[data-status='won'] .readout,
+.console[data-status='lost'] .readout {
+  color: var(--text);
+  font-weight: 600;
+  animation: resultReadout var(--dur-3) var(--ease-out) both;
+}
+@keyframes resultReadout {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 .numeral {
   margin: 0;
   font-family: var(--font-display);
@@ -130,6 +155,7 @@
 /* The ruler region: figure above the line, labels below, notes under those. */
 .stage-ruler {
   position: relative;
+  overflow: visible;
   display: grid;
   /* An empty first row is the lane the figure and the cover stand in. */
   grid-template-rows: calc(var(--figure) + var(--space-2)) auto auto;
@@ -272,6 +298,7 @@
 .figure {
   position: absolute;
   bottom: calc(100% - var(--line-y) + 1px);
+  overflow: visible;
   /* The figure may lean into the room's margins, so it centres on the end stops too. */
   --lean: calc(var(--ruler-inset) + var(--page-x));
   left: clamp(
@@ -283,8 +310,8 @@
   height: var(--figure);
   transform: translateX(-50%);
   transition:
-    left var(--dur-3) var(--ease-land),
-    transform var(--dur-3) var(--ease-land);
+    left var(--dur-3) var(--ease-out),
+    transform var(--dur-3) var(--ease-out);
   z-index: 2;
 }
 .figure > .mascot {
@@ -330,7 +357,7 @@
   );
   transform: translateX(-50%);
   z-index: 3;
-  animation: coverIn var(--dur-3) var(--ease-land) both;
+  animation: coverIn var(--dur-3) var(--ease-out) both;
 }
 .answer-cover .result-play-toggle {
   display: block;
@@ -360,11 +387,11 @@
 @keyframes coverIn {
   from {
     opacity: 0;
-    transform: translate(-50%, 12px);
+    transform: translate(-50%, 0) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translate(-50%, 0) scale(1);
   }
 }
 
@@ -558,7 +585,7 @@
   .console {
     --page-x: var(--space-4);
     --ruler-inset: var(--space-3);
-    --figure: 96px;
+    --figure: 112px;
     --control: 48px;
     --cover: 64px;
   }

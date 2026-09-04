@@ -7,6 +7,7 @@ import {
   getCatalogStats,
   pickRandomTrack as pickRandomTrackFromD1,
   searchCatalog as searchCatalogFromD1,
+  searchCatalogArtists as searchCatalogArtistsFromD1,
 } from './catalog-d1'
 import type { CatalogFilters } from './filters'
 import type { Catalog, Difficulty, Env, Track } from './types'
@@ -46,7 +47,7 @@ export async function pickRandomTrack(
   env: Env,
   difficulty: Difficulty,
   _seed: string,
-  filters: CatalogFilters = { eras: [], genres: [], countries: [], collections: [] },
+  filters: CatalogFilters = { eras: [], genres: [], countries: [], collections: [], artists: [] },
   excludeIds: ReadonlySet<string> = new Set(),
   excludeSongKeys: ReadonlySet<string> = new Set(),
 ): Promise<Track | null> {
@@ -67,4 +68,13 @@ export async function getAvailabilityCounts(
 
 export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {
   return searchCatalogFromD1(env, query, limit)
+}
+
+export async function searchCatalogArtists(
+  env: Env,
+  query: string,
+  limit = 5,
+  collections: string[] = [],
+) {
+  return searchCatalogArtistsFromD1(env, query, limit, collections)
 }

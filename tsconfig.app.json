@@ -28,5 +28,6 @@
       "@/*": ["./admin/*"]
     }
   },
-  "include": ["src", "admin", "shared"]
+  "include": ["src", "admin", "shared"],
+  "exclude": ["src/**/*.test.ts"]
 }
