@@ -1090,23 +1090,57 @@ input {
   transform: rotate(45deg);
 }
 
-/* Suggestions */
+/* Suggestions: overlay the field, never join its flex row. */
+.search-wrap:has(.suggestions) {
+  z-index: 6;
+}
 .suggestions {
+  position: absolute;
+  z-index: 20;
   bottom: 68px;
   left: 0;
   right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   max-height: min(42vh, 330px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-2);
   border-radius: var(--r-4);
   background: var(--surface);
   border: 1px solid var(--hairline-strong);
   color: var(--text);
   box-shadow: var(--shadow-pop);
+  box-sizing: border-box;
   animation: riseIn var(--dur-2) var(--ease-out) both;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
+}
+@keyframes dropIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .suggestions button {
+  width: 100%;
+  min-height: 52px;
+  margin: 0;
   padding: 8px 12px;
+  display: flex;
+  align-items: center;
   gap: 12px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
   /* Nested highlight: outer 24 − inset 8 = 16. Derived so the curves share a centre. */
   border-radius: calc(var(--r-4) - var(--space-2));
   transition: background var(--dur-1) var(--ease-out);
@@ -1115,18 +1149,40 @@ input {
 .suggestions button.highlighted {
   background: var(--surface-2);
 }
+.suggestions button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+.suggestions button > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
 .suggestions strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--fs-2);
   font-weight: 600;
   color: var(--text);
 }
 .suggestions small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--fs-1);
   color: var(--text-2);
+}
+.suggestions-empty {
+  margin: 0;
+  padding: 12px;
+  font-size: var(--fs-1);
+  color: var(--text-3);
 }
 .artwork.small {
   width: 40px;
   height: 40px;
+  flex: none;
   border-radius: 50%;
 }
 

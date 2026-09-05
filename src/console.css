@@ -5,9 +5,9 @@
  * a stop at every stage (0.1, 0.5, 2, 8, 15 s). The unlocked span fills as
  * tries are spent, the playhead runs along it while a clip plays, every miss
  * and skip is marked at the stop where it happened, and Noot stands above the
- * stop you have reached. The transport and the guess field share one row
- * directly under the ruler; the level switch lives in the bar; each finished
- * round leaves its ruler as a signature in the session row.
+ * stop you have reached. Play, the field, and Skip share one content-sized
+ * strip under the ruler; Next song occupies Skip's column. Leftover height
+ * docks in the sitting row.
  *
  * Tokens (type scale, spacing, radii, colour formula, motion) come from
  * game-shell.css. This file only lays out the console and its parts.
@@ -86,11 +86,13 @@
  * Stage: readout and numeral, the ruler with the figure, the transport
  * ------------------------------------------------------------------ */
 .console .stage {
-  flex: 1 1 auto;
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-8);
-  padding: var(--space-6) 0 0;
+  gap: var(--space-5);
+  padding: var(--space-4) 0 0;
   min-height: 0;
 }
 /*
@@ -108,7 +110,7 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: var(--space-8);
+  gap: var(--space-5);
   background: none;
   border: 0;
   border-radius: 0;
@@ -133,15 +135,6 @@
   order: -1;
 }
 
-@media (min-width: 1024px) and (min-height: 760px) {
-  .console .stage {
-    gap: var(--space-8);
-    padding-top: var(--space-6);
-  }
-  .console-group {
-    gap: var(--space-8);
-  }
-}
 .readout {
   margin: 0;
   display: flex;
@@ -513,15 +506,19 @@
 }
 .transport-row {
   display: grid;
-  grid-template-columns: var(--control) 1fr;
+  grid-template-columns: var(--control) minmax(16rem, 28rem) auto;
+  justify-content: start;
   align-items: center;
-  column-gap: var(--space-3);
+  column-gap: var(--space-2);
   row-gap: var(--space-3);
   animation: riseIn var(--dur-3) var(--ease-out) both;
 }
 .console .play-control {
   width: var(--control);
   height: var(--control);
+}
+.console .guess-form {
+  display: contents;
 }
 .console .guess-form .btn,
 .console .search-wrap input {
@@ -533,19 +530,25 @@
 .console .guess-form .btn {
   padding: 0 var(--space-5);
   min-width: 0;
+  position: relative;
 }
 .console .guess-form .skip-button .skip-icon {
   display: block;
+}
+.console .search-wrap {
+  min-width: 0;
+  overflow: visible;
 }
 /* Suggestions open downward, into the free room under the row, never over the instrument. */
 .console .suggestions {
   top: calc(100% + var(--space-2));
   bottom: auto;
   border-radius: var(--r-4);
+  animation-name: dropIn;
 }
 .purpose,
 .transport-row .inline-alert {
-  grid-column: 2;
+  grid-column: 2 / -1;
   margin: 0;
 }
 .purpose {
@@ -555,13 +558,15 @@
 
 .console .result {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: var(--control) minmax(16rem, 28rem) auto;
+  justify-content: start;
   align-items: end;
-  gap: var(--space-4) var(--space-8);
+  column-gap: var(--space-2);
+  row-gap: var(--space-2);
   padding-top: var(--space-2);
 }
 .score-beat {
-  grid-column: 1 / -1;
+  grid-column: 2;
   margin: 0;
   display: grid;
   gap: var(--space-1);
@@ -594,6 +599,7 @@
 }
 .console .track-meta {
   min-width: 0;
+  grid-column: 2;
 }
 .console .track-title {
   font-size: var(--fs-5);
@@ -603,11 +609,14 @@
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  grid-column: 3;
+  grid-row: 2;
+  align-self: center;
 }
 .console .result-actions .btn:not(.btn-text) {
-  height: 48px;
-  min-height: 48px;
+  height: var(--control);
+  min-height: var(--control);
   box-sizing: border-box;
 }
 .console .result .inline-alert {
@@ -618,11 +627,12 @@
  * Session: each finished round leaves its ruler as a signature
  * ------------------------------------------------------------------ */
 .session {
-  /* Title + three signature rows. Empty or full, same floor, so play does not move. */
+  /* Title + three signature rows. Empty or full, same floor, so play does not jump.
+     Leftover height docks here, not inside the round. */
   --session-floor: calc(var(--space-8) + (36px + var(--space-2)) * 3);
   flex: 1 1 auto;
   min-height: var(--session-floor);
-  padding: var(--space-8) var(--ruler-inset) 0;
+  padding: var(--space-6) var(--ruler-inset) 0;
   box-sizing: border-box;
 }
 .session.is-empty {
@@ -773,7 +783,7 @@
     padding: 0 var(--space-3);
   }
   .console .stage {
-    padding-top: var(--space-6);
+    padding-top: var(--space-4);
   }
   .console-group {
     flex: 0 0 auto;
@@ -786,7 +796,10 @@
     font-size: var(--fs-d0);
   }
   .transport-row {
-    grid-template-columns: var(--control) 1fr;
+    grid-template-columns: var(--control) minmax(0, 1fr) var(--control);
+  }
+  .console .guess-form {
+    display: contents;
   }
   .console .guess-form .btn.skip-button {
     width: var(--control);
@@ -814,10 +827,18 @@
   .console .suggestions {
     top: auto;
     bottom: calc(100% + var(--space-2));
+    animation-name: riseIn;
+    max-height: min(32dvh, 240px);
   }
   .console .result {
     grid-template-columns: 1fr;
     align-items: start;
+  }
+  .console .score-beat,
+  .console .track-meta,
+  .console .result-actions {
+    grid-column: 1;
+    grid-row: auto;
   }
   .console .result-actions {
     justify-content: flex-start;

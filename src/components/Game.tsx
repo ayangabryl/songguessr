@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent } from 'react'
 import {
   type Difficulty,
   type GameRound,
@@ -730,15 +730,21 @@ export function Game() {
       return
     }
 
+    let stale = false
     const timeout = window.setTimeout(() => {
       void searchTracks(searchQuery).then((results) => {
-        setSearchResults(results.slice(0, 5))
-        setSearchOpen(results.length > 0)
-        setHighlightedIndex(-1)
+        if (stale) return
+        const hits = results.slice(0, 5)
+        setSearchResults(hits)
+        setSearchOpen(true)
+        setHighlightedIndex(hits.length > 0 ? 0 : -1)
       })
     }, 180)
 
-    return () => window.clearTimeout(timeout)
+    return () => {
+      stale = true
+      window.clearTimeout(timeout)
+    }
   }, [searchQuery, selectedTrack])
 
   function clearSearchSelection() {
@@ -1399,14 +1405,22 @@ export function Game() {
       void handleGuessSelection(selectedTrack)
       return
     }
-    const firstResult = searchResults[0]
-    if (firstResult) {
-      void handleGuessSelection(firstResult)
+    if (searchOpen && searchResults.length > 0) {
+      const result = searchResults[highlightedIndex] ?? searchResults[0]
+      if (result) selectTrackForGuess(result)
     }
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (searchResults.length === 0) return
+    if (event.key === 'Escape') {
+      if (!searchOpen && !searchQuery) return
+      event.preventDefault()
+      setSearchOpen(false)
+      setHighlightedIndex(-1)
+      return
+    }
+
+    if (!searchOpen || searchResults.length === 0) return
 
     if (event.key === 'ArrowDown') {
       event.preventDefault()
@@ -1428,18 +1442,17 @@ export function Game() {
       return
     }
 
-    if (event.key === 'Escape') {
+    if (event.key === 'Enter') {
       event.preventDefault()
-      setSearchOpen(false)
-      setHighlightedIndex(-1)
-      return
-    }
-
-    if (event.key === 'Enter' && highlightedIndex >= 0) {
-      event.preventDefault()
-      const result = searchResults[highlightedIndex]
+      const result = searchResults[highlightedIndex] ?? searchResults[0]
       if (result) selectTrackForGuess(result)
     }
+  }
+
+  function handleSearchBlur(event: FocusEvent<HTMLDivElement>) {
+    const next = event.relatedTarget
+    if (next instanceof Node && event.currentTarget.contains(next)) return
+    setSearchOpen(false)
   }
 
   function toggleStage(stage: number) {
@@ -1798,7 +1811,10 @@ export function Game() {
                 </button>
 
                 <form className="guess-form" onSubmit={handleGuessSubmit}>
-                  <div className={`search-wrap${selectedTrack ? ' selected' : ''}${missPulse ? ' is-miss' : ''}`}>
+                  <div
+                    className={`search-wrap${selectedTrack ? ' selected' : ''}${missPulse ? ' is-miss' : ''}`}
+                    onBlur={handleSearchBlur}
+                  >
                     <span className="search-icon" aria-hidden="true" />
                     <input
                       value={searchQuery}
@@ -1808,34 +1824,63 @@ export function Game() {
                         setHighlightedIndex(-1)
                       }}
                       onKeyDown={handleSearchKeyDown}
+                      onFocus={() => {
+                        if (searchQuery.trim() && searchResults.length > 0 && !selectedTrack) {
+                          setSearchOpen(true)
+                          setHighlightedIndex((current) => (current >= 0 ? current : 0))
+                        }
+                      }}
                       placeholder="Name the track"
                       aria-label="Name the track"
+                      role="combobox"
+                      aria-expanded={searchOpen}
+                      aria-controls="guess-suggestions"
+                      aria-autocomplete="list"
+                      aria-activedescendant={
+                        searchOpen && highlightedIndex >= 0 && searchResults[highlightedIndex]
+                          ? `guess-opt-${searchResults[highlightedIndex].id}`
+                          : undefined
+                      }
                       autoComplete="off"
                       spellCheck={false}
                     />
                     {searchQuery && !selectedTrack && searchOpen && (
-                      <div className="suggestions" role="listbox" aria-label="Song suggestions" ref={suggestionsRef}>
-                        {searchResults.map((result, index) => (
-                          <button
-                            key={result.id}
-                            type="button"
-                            className={index === highlightedIndex ? 'highlighted' : ''}
-                            role="option"
-                            aria-selected={index === highlightedIndex}
-                            onMouseMove={() => setHighlightedIndex(index)}
-                            onClick={() => selectTrackForGuess(result)}
-                          >
-                            {result.albumArt ? (
-                              <img className="artwork small" src={result.albumArt} alt="" width={30} height={30} decoding="async" />
-                            ) : (
-                              <span className="artwork small fallback">♫</span>
-                            )}
-                            <span>
-                              <strong>{result.title}</strong>
-                              <small>{result.artist}</small>
-                            </span>
-                          </button>
-                        ))}
+                      <div
+                        className="suggestions"
+                        id="guess-suggestions"
+                        role="listbox"
+                        aria-label="Song suggestions"
+                        ref={suggestionsRef}
+                      >
+                        {searchResults.length === 0 ? (
+                          <p className="suggestions-empty" role="status">
+                            No songs match
+                          </p>
+                        ) : (
+                          searchResults.map((result, index) => (
+                            <button
+                              key={result.id}
+                              id={`guess-opt-${result.id}`}
+                              type="button"
+                              className={index === highlightedIndex ? 'highlighted' : ''}
+                              role="option"
+                              aria-selected={index === highlightedIndex}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onMouseMove={() => setHighlightedIndex(index)}
+                              onClick={() => selectTrackForGuess(result)}
+                            >
+                              {result.albumArt ? (
+                                <img className="artwork small" src={result.albumArt} alt="" width={30} height={30} decoding="async" />
+                              ) : (
+                                <span className="artwork small fallback">♫</span>
+                              )}
+                              <span>
+                                <strong>{result.title}</strong>
+                                <small>{result.artist}</small>
+                              </span>
+                            </button>
+                          ))
+                        )}
                       </div>
                     )}
                   </div>
@@ -1910,6 +1955,7 @@ export function Game() {
             )}
           </section>
           </div>
+        </main>
 
           <section
             className={`session${session.length === 0 ? ' is-empty' : ''}`}
@@ -1948,7 +1994,6 @@ export function Game() {
               </>
             ) : null}
           </section>
-        </main>
       </div>
 
       <SittingSheet
