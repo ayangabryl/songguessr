@@ -868,3 +868,13 @@
     height: 208px;
   }
 }
+
+/* Transparent 3D renderer overlays the vector loading / WebGL fallback. */
+.noot-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  transition: opacity 180ms ease;
+}

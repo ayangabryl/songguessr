@@ -135,9 +135,9 @@ function resolveMascotIntent(input: {
   isPlaying: boolean
 }): MascotIntent {
   if (input.switching) return 'switch'
+  if (input.skipPulse) return 'skip'
   if (input.status === 'won') return 'win'
   if (input.status === 'lost') return 'lose'
-  if (input.skipPulse) return 'skip'
   if (input.isPlaying) return 'play'
   return 'idle'
 }
@@ -310,6 +310,7 @@ export function Game() {
   const sitting = useSitting()
   const [mascotSwitch, setMascotSwitch] = useState(false)
   const [mascotSkip, setMascotSkip] = useState(false)
+  const [mascotEvent, setMascotEvent] = useState(0)
   const [missPulse, setMissPulse] = useState(false)
   const [mascotLoseReason, setMascotLoseReason] = useState<'wrong' | 'timeout' | 'skip'>('wrong')
   const [mascotWinStreak, setMascotWinStreak] = useState(false)
@@ -1383,16 +1384,14 @@ export function Game() {
 
     // A skip mid-round does not change the streak. Using the last skip
     // ends the song as a loss, and revealAnswer clears the streak.
-    if (isLastStage) {
-      setMascotLoseReason('timeout')
-    } else {
-      setMascotSkip(true)
-      if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
-      mascotSkipTimeoutRef.current = window.setTimeout(() => {
-        setMascotSkip(false)
-        mascotSkipTimeoutRef.current = null
-      }, MASCOT_DURATION_MS.skip)
-    }
+    if (isLastStage) setMascotLoseReason('timeout')
+    setMascotSkip(true)
+    setMascotEvent(event => event + 1)
+    if (mascotSkipTimeoutRef.current) window.clearTimeout(mascotSkipTimeoutRef.current)
+    mascotSkipTimeoutRef.current = window.setTimeout(() => {
+      setMascotSkip(false)
+      mascotSkipTimeoutRef.current = null
+    }, MASCOT_DURATION_MS.skip)
 
     void stopClip({ preserveProgress: true }).then(() => {
       advanceStageAfterSkip()
@@ -1722,6 +1721,9 @@ export function Game() {
                 <Mascot
                   difficulty={difficulty}
                   intent={mascotIntent}
+                  theme={resolvedTheme}
+                  eventId={mascotEvent}
+                  direction={showResult && figurePosition > 50 ? -1 : 1}
                   withStreak={mascotWinStreak}
                   loseReason={mascotLoseReason}
                 />

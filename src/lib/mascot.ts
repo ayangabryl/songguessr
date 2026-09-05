@@ -1,11 +1,6 @@
 import type { Difficulty } from './api'
 
-/**
- * Noot is one hand-authored vector rig (see `NootRig.tsx`), not a flipbook.
- * Every reaction is a CSS animation on that single rig, so the silhouette,
- * the framing and the ground line are identical in every state — nothing
- * rescales or re-traces between clips.
- */
+/** Shared game reactions and difficulty colours for Noot's 3D rig and SVG fallback. */
 export type MascotIntent =
   | 'idle'
   | 'play'
@@ -28,11 +23,11 @@ export const MASCOT_DURATION_MS: Record<MascotIntent, number> = {
   play: 1100,
   win: 1400,
   lose: 1200,
-  skip: 600,
+  skip: 1200,
   streak: 1800,
   switch: 900,
   hover: 1600,
-  tap: 500,
+  tap: 1100,
 }
 
 /** Timeout is a slower, heavier version of `lose`. */
@@ -74,11 +69,8 @@ export interface MascotPalette {
 }
 
 /**
- * One palette per difficulty. The rig reads these as CSS custom properties,
- * so switching difficulty is a plain `fill` transition — no extra assets.
- *
- * There is no outline colour: the art is flat vector, so the only greens are
- * the body, the belly and the contour shading.
+ * One palette per difficulty. Three.js interpolates material colours;
+ * the SVG fallback reads matching CSS custom properties.
  */
 export const MASCOT_PALETTES: Record<Difficulty, MascotPalette> = {
   easy: { body: '#86C217', belly: '#C1E384', shade: '#629F08', cheek: '#F0A07A' },

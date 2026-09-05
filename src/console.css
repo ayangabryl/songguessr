@@ -892,3 +892,11 @@
     animation: none;
   }
 }
+
+/* Give Noot's footsteps time to carry him between ruler stops. */
+.stage[data-intent='skip'] .figure {
+  transition: left 1200ms cubic-bezier(.35, 0, .3, 1), transform 420ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage[data-intent='skip'] .figure { transition: none; }
+}
