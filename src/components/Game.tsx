@@ -1898,7 +1898,9 @@ export function Game() {
                   )}
                 </form>
 
-                {firstRun ? <p className="purpose">Press play, then name the track. Every miss unlocks a longer clip.</p> : null}
+                <p className={`purpose${firstRun ? '' : ' is-reserved'}`} aria-hidden={!firstRun}>
+                  Press play, then name the track. Every miss unlocks a longer clip.
+                </p>
                 {audioError && (
                   <p className="inline-alert" role="alert">
                     {audioError}
