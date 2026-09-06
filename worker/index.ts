@@ -484,7 +484,7 @@ app.get('/api/random', async (c) => {
 app.get('/api/search', async (c) => {
   try {
     const query = c.req.query('q') ?? ''
-    const results = (await searchCatalog(c.env, query, 5)).map((track) => ({
+    const results = (await searchCatalog(c.env, query, 50)).map((track) => ({
       id: track.id,
       title: track.title,
       artist: track.artist,

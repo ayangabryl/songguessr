@@ -1,3 +1,4 @@
+import { artistWordDistance } from './search-match'
 import {
   DEFAULT_CATALOG,
   DEFAULT_COUNTRY,
@@ -1107,18 +1108,23 @@ export async function searchCatalog(env: Env, query: string, limit = 50): Promis
   if (!normalized) return []
 
   const db = requireDb(env)
-  const pattern = likePattern(normalized)
-  const result = await db
-    .prepare(
-      `SELECT * FROM tracks
-       WHERE lower(title) LIKE ? ESCAPE '\\' OR lower(artist) LIKE ? ESCAPE '\\'
-       ORDER BY title
-       LIMIT ?`,
-    )
-    .bind(pattern, pattern, limit)
-    .all<TrackRow>()
-
-  return dedupeTracks((result.results ?? []).map(rowToTrack))
+  const terms = normalized.split(/\s+/).filter(Boolean).slice(0, 8)
+  const conditions = terms.map(() => `(lower(title) LIKE ? ESCAPE '\\' OR lower(artist) LIKE ? ESCAPE '\\')`).join(' AND ')
+  const params = terms.flatMap(term => [likePattern(term), likePattern(term)])
+  const result = await db.prepare(
+    `SELECT * FROM tracks WHERE ${conditions}
+     ORDER BY CASE WHEN lower(title) = ? THEN 0 WHEN lower(artist) = ? THEN 1 ELSE 2 END, title
+     LIMIT ?`,
+  ).bind(...params, normalized, normalized, Math.min(500, limit * 5)).all<TrackRow>()
+  const matches = dedupeTracks((result.results ?? []).map(rowToTrack)).slice(0, limit)
+  if (matches.length || terms.length !== 1 || normalized.length < 4) return matches
+  const artists = await db.prepare('SELECT DISTINCT artist FROM tracks LIMIT 5000').all<{artist: string}>()
+  const ranked = (artists.results ?? []).map(row => ({...row, distance: Math.min(...row.artist.toLowerCase().split(/[^\p{L}\p{N}]+/u).map(word => artistWordDistance(normalized, word)))})).filter(row => Number.isFinite(row.distance)).sort((a,b) => a.distance - b.distance)
+  const related = ranked.filter(row => row.distance === ranked[0]?.distance).slice(0, 12)
+  if (!related.length) return []
+  const fallback = await db.prepare(`SELECT * FROM tracks WHERE artist IN (${related.map(() => '?').join(',')}) ORDER BY title LIMIT ?`)
+    .bind(...related.map(row => row.artist), Math.min(500, limit * 5)).all<TrackRow>()
+  return dedupeTracks((fallback.results ?? []).map(rowToTrack)).slice(0, limit)
 }
 
 export interface CatalogArtistHit {

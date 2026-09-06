@@ -1,3 +1,4 @@
+import { MATCH_ERAS, MATCH_GENRES, MATCH_COUNTRIES, type MatchFilters } from '../../shared/match-filters'
 import useSound from "use-sound";
 import { buttonSoundsEnabled, setButtonSounds } from "../lib/ui-audio";
 import { useEffect, useRef, useState } from "react";
@@ -42,6 +43,7 @@ export function MatchArena({
     "mixed",
   );
   const [length, setLength] = useState(10);
+  const [filters, setFilters] = useState<MatchFilters>({});
   const [carryScores, setCarryScores] = useState(false);
   const [friendId, setFriendId] = useState("");
   const [greeting, setGreeting] = useState(0);
@@ -105,7 +107,10 @@ export function MatchArena({
     el.volume = loadVolume();
     audio.current = el;
     el.onended = () => setPlaying(false);
+    el.onerror = () => { setPlaying(false); setAudioError("The audio couldn’t load. Tap play to retry."); };
     return () => {
+      el.onerror = null;
+      el.onended = null;
       el.pause();
       el.removeAttribute("src");
       el.load();
@@ -118,22 +123,8 @@ export function MatchArena({
   }, [canPlay]);
   useEffect(() => {
     if (!revealed || !match || !audio.current) return;
-    const el = audio.current;
-    let cancelled = false;
-    el.currentTime = match.offset;
-    el.volume = loadVolume();
-    el.play().then(() => {
-      if (cancelled) return;
-      setPlaying(true);
-      stopTimer.current = setTimeout(() => { el.pause(); setPlaying(false); }, 15000);
-    }).catch(() => {
-      if (!cancelled) setAudioError("Tap the album cover to hear the revealed song.");
-    });
-    return () => {
-      cancelled = true;
-      el.pause();
-      if (stopTimer.current) clearTimeout(stopTimer.current);
-    };
+    void startPlayback();
+    return () => stop();
   }, [revealed, match?.roundId]);
   useEffect(() => {
     if (!query.trim() || !canPlay) {
@@ -155,16 +146,20 @@ export function MatchArena({
       clearTimeout(timer);
     };
   }, [query, canPlay]);
-  async function play() {
-    if (playing) {
-      stop();
-      return;
-    }
+  function play() {
+    if (playing) stop();
+    else void startPlayback();
+  }
+  async function startPlayback() {
     const el = audio.current;
     if (!el || !match) return;
     setAudioError("");
     const token = ++playbackToken.current;
     try {
+      if (stopTimer.current) clearTimeout(stopTimer.current);
+      // A failed media element must reload before a user-triggered retry.
+      if (el.error) el.load();
+      el.volume = loadVolume();
       el.currentTime = match.offset;
       await el.play();
       if (token !== playbackToken.current) {
@@ -177,7 +172,7 @@ export function MatchArena({
         (revealed ? 15 : MATCH_STAGES[stage]) * 1000,
       );
     } catch {
-      setAudioError("Audio could not play. Tap play to try again.");
+      if (token === playbackToken.current) { setPlaying(false); setAudioError("Couldn’t play the audio. Tap play to retry."); }
     }
   }
   function guess(value: string, trackId?: string) {
@@ -392,6 +387,16 @@ export function MatchArena({
             </label>
             {isHost && (
               <>
+                <fieldset className="match-host-filters">
+                  <legend>Song mix</legend>
+                  {([{key:'era', label:'Era', values:MATCH_ERAS}, {key:'genre',label:'Genre',values:MATCH_GENRES}, {key:'country',label:'Country',values:MATCH_COUNTRIES}] as const).map(({key,label,values}) => <label className="match-difficulty" key={key}>
+                    {label}<select value={filters[key] ?? ''} onChange={e => setFilters(current => ({...current, [key]: e.target.value || undefined}))}>
+                      <option value="">All {key === "country" ? "countries" : `${label.toLowerCase()}s`}</option>
+                      {values.map(value => <option key={value} value={value}>{({modern:'2020s',classics:'Classics',PH:'Philippines',US:'United States',GB:'United Kingdom',KR:'South Korea',JP:'Japan','hip-hop':'Hip-hop','r&b':'R&B'} as Record<string,string>)[value] ?? value[0].toUpperCase()+value.slice(1)}</option>)}
+                    </select>
+                  </label>)}
+                  <small>One shared mix for everyone. Filters stay fixed for the match.</small>
+                </fieldset>
                 <label className="match-difficulty">
                   Songs per match
                   <select
@@ -418,7 +423,7 @@ export function MatchArena({
               </>
             )}
             <p className="match-fine">
-              Global mix · same intro · 90 seconds per song
+              {Object.values(filters).filter(Boolean).length ? "Custom mix" : "Global mix"} · same intro · 90 seconds per song
               <br />
               {carryScores
                 ? "Points carry into the next match."
@@ -436,6 +441,7 @@ export function MatchArena({
                     difficulty,
                     length,
                     carryScores,
+                    filters,
                   });
                 }}
               >
@@ -534,7 +540,7 @@ export function MatchArena({
                     }
                   />
                 </div>
-                {revealed && match.answer?.albumArt && (
+                {revealed && (
                   <button
                     className="match-album"
                     onClick={play}
@@ -542,10 +548,10 @@ export function MatchArena({
                       playing ? "Stop revealed song" : "Play revealed song"
                     }
                   >
-                    <img
+                    {match.answer?.albumArt ? <img
                       src={match.answer.albumArt}
                       alt={`${match.answer.title} album cover`}
-                    />
+                    /> : <Headphones size={32} />}
                     <span>
                       {playing ? <Pause size={18} /> : <Play size={18} />}
                     </span>
@@ -677,6 +683,11 @@ export function MatchArena({
                 </>
               ) : (
                 <div className="match-recap">
+                  <button className="match-reveal-play" onClick={play}>
+                    {playing ? <Pause size={18}/> : <Play size={18}/>}
+                    {playing ? 'Pause song' : 'Play revealed song'}
+                  </button>
+                  {audioError && <p className="match-feedback" role="alert">{audioError}</p>}
                   <strong>
                     {me ? `+${me.delta.toLocaleString()}` : "Good listening."}
                     <small>{me ? "this song" : ""}</small>

@@ -168,3 +168,10 @@ test('correct guesses publish an achievement time without revealing the answer',
  assert.equal(publicMatch(m).answer,null)
  assert.equal(advancePlayer(m,'alice','round',0,true,false,3000).entries[0].solvedAt,2000)
 })
+test('host filters are allowlisted and preserved in start commands', () => {
+ const start = parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'mixed',filters:{era:'2010s',genre:'pop',country:'PH'}}))
+ assert.equal(start?.type, 'match-start')
+ if (start?.type === 'match-start') assert.deepEqual(start.filters,{era:'2010s',genre:'pop',country:'PH'})
+ assert.equal(parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'easy',filters:{genre:'injected'}})),null)
+ assert.equal(parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'easy',filters:[]})),null)
+})

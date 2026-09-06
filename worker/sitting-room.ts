@@ -14,7 +14,7 @@ import {
   type SittingState,
 } from '../shared/sitting'
 import { nextEntries, roundDifficulty, readyForNext, everyoneReady, parseMatchCommand, publicMatch, advancePlayer, expireRound, finishRound, ROUND_MS, type MatchState } from '../shared/match'
-import { pickRandomTrack, findTrackById } from './catalog'
+import { pickRandomTrack, findTrackById, getAvailabilityCounts } from './catalog'
 import { checkMatchGuess } from './guess'
 import { songIdentityKey } from './track-dedupe'
 import type { Env } from './types'
@@ -129,7 +129,7 @@ export class SittingRoom extends DurableObject<Env> {
     const command = parseMatchCommand(text)
     if(command) {
       try { await this.handleMatch(attachment.playerId,command) }
-      catch { ws.send(JSON.stringify({type:'match-error',message:'Could not load the next song. Try again; your scores are safe.'})) }
+      catch (error) { ws.send(JSON.stringify({type:'match-error',message:error instanceof Error && error.message.startsWith('Not enough songs') ? error.message : 'Could not load the next song. Try again; your scores are safe.'})) }
       return
     }
     const parsed = parseClientSittingMessage(text)
@@ -397,13 +397,22 @@ export class SittingRoom extends DurableObject<Env> {
       const length=command.type==='match-start'?(command.length??10):(match!.length??10)
       const carryScores=command.type==='match-start'?(command.carryScores??false):(match!.carryScores??false)
       const difficulty=roundDifficulty(mode,continuing?match!.number+1:1)
+      const filters = command.type === 'match-start' ? (command.filters ?? {}) : (match!.filters ?? {})
+      const catalogFilters = {eras: filters.era ? [filters.era] : [], genres: filters.genre ? [filters.genre] : [], countries: filters.country ? [filters.country] : [], collections: [], artists: []}
+      if (!continuing) {
+        let availabilityTimer: ReturnType<typeof setTimeout> | undefined
+        const counts = await Promise.race([getAvailabilityCounts(this.env, catalogFilters), new Promise<never>((_, reject) => { availabilityTimer = setTimeout(() => reject(new Error('Catalog timed out')), 8000) })]).finally(() => clearTimeout(availabilityTimer))
+        const needed = new Map<string, number>()
+        for (let i = 1; i <= length; i++) { const d = roundDifficulty(mode, i); needed.set(d, (needed.get(d) ?? 0) + 1) }
+        if ([...needed].some(([d, n]) => (counts[d as keyof typeof counts] ?? 0) < n)) throw new Error('Not enough songs for this mix. Broaden the filters or choose fewer songs.')
+      }
       const active=state.players.filter(p=>p.connected)
       if(active.length<(continuing?1:2))return
       // Bound catalog latency below the Durable Object's concurrency-lock timeout.
       // A stalled catalog request must leave the current round retryable.
       let catalogTimer: ReturnType<typeof setTimeout> | undefined
       const track = await Promise.race([
-        pickRandomTrack(this.env,difficulty,crypto.randomUUID(),undefined,new Set(continuing?match!.used:[])),
+        pickRandomTrack(this.env,difficulty,crypto.randomUUID(),catalogFilters,new Set(continuing?match!.used:[])),
         new Promise<never>((_, reject) => {
           catalogTimer = setTimeout(() => reject(new Error('Catalog timed out')), 12_000)
         }),
@@ -411,7 +420,7 @@ export class SittingRoom extends DurableObject<Env> {
       if(!track)throw new Error('No songs available')
       const now=Date.now(), startsAt=now+3000
       const previous=continuing||carryScores?(match?.entries??[]):[]
-      match={id:continuing?match!.id:crypto.randomUUID(),roundId:crypto.randomUUID(),number:continuing?match!.number+1:1,phase:'playing',difficulty,difficultyMode:mode,length,carryScores,startsAt,deadline:startsAt+ROUND_MS,
+      match={id:continuing?match!.id:crypto.randomUUID(),roundId:crypto.randomUUID(),number:continuing?match!.number+1:1,phase:'playing',difficulty,filters,difficultyMode:mode,length,carryScores,startsAt,deadline:startsAt+ROUND_MS,
         entries:nextEntries(previous,active,continuing,carryScores),
         song:{id:track.id,title:track.title,artist:track.artist,albumArt:track.albumArt,audio:track.introClipUrl||track.audioUrl||track.previewUrl,offset:track.introClipUrl?0:track.audioUrl?(track.startAtMs??0)/1000:0},used:[...(continuing?match!.used:[]),track.id]}
       match=finishRound(match)

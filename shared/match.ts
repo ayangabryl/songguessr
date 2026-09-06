@@ -1,3 +1,4 @@
+import { parseMatchFilters, type MatchFilters } from './match-filters.ts'
 /** Authoritative match rules. Public views deliberately omit the song until reveal. */
 export const MATCH_STAGES = [0.1, 0.5, 2, 8, 15]
 export const MATCH_POINTS = [1000, 800, 600, 400, 200]
@@ -35,6 +36,7 @@ export interface MatchState {
   number: number
   phase: 'playing' | 'reveal' | 'finished'
   difficulty: MatchDifficulty
+  filters?: MatchFilters
   difficultyMode?: MatchDifficulty | 'mixed'
   length?: number
   carryScores?: boolean
@@ -51,6 +53,7 @@ export type MatchView = Omit<MatchState, 'song' | 'used'> & {
 }
 export type MatchCommand =
   | {
+      filters?: MatchFilters
       type: 'match-start'
       difficulty: MatchDifficulty | 'mixed'
       length?: number
@@ -81,7 +84,10 @@ export function parseMatchCommand(raw: string): MatchCommand | null {
       return null
     if (m.carryScores !== undefined && typeof m.carryScores !== 'boolean')
       return null
+    const filters = parseMatchFilters(m.filters)
+    if (!filters) return null
     return {
+      ...(m.filters !== undefined ? {filters} : {}),
       type: 'match-start',
       difficulty: m.difficulty as MatchDifficulty | 'mixed',
       length: Number(m.length ?? 10),
