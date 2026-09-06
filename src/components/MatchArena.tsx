@@ -709,7 +709,7 @@ export function MatchArena({
                   {me ? (
                     <div className="match-ready">
                       <p className="match-waiting" role="status">
-                        {me.ready ? (() => { const waiting = match.entries.filter(p => !p.ready && players.some(q => q.id === p.id && q.connected)); return waiting.length ? `Waiting for ${waiting.map(p => p.name).join(", ")}.` : "Everyone is ready. Preparing your next song…"; })() : "Take a moment. The next song starts when everyone is ready."}
+                        {me.ready ? (() => { const waiting = match.entries.filter(p => !p.ready && players.some(q => q.id === p.id && q.connected)); return waiting.length ? `Waiting for ${waiting.map(p => p.name).join(", ")}.` : table.matchError ? "The next song couldn’t load. Try again when you’re ready." : "Everyone is ready. Preparing your next song…"; })() : "Take a moment. The next song starts when everyone is ready."}
                       </p>
                       <button
                         className="match-primary"

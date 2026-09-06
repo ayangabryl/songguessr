@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { SettingsSheet } from "./SettingsSheet";
 import { Noot3D } from "./Noot3D";
 import { useNootPreferences } from "../lib/noot/preferences";
@@ -10,12 +10,14 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
     [name, setName] = useState(loadDisplayName),
     [error, setError] = useState(""),
     [pet, setPet] = useState(0);
+  const nameInput = useRef<HTMLInputElement>(null);
   const theme =
     document.documentElement.dataset.theme === "dark" ? "dark" : "light";
   function save() {
     const result = parseSittingName(name);
     if (!result.ok) {
       setError("Choose a name with 2–24 characters.");
+      nameInput.current?.focus();
       return;
     }
     saveDisplayName(result.name);
@@ -107,6 +109,7 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
           />
         </button>
         <p className="profile-preview-caption">Tap Noot for a little hello</p>
+        {welcome && <button type="button" className="profile-later" onClick={onClose}>Play now, customize later</button>}
         </div>
         <form
           onSubmit={(e) => {
@@ -117,6 +120,7 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
           <label className="sit-field">
             <span>Your name</span>
             <input
+              ref={nameInput}
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "profile-name-error" : undefined}
               value={name}
@@ -126,6 +130,7 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
               placeholder="What should we call you?"
             />
           </label>
+          {error && <p id="profile-name-error" role="alert">{error}</p>}
           {options.map(({ key, label, values }) => (
             <fieldset className="profile-options" key={key}>
               <legend>{label}</legend>
@@ -157,14 +162,14 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
               ))}
             </fieldset>
           ))}
-          {error && <p id="profile-name-error" role="alert">{error}</p>}
+
           <p className="profile-note">
             Outfit saved automatically on this device. Your friends see it at the table.
           </p>
           <button className="profile-save" type="submit">
             {welcome ? "Start listening" : "Save name & play"}
           </button>
-          {welcome && <button type="button" className="profile-later" onClick={onClose}>Play now, customize later</button>}
+
         </form>
       </SettingsSheet>
     </div>
