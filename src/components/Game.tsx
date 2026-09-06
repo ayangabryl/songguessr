@@ -1,3 +1,4 @@
+import { buttonSoundsEnabled, setButtonSounds } from '../lib/ui-audio'
 import { MatchArena } from './MatchArena'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent } from 'react'
 import {
@@ -269,6 +270,7 @@ export function Game() {
   const [startMode, setStartMode] = useState<StartMode>(loadStartMode)
   const [autoReroll, setAutoReroll] = useState(false)
   const [volume, setVolume] = useState(loadVolume)
+  const [buttonSounds, updateButtonSounds] = useState(buttonSoundsEnabled)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoadingClip, setIsLoadingClip] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -306,6 +308,13 @@ export function Game() {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(loadThemePreference()))
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sitOpen, setSitOpen] = useState(false)
+  useEffect(() => {
+    const customize = () => setSitOpen(false)
+    const resume = () => { if (new URLSearchParams(location.search).has('sit')) setSitOpen(true) }
+    window.addEventListener('open-noot-profile', customize)
+    window.addEventListener('noot-profile-closed', resume)
+    return () => { window.removeEventListener('open-noot-profile', customize); window.removeEventListener('noot-profile-closed', resume) }
+  }, [])
   const [sitCopied, setSitCopied] = useState(false)
   const [sitCopyFailed, setSitCopyFailed] = useState(false)
   const sitting = useSitting()
@@ -542,6 +551,7 @@ export function Game() {
       if (!active) return
       host.style.setProperty('--ind-x', `${active.offsetLeft}px`)
       host.style.setProperty('--ind-w', `${active.offsetWidth}px`)
+      host.scrollLeft = Math.max(0, active.offsetLeft - (host.clientWidth - active.offsetWidth) / 2)
     }
     place()
     const observer = new ResizeObserver(place)
@@ -1579,7 +1589,9 @@ export function Game() {
   }
 
   useEffect(() => {
-    if (sitting.inviteCode) setSitOpen(true)
+    if (sitting.inviteCode) {
+      try { if (localStorage.getItem("songguessr-profile-seen")) setSitOpen(true) } catch { /* Welcome closes into the invite when storage is unavailable. */ }
+    }
   }, [sitting.inviteCode])
 
   useEffect(() => {
@@ -1628,6 +1640,15 @@ export function Game() {
                 className={level === difficulty ? 'is-active' : ''}
                 aria-pressed={level === difficulty}
                 onClick={() => handleDifficulty(level)}
+                onKeyDown={event => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                  event.preventDefault()
+                  const buttons = [...(levelSwitchRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
+                  const index = buttons.indexOf(event.currentTarget)
+                  const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
+                  buttons[next]?.focus()
+                  buttons[next]?.click()
+                }}
                 disabled={availabilityCounts !== null && availabilityCounts[level] === 0}
               >
                 {DIFFICULTY_LABELS[level]}
@@ -1675,7 +1696,7 @@ export function Game() {
               </button>
               <button
                 type="button"
-                className="bar-btn icon-only"
+                className="bar-btn icon-only header-reroll"
                 onClick={() => {
                   clearRecentTrackIds()
                   void loadAllRounds(catalogFilters)
@@ -2033,7 +2054,7 @@ export function Game() {
         copyFailed={sitCopyFailed}
       />
 
-      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><button className="profile-edit" onClick={()=>{setSettingsOpen(false);window.dispatchEvent(new Event('open-noot-profile'))}}>Customize your Noot</button>
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><button className="profile-edit" aria-pressed={buttonSounds} onClick={() => { const next = !buttonSounds; updateButtonSounds(next); setButtonSounds(next); }}>Button sounds: {buttonSounds ? "On" : "Off"}</button><button className="profile-edit mobile-reroll" onClick={() => { clearRecentTrackIds(); void loadAllRounds(catalogFilters); setSettingsOpen(false); }}>Find a fresh set of songs</button><button className="profile-edit" onClick={()=>{setSettingsOpen(false);window.dispatchEvent(new Event('open-noot-profile'))}}>Customize your Noot</button>
         <div className="settings-sheet-body">
           <SpotifyConnect
             isConnected={spotify.isConnected}

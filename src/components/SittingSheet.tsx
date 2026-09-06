@@ -68,6 +68,7 @@ export function SittingSheet({
   return (
     <SettingsSheet open={open} onClose={onClose} title="Table" closeLabel="Close">
       <div className="sit-stack">
+      {!live && <button type="button" className="profile-edit" onClick={() => { onClose(); window.dispatchEvent(new Event("open-noot-profile")); }}>Choose your Noot</button>}
       <form className="sit-form" onSubmit={handleHost}>
         <label className="sit-field">
           <span>Your name</span>

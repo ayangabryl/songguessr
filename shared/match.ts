@@ -58,7 +58,7 @@ export type MatchCommand =
     }
   | { type: 'match-next'; roundId: string }
   | { type: 'match-skip'; roundId: string; stage: number }
-  | { type: 'match-guess'; roundId: string; stage: number; guess: string }
+  | { type: 'match-guess'; roundId: string; stage: number; guess: string; trackId?: string }
 export function parseMatchCommand(raw: string): MatchCommand | null {
   let m: Record<string, unknown>
   try {
@@ -109,6 +109,7 @@ export function parseMatchCommand(raw: string): MatchCommand | null {
       roundId: m.roundId,
       stage: Number(m.stage),
       guess: m.guess.trim(),
+      ...(typeof m.trackId === "string" && m.trackId.length > 0 && m.trackId.length <= 200 ? {trackId: m.trackId} : {}),
     }
   return null
 }
@@ -250,4 +251,12 @@ export function nextEntries(
       ? [...(previous.find((e) => e.id === p.id)?.history ?? [])]
       : [],
   }))
+}
+
+/** Consecutive correct songs, independent of score carry-over. */
+export function matchStreak(entry: MatchEntry, revealed: boolean): number {
+  const history = revealed ? entry.history : [...entry.history, ...(entry.status === 'solved' ? [entry.delta] : entry.status === 'out' ? [0] : [])]
+  let count = 0
+  for (let i = history.length - 1; i >= 0 && history[i] > 0; i--) count++
+  return count
 }

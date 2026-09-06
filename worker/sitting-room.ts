@@ -14,8 +14,9 @@ import {
   type SittingState,
 } from '../shared/sitting'
 import { nextEntries, roundDifficulty, readyForNext, everyoneReady, parseMatchCommand, publicMatch, advancePlayer, expireRound, finishRound, ROUND_MS, type MatchState } from '../shared/match'
-import { pickRandomTrack } from './catalog'
-import { checkGuess } from './guess'
+import { pickRandomTrack, findTrackById } from './catalog'
+import { checkMatchGuess } from './guess'
+import { songIdentityKey } from './track-dedupe'
 import type { Env } from './types'
 
 interface SocketAttachment {
@@ -417,8 +418,18 @@ export class SittingRoom extends DurableObject<Env> {
       await this.ctx.storage.put('match',match)
       await this.ctx.storage.setAlarm(match.deadline)
     } else if(match) {
-      const correct=command.type==='match-guess' && checkGuess(command.guess,match.song.title,match.song.artist).correct
-      match=advancePlayer(match,playerId,command.roundId,command.stage,correct,command.type==='match-skip',Date.now())
+      const receivedAt = Date.now()
+      let correct = false
+      if (command.type === 'match-guess') {
+        if (command.trackId) {
+          if (command.trackId === match.song.id) correct = true
+          else {
+            const selected = await findTrackById(this.env, command.trackId)
+            correct = Boolean(selected && songIdentityKey(selected) === songIdentityKey(match.song))
+          }
+        } else correct = checkMatchGuess(command.guess, match.song.title, match.song.artist)
+      }
+      match=advancePlayer(match,playerId,command.roundId,command.stage,correct,command.type==='match-skip',receivedAt)
       await this.ctx.storage.put('match',match)
     }
     await this.broadcast(state)

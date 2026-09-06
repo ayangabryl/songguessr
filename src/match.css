@@ -1087,3 +1087,30 @@
 }
 
 .match-solved{display:flex;align-items:flex-start;gap:8px;min-height:55px;margin-bottom:18px;color:var(--text);font-size:13px}.match-solved small{display:block;margin-top:5px;color:var(--text-2);font-size:11px}.match-solved svg{color:var(--accent);flex-shrink:0}
+/* Song choices read like a compact record shelf. */
+.match-room .match-suggestions button {
+  display: flex; align-items: center; gap: 12px; min-height: 68px;
+}
+.match-option-cover {
+  flex: 0 0 44px; width: 44px; height: 44px; border-radius: 8px;
+  overflow: hidden; display: grid; place-items: center; background: var(--surface-2);
+}
+.match-option-cover img { width: 100%; height: 100%; object-fit: cover; }
+.match-option-copy { min-width: 0; }
+.match-room .match-suggestions strong { font-size: 13px; overflow-wrap: anywhere; }
+.match-room .match-suggestions small { font-size: 12px; }
+.match-room .match-guests li,
+.match-room .match-difficulty,
+.match-room .match-footer,
+.match-room .match-board-note,
+.match-room .match-board { border: 0; }
+.noot-party { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px 8px; width: 100%; margin: 24px 0; }
+.noot-party-member { flex: 0 1 120px; min-width: 96px; text-align: center; }
+.noot-party .party-pet.mascot { position: relative; display: block; width: 112px; height: 136px; margin: 0 auto; border: 0; background: none; cursor: pointer; }
+.noot-party-member strong { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.noot-party-member small { display: block; margin-top: 4px; color: var(--text-2); font-size: 11px; }
+.noot-party .party-pet:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 16px; }
+@media (max-width: 600px) {
+ .noot-party-member { flex-basis: 96px; }
+ .noot-party .party-pet.mascot { width: 92px; height: 116px; }
+}

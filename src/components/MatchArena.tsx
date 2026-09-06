@@ -1,3 +1,5 @@
+import useSound from "use-sound";
+import { buttonSoundsEnabled, setButtonSounds } from "../lib/ui-audio";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -13,6 +15,7 @@ import {
 } from "lucide-react";
 import {
   MATCH_LENGTH,
+  matchStreak,
   MATCH_POINTS,
   MATCH_STAGES,
   type MatchDifficulty,
@@ -22,6 +25,7 @@ import { Noot3D } from "./Noot3D";
 import { useNootPreferences } from "../lib/noot/preferences";
 import { searchTracks, type SearchResult } from "../lib/api";
 import "../match.css";
+import { loadVolume } from "../lib/game-state";
 
 type Table = ReturnType<typeof useSitting>;
 export function MatchArena({
@@ -32,6 +36,8 @@ export function MatchArena({
   theme: "light" | "dark";
 }) {
   const { match, players, playerId, hostId, sendMatch } = table;
+  const [sounds, setSounds] = useState(buttonSoundsEnabled);
+  const [playTap] = useSound('/audio/ui-tap.wav', { volume: 0.18 * loadVolume(), interrupt: true, soundEnabled: sounds });
   const [difficulty, setDifficulty] = useState<MatchDifficulty | "mixed">(
     "mixed",
   );
@@ -96,6 +102,7 @@ export function MatchArena({
     if (!match?.audio) return;
     const el = new Audio(match.audio);
     el.preload = "auto";
+    el.volume = loadVolume();
     audio.current = el;
     el.onended = () => setPlaying(false);
     return () => {
@@ -109,6 +116,25 @@ export function MatchArena({
   useEffect(() => {
     if (!canPlay) stop();
   }, [canPlay]);
+  useEffect(() => {
+    if (!revealed || !match || !audio.current) return;
+    const el = audio.current;
+    let cancelled = false;
+    el.currentTime = match.offset;
+    el.volume = loadVolume();
+    el.play().then(() => {
+      if (cancelled) return;
+      setPlaying(true);
+      stopTimer.current = setTimeout(() => { el.pause(); setPlaying(false); }, 15000);
+    }).catch(() => {
+      if (!cancelled) setAudioError("Tap the album cover to hear the revealed song.");
+    });
+    return () => {
+      cancelled = true;
+      el.pause();
+      if (stopTimer.current) clearTimeout(stopTimer.current);
+    };
+  }, [revealed, match?.roundId]);
   useEffect(() => {
     if (!query.trim() || !canPlay) {
       setResults([]);
@@ -154,7 +180,7 @@ export function MatchArena({
       setAudioError("Audio could not play. Tap play to try again.");
     }
   }
-  function guess(value: string) {
+  function guess(value: string, trackId?: string) {
     if (!canPlay || pending || !value.trim() || !match) return;
     stop();
     setPending(true);
@@ -163,6 +189,7 @@ export function MatchArena({
       roundId: match.roundId,
       stage,
       guess: value,
+      trackId,
     });
   }
   function skip() {
@@ -206,66 +233,29 @@ export function MatchArena({
     )
     .at(-1);
   const incoming = players.find((p) => p.id === playerId)?.greeting;
-  const shownFriend =
-    incoming && now - incoming.at < 3500
-      ? incoming.from
-      : solveFresh && latestSolve?.id !== playerId
-        ? latestSolve!.id
-        : (newcomer?.id ?? friendId);
-  const friend =
-    players.find((p) => p.id === shownFriend && p.id !== playerId) ??
-    players.find((p) => p.id !== playerId && p.connected);
   const helloActive =
     Boolean(incoming && now - incoming.at < 3500) ||
     now - greeting < 3500 ||
     Boolean(newcomer);
-  const companion = friend ? (
-    <div className="table-companion">
-      <button
-        className="companion-pet mascot"
-        aria-label={`Wave to ${friend.name}’s Noot`}
-        onClick={() => {
-          table.greet(friend.id);
-          setGreeting(Date.now());
-        }}
-      >
-        <Noot3D
-          {...(friend.appearance ?? {
-            headgear: "headphones",
-            clothing: "none",
-            eyewear: "none",
-            accessoryColor: "blue",
-            pattern: "plain",
-          })}
-          pose={
-            solveFresh && latestSolve?.id === friend.id
-              ? "cheer"
-              : helloActive
-                ? "hover"
-                : "idle"
-          }
-          eventId={Math.max(
-            incoming?.at ?? 0,
-            greeting,
-            newcomer?.joinedAt ?? 0,
-            latestSolve?.solvedAt ?? 0,
-          )}
-          difficulty="easy"
-          theme={theme}
-        />
-      </button>
-      <span>{friend.name}’s Noot</span>
-      <small>
-        {solveFresh && latestSolve?.id === friend.id
-          ? "Got it! Nice ears."
-          : newcomer?.id === friend.id
-            ? "Just joined · say hello"
-            : helloActive
-              ? "Hello, music buddy!"
-              : "Tap to say hello"}
-      </small>
+  const companion = (
+    <div className="noot-party" aria-label="Noots at this table">
+      {players.filter(p => p.connected).map(p => {
+        const entry = entries.find(e => e.id === p.id);
+        const wave = (incoming?.from === p.id && helloActive) || (p.id === friendId && now - greeting < 3500);
+        const fresh = Boolean(entry?.solvedAt && now + table.clockOffset - entry.solvedAt < 3200);
+        return <div className="noot-party-member" key={p.id}>
+          <button className="mascot party-pet" aria-label={p.id === playerId ? 'Customize your Noot' : `Wave to ${p.name}’s Noot`}
+            onClick={() => { playTap(); if (p.id === playerId) window.dispatchEvent(new Event('open-noot-profile')); else { setFriendId(p.id); table.greet(p.id); setGreeting(Date.now()); } }}>
+            <Noot3D {...(p.appearance ?? {headgear:'headphones',clothing:'none',eyewear:'none',accessoryColor:'blue',pattern:'plain'})}
+              pose={fresh ? 'cheer' : wave || newcomer?.id === p.id ? 'hover' : 'idle'}
+              eventId={Math.max(entry?.solvedAt ?? 0, p.joinedAt, wave ? greeting : 0, wave ? incoming?.at ?? 0 : 0)} difficulty="easy" theme={theme}/>
+          </button>
+          <strong>{p.name}{p.id === playerId ? ' · you' : ''}</strong>
+          <small>{entry && matchStreak(entry, revealed) > 1 ? `${matchStreak(entry, revealed)} in a row · ` : ""}{entry?.status === 'solved' ? 'Got it!' : entry?.ready ? 'Ready' : entry?.status === 'out' ? 'Listening to the reveal' : wave ? 'Hello there!' : !match ? 'Ready to listen' : 'Listening…'}</small>
+        </div>;
+      })}
     </div>
-  ) : null;
+  );
   const onlineCount = players.filter((p) => p.connected).length;
   async function copy() {
     try {
@@ -280,8 +270,13 @@ export function MatchArena({
       className="app-shell match-room"
       data-theme={theme}
       data-difficulty="easy"
+      onClick={event => {
+        const target = event.target instanceof Element ? event.target.closest('button') : null;
+        if (target && !target.disabled && !playing && !target.closest('.match-controls, .match-album, .noot-party')) playTap();
+      }}
     >
       <header className="match-header">
+        <button className="profile-edit" aria-pressed={sounds} onClick={() => {setSounds(!sounds);setButtonSounds(!sounds);}}>Sounds {sounds ? 'on' : 'off'}</button>
         <button
           className="match-back"
           onClick={() => {
@@ -342,23 +337,7 @@ export function MatchArena({
                 <Trophy size={18} /> Up to 1,000 points a song
               </span>
             </div>
-            <div className="lobby-pets">
-              <div className="match-lobby-noot mascot">
-                <Noot3D
-                  pose={helloActive ? "hover" : "idle"}
-                  eventId={Math.max(
-                    incoming?.at ?? 0,
-                    greeting,
-                    newcomer?.joinedAt ?? 0,
-                    latestSolve?.solvedAt ?? 0,
-                  )}
-                  difficulty={difficulty === "mixed" ? "easy" : difficulty}
-                  headgear={preferences.headgear}
-                  theme={theme}
-                />
-              </div>
-              {companion}
-            </div>
+            {companion}
           </section>
           <section className="match-lobby-card">
             <div className="match-section-heading">
@@ -655,11 +634,14 @@ export function MatchArena({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    guess(`${r.title} - ${r.artist}`)
+                                    guess(`${r.title} - ${r.artist}`, r.id)
                                   }
                                 >
-                                  <strong>{r.title}</strong>
-                                  <small>{r.artist}</small>
+                                  <span className="match-option-cover" aria-hidden="true">
+                                    {r.albumArt ? <img src={r.albumArt} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = "none"; }} /> : <Headphones size={20} />}
+                                  </span>
+                                  <span className="match-option-copy"><strong>{r.title}</strong>
+                                  <small>{r.artist}</small></span>
                                 </button>
                               </li>
                             ))}
@@ -689,7 +671,7 @@ export function MatchArena({
                       (me?.lastAction === "miss"
                         ? "Not that one. A little more of the song is unlocked."
                         : canPlay
-                          ? "Every skip or wrong guess unlocks more audio, worth 200 fewer points."
+                          ? "Name the full song title. Each skip or miss costs 200 possible points. Streaks celebrate consistency without bonus points."
                           : "")}
                   </p>
                 </>

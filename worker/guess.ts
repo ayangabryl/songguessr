@@ -156,3 +156,16 @@ export function checkGuess(
 
   return { correct: false, matched: null }
 }
+
+/** Competitive mode requires a complete title, never an artist or substring. */
+export function checkMatchGuess(guess: string, title: string, artist: string): boolean {
+  const normalize = (value: string) => value.toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const candidate = withoutTrailingArtist(guess, artist) ?? guess
+  const target = normalize(canonicalSongTitle(title) || title)
+  const input = normalize(canonicalSongTitle(candidate) || candidate)
+  if (!input || !target) return false
+  if (input === target) return true
+  // At most one typo in a substantial title; short titles require an exact match.
+  return target.length >= 8 && input.length >= 8 && levenshtein(input, target) <= 1
+}
