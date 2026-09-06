@@ -165,7 +165,7 @@
   font-weight: 500;
   color: var(--text-3);
 }
-.console[data-status='won'] .points-delta:not(.is-zero) {
+.console[data-status="won"] .points-delta:not(.is-zero) {
   animation: pointsScore var(--dur-4) var(--ease-out) both;
 }
 @keyframes pointsScore {
@@ -192,8 +192,8 @@
     transform: none;
   }
 }
-.console[data-status='won'] .readout,
-.console[data-status='lost'] .readout {
+.console[data-status="won"] .readout,
+.console[data-status="lost"] .readout {
   color: var(--text);
   font-weight: 600;
   animation: resultReadout var(--dur-3) var(--ease-out) both;
@@ -592,7 +592,7 @@
   color: var(--text);
   animation: pointsScore var(--dur-4) var(--ease-land) both;
 }
-.score-beat[data-status='lost'] b {
+.score-beat[data-status="lost"] b {
   color: var(--text-3);
   animation: pointsMiss var(--dur-3) var(--ease-out) both;
 }
@@ -665,7 +665,7 @@
   color: var(--text);
 }
 .session-total::before {
-  content: '·';
+  content: "·";
   margin-right: var(--space-2);
   font-weight: 500;
   color: var(--text-3);
@@ -910,32 +910,318 @@
 }
 
 /* Give Noot's footsteps time to carry him between ruler stops. */
-.stage[data-intent='skip'] .figure {
-  transition: left 1200ms cubic-bezier(.35, 0, .3, 1), transform 420ms var(--ease-out);
+.stage[data-intent="skip"] .figure {
+  transition:
+    left 1200ms cubic-bezier(0.35, 0, 0.3, 1),
+    transform 420ms var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
-  .stage[data-intent='skip'] .figure { transition: none; }
+  .stage[data-intent="skip"] .figure {
+    transition: none;
+  }
 }
 
 /* A short contact wobble as the revealed sleeve nudges Noot aside. */
-.answer-cover .result-play-toggle { animation: album-nudge 650ms ease-out both; }
-@keyframes album-nudge {
-  0% { transform: translateY(8px) rotate(-5deg); }
-  28% { transform: translateY(0) rotate(4deg); }
-  55% { transform: rotate(-2deg); }
-  100% { transform: rotate(0); }
+.answer-cover .result-play-toggle {
+  animation: album-nudge 650ms ease-out both;
 }
-@media(prefers-reduced-motion:reduce) { .answer-cover .result-play-toggle {animation:none;} }
-.score-beat .score-ladder {display:flex;gap:5px;margin-top:10px;flex-wrap:wrap;}
-.score-beat .score-ladder>span {font-size:11px;font-weight:400;line-height:1.4;border:1px solid var(--line, #ced7cf);padding:5px 8px;border-radius:7px;opacity:.65;}
-.score-beat .score-ladder>span[data-earned='true'] {opacity:1;font-weight:700;}
+@keyframes album-nudge {
+  0% {
+    transform: translateY(8px) rotate(-5deg);
+  }
+  28% {
+    transform: translateY(0) rotate(4deg);
+  }
+  55% {
+    transform: rotate(-2deg);
+  }
+  100% {
+    transform: rotate(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .answer-cover .result-play-toggle {
+    animation: none;
+  }
+}
+.score-beat .score-ladder {
+  display: flex;
+  gap: 5px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.score-beat .score-ladder > span {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  border: 1px solid var(--line, #ced7cf);
+  padding: 5px 8px;
+  border-radius: 7px;
+  opacity: 0.65;
+}
+.score-beat .score-ladder > span[data-earned="true"] {
+  opacity: 1;
+  font-weight: 700;
+}
 
-.console .score-beat{display:flex;align-items:baseline;gap:8px;margin:0 0 12px}
-.console .score-beat b{font:600 16px var(--font);letter-spacing:0;color:var(--text)}
-.console .score-beat span{font-size:13px;font-weight:400;color:var(--text-2)}
-.sitting-sheet input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.console .score-beat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.console .score-beat b {
+  font: 600 16px var(--font);
+  letter-spacing: 0;
+  color: var(--text);
+}
+.console .score-beat span {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-2);
+}
+.sitting-sheet input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
-.sit-field input:focus-visible{outline:0;box-shadow:0 0 0 2px var(--accent);border-color:transparent}
-.profile-shell{position:fixed!important;inset:0!important;z-index:1000!important;min-height:0!important;padding:0!important;background:transparent!important;pointer-events:none}
-.profile-shell .sheet-overlay{pointer-events:auto}.profile-intro,.profile-note{color:var(--text-2);font-size:13px;line-height:1.6}.profile-pet.mascot{position:relative;width:180px;height:195px;margin:0 auto 16px;border:0;background:none;display:block;cursor:pointer}.profile-options{border:0;margin:18px 0;padding:0;display:flex;gap:7px;flex-wrap:wrap}.profile-options legend{font-size:13px;margin-bottom:9px}.profile-options button,.profile-edit{font:inherit;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--hairline-strong);border-radius:999px;padding:10px 14px;cursor:pointer}.profile-options button[aria-pressed=true]{border-color:var(--accent);background:var(--surface-2)}.profile-save{width:100%;border:0;border-radius:999px;padding:16px;background:var(--accent);color:var(--on-accent);font:inherit;cursor:pointer}
-.profile-shell .settings-sheet-body{gap:16px}.profile-pet.mascot{flex:0 0 160px;width:150px;height:160px;margin-bottom:0}.profile-shell form{flex-shrink:0}
+.sit-field input:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px var(--accent);
+  border-color: transparent;
+}
+.profile-shell {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1000 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  pointer-events: none;
+}
+.profile-shell .sheet-overlay {
+  pointer-events: auto;
+}
+.profile-intro,
+.profile-note {
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.profile-pet.mascot {
+  position: relative;
+  width: 180px;
+  height: 195px;
+  margin: 0 auto 16px;
+  border: 0;
+  background: none;
+  display: block;
+  cursor: pointer;
+}
+.profile-options {
+  border: 0;
+  margin: 18px 0;
+  padding: 0;
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.profile-options legend {
+  font-size: 13px;
+  margin-bottom: 9px;
+}
+.profile-options button,
+.profile-edit {
+  font: inherit;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.profile-options button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.profile-save {
+  width: 100%;
+  border: 0;
+  border-radius: 999px;
+  padding: 16px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.profile-shell .settings-sheet-body {
+  gap: 16px;
+}
+.profile-pet.mascot {
+  flex: 0 0 160px;
+  width: 150px;
+  height: 160px;
+  margin-bottom: 0;
+}
+.profile-shell form {
+  flex-shrink: 0;
+}
+
+.profile-options button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.wardrobe-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: #698da4;
+  box-shadow: inset 0 0 0 1px #0001;
+  flex-shrink: 0;
+}
+.wardrobe-swatch[data-color="rose"] {
+  background: #b87985;
+}
+.wardrobe-swatch[data-color="gold"] {
+  background: #c5a05c;
+}
+.wardrobe-swatch[data-color="mint"] {
+  background: #71a58e;
+}
+.wardrobe-swatch[data-color="lavender"] {
+  background: #9c88b6;
+}
+.wardrobe-swatch[data-color="coral"] {
+  background: #c77d65;
+}
+.wardrobe-swatch[data-color="navy"] {
+  background: #4e647c;
+}
+.wardrobe-swatch[data-pattern="stripes"] {
+  background: repeating-linear-gradient(45deg, #698da4 0 4px, #bfd0db 4px 7px);
+}
+.wardrobe-swatch[data-pattern="dots"] {
+  background:
+    radial-gradient(#dce5eb 1.6px, transparent 2px) 0 0/7px 7px,
+    #698da4;
+}
+.wardrobe-swatch[data-pattern="gingham"] {
+  background:
+    repeating-linear-gradient(0deg, #fff5 0 5px, transparent 5px 10px),
+    repeating-linear-gradient(90deg, #fff5 0 5px, transparent 5px 10px), #698da4;
+}
+.wardrobe-swatch[data-pattern="confetti"] {
+  background:
+    radial-gradient(#e3ebef 1px, transparent 2px) 0 0/9px 11px,
+    radial-gradient(#e3ebef 1px, transparent 2px) 4px 4px/13px 13px,
+    #698da4;
+}
+
+/* Keep the character in view while trying wardrobe combinations. */
+.profile-shell .settings-sheet {
+  width: min(100%, 780px);
+  background: var(--canvas);
+}
+.profile-shell .settings-sheet-body {
+  display: grid;
+  grid-template-columns: minmax(180px, .85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 28px;
+}
+.profile-preview {
+  position: sticky;
+  top: 0;
+  text-align: center;
+  padding: 20px 0;
+}
+.profile-preview .profile-pet.mascot {
+  width: 100%;
+  height: 270px;
+  max-width: 260px;
+}
+.profile-preview-caption {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.profile-shell form { min-width: 0; padding-bottom: 8px; }
+.profile-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 24px 0;
+}
+.profile-options legend { font-weight: 600; margin-bottom: 12px; }
+.profile-options button {
+  min-height: 44px;
+  border-radius: 12px;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.profile-options button:hover { background: var(--surface-2); }
+.profile-options button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.profile-shell button:focus-visible,
+.profile-shell input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.profile-shell input[aria-invalid="true"] { border-color: var(--text); }
+@media (max-width: 600px) {
+  .profile-shell .settings-sheet { padding: 16px 20px 24px; }
+  .profile-shell .settings-sheet-head { margin-bottom: 8px; flex-shrink: 0; }
+  .profile-shell .settings-sheet-body {
+    display: flex;
+    gap: 12px;
+  }
+  .profile-preview {
+    z-index: 2;
+    flex-shrink: 0;
+    width: 100%;
+    padding: 4px 0 8px;
+    background: var(--canvas);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .profile-preview .profile-pet.mascot { height: 145px; width: 140px; }
+  .profile-preview .profile-intro { display: none; }
+  .profile-preview-caption { margin: 0; }
+  .profile-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .profile-options button { font-size: 11px; padding: 9px 8px; }
+  .wardrobe-swatch { flex-shrink: 0; width: 16px; height: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .profile-options button { transition: none; }
+}
+
+@media (max-width: 900px) {
+  .console .guess-form .btn.skip-button { width: auto; min-width: 58px; padding: 0 12px; }
+  .console .guess-form .btn.skip-button span { display: inline; }
+  .console .guess-form .skip-button .skip-icon { display: none; }
+}
+@media (max-width: 900px) {
+  .transport-row { grid-template-columns: var(--control) minmax(0, 1fr) auto; }
+  .console .guess-form .btn.skip-button span {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto;
+  }
+}
+@media (max-width: 600px) {
+  .session-row { grid-template-columns: 64px 24px minmax(0, 1fr); gap: 12px; padding: 12px 0; }
+  .session-track { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .session-track strong, .session-track small { white-space: normal; overflow-wrap: anywhere; }
+}
+.profile-later {
+  width: 100%; min-height: 44px; margin-top: 8px; border: 0;
+  background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer;
+}
+.profile-later:hover { color: var(--text); }
+.match-waiting { color: var(--text-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+  .profile-shell[data-welcome="true"] .profile-preview .profile-intro {
+    display: block; margin: 0 0 8px; font-size: 12px; line-height: 1.5;
+  }
+}

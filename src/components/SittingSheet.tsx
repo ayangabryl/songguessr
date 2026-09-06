@@ -62,7 +62,7 @@ export function SittingSheet({
 
   function handleHost(event: FormEvent) {
     event.preventDefault()
-    onHost()
+    if (!busy) onHost()
   }
 
   return (
@@ -86,7 +86,7 @@ export function SittingSheet({
             {sittingErrorMessage(nameIssue.error)}
           </p>
         ) : (
-          <p className="sit-hint">Friends see this on the table.</p>
+          <p className="sit-hint">This is the name your friends will see.</p>
         )}
 
         {live && code ? (
@@ -118,9 +118,9 @@ export function SittingSheet({
         ) : (
           <>
             <button type="submit" className="btn btn-primary sit-host" disabled={busy}>
-              {busy && pending === 'host' ? 'Opening…' : 'Host'}
+              {busy && pending === 'host' ? 'Opening…' : 'Create a table'}
             </button>
-            <p className="sit-or">Or join</p>
+            <p className="sit-or">Have an invite? Join your friends</p>
             <div className="sit-join">
               <label className="sit-field">
                 <span>Host’s code</span>
@@ -130,7 +130,7 @@ export function SittingSheet({
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       event.preventDefault()
-                      onJoin()
+                      if (!busy && joinReady) onJoin()
                     }
                   }}
                   maxLength={8}

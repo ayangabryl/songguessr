@@ -49,7 +49,7 @@ export function useModalFocus(
     if (!open) return
 
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const room = document.querySelector('.console-room')
+    const background = new Map<HTMLElement, boolean>()
     const html = document.documentElement
     const previousOverflow = html.style.overflow
     html.style.overflow = 'hidden'
@@ -64,7 +64,17 @@ export function useModalFocus(
       return root.contains(document.activeElement)
     }
     const lockBackground = () => {
-      if (room instanceof HTMLElement) room.inert = true
+      let branch: HTMLElement | null = panelRef.current
+      while (branch?.parentElement) {
+        for (const sibling of branch.parentElement.children) {
+          if (sibling instanceof HTMLElement && sibling !== branch && !background.has(sibling)) {
+            background.set(sibling, sibling.inert)
+            sibling.inert = true
+          }
+        }
+        branch = branch.parentElement
+        if (branch === document.body) break
+      }
     }
     let frames = 0
     const tick = () => {
@@ -97,7 +107,7 @@ export function useModalFocus(
       window.clearTimeout(later)
       window.removeEventListener('keydown', onKeyDown)
       html.style.overflow = previousOverflow
-      if (room instanceof HTMLElement) room.inert = false
+      for (const [element, wasInert] of background) element.inert = wasInert
       opener?.focus()
     }
   }, [open, panelRef])

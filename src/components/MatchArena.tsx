@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -10,193 +10,193 @@ import {
   SkipForward,
   Trophy,
   Users,
-} from 'lucide-react'
+} from "lucide-react";
 import {
   MATCH_LENGTH,
   MATCH_POINTS,
   MATCH_STAGES,
   type MatchDifficulty,
-} from '../../shared/match'
-import type { useSitting } from '../hooks/useSitting'
-import { Noot3D } from './Noot3D'
-import { useNootPreferences } from '../lib/noot/preferences'
-import { searchTracks, type SearchResult } from '../lib/api'
-import '../match.css'
+} from "../../shared/match";
+import type { useSitting } from "../hooks/useSitting";
+import { Noot3D } from "./Noot3D";
+import { useNootPreferences } from "../lib/noot/preferences";
+import { searchTracks, type SearchResult } from "../lib/api";
+import "../match.css";
 
-type Table = ReturnType<typeof useSitting>
+type Table = ReturnType<typeof useSitting>;
 export function MatchArena({
   table,
   theme,
 }: {
-  table: Table
-  theme: 'light' | 'dark'
+  table: Table;
+  theme: "light" | "dark";
 }) {
-  const { match, players, playerId, hostId, sendMatch } = table
-  const [difficulty, setDifficulty] = useState<MatchDifficulty | 'mixed'>(
-    'mixed',
-  )
-  const [length, setLength] = useState(10)
-  const [carryScores, setCarryScores] = useState(false)
-  const [friendId, setFriendId] = useState('')
-  const [greeting, setGreeting] = useState(0)
-  const [now, setNow] = useState(() => Date.now())
-  const [query, setQuery] = useState(''),
-    [results, setResults] = useState<SearchResult[]>([])
+  const { match, players, playerId, hostId, sendMatch } = table;
+  const [difficulty, setDifficulty] = useState<MatchDifficulty | "mixed">(
+    "mixed",
+  );
+  const [length, setLength] = useState(10);
+  const [carryScores, setCarryScores] = useState(false);
+  const [friendId, setFriendId] = useState("");
+  const [greeting, setGreeting] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const [query, setQuery] = useState(""),
+    [results, setResults] = useState<SearchResult[]>([]);
   const [playing, setPlaying] = useState(false),
-    [audioError, setAudioError] = useState(''),
+    [audioError, setAudioError] = useState(""),
     [pending, setPending] = useState(false),
-    [copied, setCopied] = useState(false)
-  const [preferences] = useNootPreferences()
-  const playbackToken = useRef(0)
+    [copied, setCopied] = useState(false);
+  const [preferences] = useNootPreferences();
+  const playbackToken = useRef(0);
   const audio = useRef<HTMLAudioElement | null>(null),
-    stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const me = match?.entries.find((p) => p.id === playerId)
-  const stage = me?.stage ?? 0
+    stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const me = match?.entries.find((p) => p.id === playerId);
+  const stage = me?.stage ?? 0;
   const isHost = hostId === playerId,
-    connected = table.status === 'live'
-  const revealed = Boolean(match && match.phase !== 'playing'),
-    finished = match?.phase === 'finished'
+    connected = table.status === "live";
+  const revealed = Boolean(match && match.phase !== "playing"),
+    finished = match?.phase === "finished";
   const countdown = match
     ? Math.max(0, Math.ceil((match.startsAt - now - table.clockOffset) / 1000))
-    : 0
+    : 0;
   const remaining = match
     ? Math.max(0, Math.ceil((match.deadline - now - table.clockOffset) / 1000))
-    : 90
+    : 90;
   const canPlay =
     connected &&
-    match?.phase === 'playing' &&
-    me?.status === 'playing' &&
+    match?.phase === "playing" &&
+    me?.status === "playing" &&
     countdown === 0 &&
-    remaining > 0
+    remaining > 0;
   const stop = () => {
-    playbackToken.current++
-    audio.current?.pause()
-    if (stopTimer.current) clearTimeout(stopTimer.current)
-    setPlaying(false)
-  }
+    playbackToken.current++;
+    audio.current?.pause();
+    if (stopTimer.current) clearTimeout(stopTimer.current);
+    setPlaying(false);
+  };
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 250)
-    return () => clearInterval(id)
-  }, [])
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, []);
   useEffect(() => {
-    setPending(false)
-    setQuery('')
-    setResults([])
-    stop()
-  }, [match?.roundId, stage, me?.status, match?.phase])
+    setPending(false);
+    setQuery("");
+    setResults([]);
+    stop();
+  }, [match?.roundId, stage, me?.status, match?.phase]);
   useEffect(() => {
-    if (table.matchError) setPending(false)
-  }, [table.matchError])
+    if (table.matchError) setPending(false);
+  }, [table.matchError]);
   useEffect(() => {
-    if (!pending) return
-    const timer = setTimeout(() => setPending(false), 4000)
-    return () => clearTimeout(timer)
-  }, [pending])
+    if (!pending) return;
+    const timer = setTimeout(() => setPending(false), 4000);
+    return () => clearTimeout(timer);
+  }, [pending]);
   useEffect(() => {
-    if (!match?.audio) return
-    const el = new Audio(match.audio)
-    el.preload = 'auto'
-    audio.current = el
-    el.onended = () => setPlaying(false)
+    if (!match?.audio) return;
+    const el = new Audio(match.audio);
+    el.preload = "auto";
+    audio.current = el;
+    el.onended = () => setPlaying(false);
     return () => {
-      el.pause()
-      el.removeAttribute('src')
-      el.load()
-      if (stopTimer.current) clearTimeout(stopTimer.current)
-      audio.current = null
-    }
-  }, [match?.audio, match?.roundId])
+      el.pause();
+      el.removeAttribute("src");
+      el.load();
+      if (stopTimer.current) clearTimeout(stopTimer.current);
+      audio.current = null;
+    };
+  }, [match?.audio, match?.roundId]);
   useEffect(() => {
-    if (!canPlay) stop()
-  }, [canPlay])
+    if (!canPlay) stop();
+  }, [canPlay]);
   useEffect(() => {
     if (!query.trim() || !canPlay) {
-      setResults([])
-      return
+      setResults([]);
+      return;
     }
-    let cancelled = false
+    let cancelled = false;
     const timer = setTimeout(() => {
       searchTracks(query)
         .then((items) => {
-          if (!cancelled) setResults(items)
+          if (!cancelled) setResults(items);
         })
         .catch(() => {
-          if (!cancelled) setResults([])
-        })
-    }, 180)
+          if (!cancelled) setResults([]);
+        });
+    }, 180);
     return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [query, canPlay])
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, canPlay]);
   async function play() {
     if (playing) {
-      stop()
-      return
+      stop();
+      return;
     }
-    const el = audio.current
-    if (!el || !match) return
-    setAudioError('')
-    const token = ++playbackToken.current
+    const el = audio.current;
+    if (!el || !match) return;
+    setAudioError("");
+    const token = ++playbackToken.current;
     try {
-      el.currentTime = match.offset
-      await el.play()
+      el.currentTime = match.offset;
+      await el.play();
       if (token !== playbackToken.current) {
-        el.pause()
-        return
+        el.pause();
+        return;
       }
-      setPlaying(true)
+      setPlaying(true);
       stopTimer.current = setTimeout(
         stop,
         (revealed ? 15 : MATCH_STAGES[stage]) * 1000,
-      )
+      );
     } catch {
-      setAudioError('Audio could not play. Tap play to try again.')
+      setAudioError("Audio could not play. Tap play to try again.");
     }
   }
   function guess(value: string) {
-    if (!canPlay || pending || !value.trim() || !match) return
-    stop()
-    setPending(true)
+    if (!canPlay || pending || !value.trim() || !match) return;
+    stop();
+    setPending(true);
     sendMatch({
-      type: 'match-guess',
+      type: "match-guess",
       roundId: match.roundId,
       stage,
       guess: value,
-    })
+    });
   }
   function skip() {
-    if (!canPlay || pending || !match) return
-    stop()
-    setPending(true)
-    sendMatch({ type: 'match-skip', roundId: match.roundId, stage })
+    if (!canPlay || pending || !match) return;
+    stop();
+    setPending(true);
+    sendMatch({ type: "match-skip", roundId: match.roundId, stage });
   }
   const entries = match
     ? [...match.entries].sort((a, b) => b.points - a.points)
-    : []
-  const ahead = entries.filter((p) => me && p.points > me.points).at(-1)
-  const myRank = me ? entries.findIndex((p) => p.points === me.points) + 1 : 0
+    : [];
+  const ahead = entries.filter((p) => me && p.points > me.points).at(-1);
+  const myRank = me ? entries.findIndex((p) => p.points === me.points) + 1 : 0;
   const mascotPose = finished
-    ? 'cheer'
+    ? "cheer"
     : revealed
-      ? me?.status === 'solved'
-        ? 'win'
-        : 'lose'
-      : me?.status === 'solved'
-        ? 'listen-close'
+      ? me?.status === "solved"
+        ? "win"
+        : "lose"
+      : me?.status === "solved"
+        ? "listen-close"
         : playing
-          ? 'play'
-          : me?.lastAction === 'skip'
-            ? 'skip'
-            : 'idle'
+          ? "play"
+          : me?.lastAction === "skip"
+            ? "skip"
+            : "idle";
   const solved = entries
-    .filter((p) => p.status === 'solved')
-    .sort((a, b) => (a.solvedAt ?? 0) - (b.solvedAt ?? 0))
-  const latestSolve = solved.at(-1)
+    .filter((p) => p.status === "solved")
+    .sort((a, b) => (a.solvedAt ?? 0) - (b.solvedAt ?? 0));
+  const latestSolve = solved.at(-1);
   const solveFresh = Boolean(
     latestSolve?.solvedAt &&
-      now + table.clockOffset - latestSolve.solvedAt < 3200,
-  )
+    now + table.clockOffset - latestSolve.solvedAt < 3200,
+  );
   const newcomer = players
     .filter(
       (p) =>
@@ -204,44 +204,45 @@ export function MatchArena({
         p.connected &&
         now + table.clockOffset - p.joinedAt < 4000,
     )
-    .at(-1)
-  const incoming = players.find((p) => p.id === playerId)?.greeting
+    .at(-1);
+  const incoming = players.find((p) => p.id === playerId)?.greeting;
   const shownFriend =
     incoming && now - incoming.at < 3500
       ? incoming.from
       : solveFresh && latestSolve?.id !== playerId
         ? latestSolve!.id
-        : (newcomer?.id ?? friendId)
+        : (newcomer?.id ?? friendId);
   const friend =
     players.find((p) => p.id === shownFriend && p.id !== playerId) ??
-    players.find((p) => p.id !== playerId && p.connected)
+    players.find((p) => p.id !== playerId && p.connected);
   const helloActive =
     Boolean(incoming && now - incoming.at < 3500) ||
     now - greeting < 3500 ||
-    Boolean(newcomer)
+    Boolean(newcomer);
   const companion = friend ? (
     <div className="table-companion">
       <button
         className="companion-pet mascot"
         aria-label={`Wave to ${friend.name}’s Noot`}
         onClick={() => {
-          table.greet(friend.id)
-          setGreeting(Date.now())
+          table.greet(friend.id);
+          setGreeting(Date.now());
         }}
       >
         <Noot3D
           {...(friend.appearance ?? {
-            headgear: 'headphones',
-            clothing: 'none',
-            eyewear: 'none',
-            accessoryColor: 'blue',
+            headgear: "headphones",
+            clothing: "none",
+            eyewear: "none",
+            accessoryColor: "blue",
+            pattern: "plain",
           })}
           pose={
             solveFresh && latestSolve?.id === friend.id
-              ? 'cheer'
+              ? "cheer"
               : helloActive
-                ? 'hover'
-                : 'idle'
+                ? "hover"
+                : "idle"
           }
           eventId={Math.max(
             incoming?.at ?? 0,
@@ -256,22 +257,22 @@ export function MatchArena({
       <span>{friend.name}’s Noot</span>
       <small>
         {solveFresh && latestSolve?.id === friend.id
-          ? 'Got it! Nice ears.'
+          ? "Got it! Nice ears."
           : newcomer?.id === friend.id
-            ? 'Just joined · say hello'
+            ? "Just joined · say hello"
             : helloActive
-              ? 'Hello, music buddy!'
-              : 'Tap to say hello'}
+              ? "Hello, music buddy!"
+              : "Tap to say hello"}
       </small>
     </div>
-  ) : null
-  const onlineCount = players.filter((p) => p.connected).length
+  ) : null;
+  const onlineCount = players.filter((p) => p.connected).length;
   async function copy() {
     try {
-      await navigator.clipboard.writeText(table.inviteUrl ?? table.code ?? '')
-      setCopied(true)
+      await navigator.clipboard.writeText(table.inviteUrl ?? table.code ?? "");
+      setCopied(true);
     } catch {
-      setCopied(false)
+      setCopied(false);
     }
   }
   return (
@@ -284,15 +285,15 @@ export function MatchArena({
         <button
           className="match-back"
           onClick={() => {
-            stop()
-            table.leave()
+            stop();
+            table.leave();
           }}
         >
           <ArrowLeft size={16} /> Leave table
         </button>
         <button
           className="profile-edit"
-          onClick={() => window.dispatchEvent(new Event('open-noot-profile'))}
+          onClick={() => window.dispatchEvent(new Event("open-noot-profile"))}
         >
           Your Noot
         </button>
@@ -312,7 +313,7 @@ export function MatchArena({
       </header>
       {!connected && (
         <p className="match-notice" role="status">
-          Reconnecting to your table. Scores and stages are saved.{' '}
+          Reconnecting to your table. Scores and stages are saved.{" "}
           <button onClick={table.reconnect}>Reconnect</button>
         </p>
       )}
@@ -344,14 +345,14 @@ export function MatchArena({
             <div className="lobby-pets">
               <div className="match-lobby-noot mascot">
                 <Noot3D
-                  pose={helloActive ? 'hover' : 'idle'}
+                  pose={helloActive ? "hover" : "idle"}
                   eventId={Math.max(
                     incoming?.at ?? 0,
                     greeting,
                     newcomer?.joinedAt ?? 0,
                     latestSolve?.solvedAt ?? 0,
                   )}
-                  difficulty={difficulty === 'mixed' ? 'easy' : difficulty}
+                  difficulty={difficulty === "mixed" ? "easy" : difficulty}
                   headgear={preferences.headgear}
                   theme={theme}
                 />
@@ -380,31 +381,31 @@ export function MatchArena({
                     {p.id === playerId && <small> you</small>}
                   </strong>
                   <span>
-                    {p.id === hostId ? 'Host' : p.connected ? 'Ready' : 'Away'}
+                    {p.id === hostId ? "Host" : p.connected ? "Ready" : "Away"}
                   </span>
                 </li>
               ))}
             </ul>
             <label className="match-difficulty">
-              {isHost ? 'Song difficulty' : 'The host chooses song difficulty'}
+              {isHost ? "Song difficulty" : "The host chooses song difficulty"}
               {isHost && (
                 <select
                   value={difficulty}
                   onChange={(e) =>
-                    setDifficulty(e.target.value as MatchDifficulty | 'mixed')
+                    setDifficulty(e.target.value as MatchDifficulty | "mixed")
                   }
                   disabled={!isHost}
                 >
                   {[
-                    'mixed',
-                    'easy',
-                    'medium',
-                    'hard',
-                    'expert',
-                    'impossible',
+                    "mixed",
+                    "easy",
+                    "medium",
+                    "hard",
+                    "expert",
+                    "impossible",
                   ].map((d) => (
                     <option key={d} value={d}>
-                      {d === 'mixed' ? 'Auto · all difficulties' : d}
+                      {d === "mixed" ? "Auto · all difficulties" : d}
                     </option>
                   ))}
                 </select>
@@ -429,7 +430,7 @@ export function MatchArena({
                   After each match
                   <select
                     value={String(carryScores)}
-                    onChange={(e) => setCarryScores(e.target.value === 'true')}
+                    onChange={(e) => setCarryScores(e.target.value === "true")}
                   >
                     <option value="false">Reset scores</option>
                     <option value="true">Keep adding points</option>
@@ -441,8 +442,8 @@ export function MatchArena({
               Global mix · same intro · 90 seconds per song
               <br />
               {carryScores
-                ? 'Points carry into the next match.'
-                : 'Each match starts at zero.'}{' '}
+                ? "Points carry into the next match."
+                : "Each match starts at zero."}{" "}
               Equal scores share a rank.
             </p>
             {isHost ? (
@@ -450,27 +451,27 @@ export function MatchArena({
                 className="match-primary"
                 disabled={onlineCount < 2 || pending || !connected}
                 onClick={() => {
-                  setPending(true)
+                  setPending(true);
                   sendMatch({
-                    type: 'match-start',
+                    type: "match-start",
                     difficulty,
                     length,
                     carryScores,
-                  })
+                  });
                 }}
               >
                 {pending
-                  ? 'Finding your first song…'
+                  ? "Finding your first song…"
                   : onlineCount < 2
-                    ? 'Invite a friend to start'
-                    : 'Start the match'}
+                    ? "Invite a friend to start"
+                    : "Start the match"}
                 <ArrowRight size={18} />
               </button>
             ) : (
               <p className="match-wait">Waiting for the host to start…</p>
             )}
             <button className="match-invite" onClick={copy}>
-              {copied ? 'Invite copied' : 'Copy invite link'}
+              {copied ? "Invite copied" : "Copy invite link"}
               <Copy size={15} />
             </button>
           </section>
@@ -480,8 +481,8 @@ export function MatchArena({
           <div className="match-progress">
             <span>
               {finished
-                ? 'Match complete'
-                : `Song ${String(match.number).padStart(2, '0')} / ${match.length ?? MATCH_LENGTH}`}
+                ? "Match complete"
+                : `Song ${String(match.number).padStart(2, "0")} / ${match.length ?? MATCH_LENGTH}`}
             </span>
             <div
               aria-label={`Song ${match.number} of ${match.length ?? MATCH_LENGTH}`}
@@ -501,32 +502,32 @@ export function MatchArena({
               <div className="match-stage-title">
                 <span className="match-kicker">
                   {finished
-                    ? 'Final standings'
+                    ? "Final standings"
                     : revealed
-                      ? 'The song was'
+                      ? "The song was"
                       : !me
-                        ? 'You’re spectating'
-                        : me.status === 'solved'
-                          ? 'Locked in. Nice ears.'
-                          : me.status === 'out'
-                            ? 'Let’s hear from the others'
-                            : 'Trust your ears'}
+                        ? "You’re spectating"
+                        : me.status === "solved"
+                          ? "Locked in. Nice ears."
+                          : me.status === "out"
+                            ? "Let’s hear from the others"
+                            : "Trust your ears"}
                 </span>
                 <h1>
                   {finished
                     ? entries.filter((p) => p.points === entries[0]?.points)
                         .length > 1
-                      ? 'A shared victory.'
+                      ? "A shared victory."
                       : `${entries[0]?.name} takes it.`
                     : revealed
                       ? match.answer?.title
                       : countdown > 0
                         ? `Ready in ${countdown}…`
-                        : me?.status === 'solved'
-                          ? 'You’ve got it.'
-                          : me?.status === 'out'
-                            ? 'Sit tight, music buddy.'
-                            : 'How little do you need?'}
+                        : me?.status === "solved"
+                          ? "You’ve got it."
+                          : me?.status === "out"
+                            ? "Sit tight, music buddy."
+                            : "How little do you need?"}
                 </h1>
                 {revealed && <p>{match.answer?.artist}</p>}
               </div>
@@ -536,10 +537,10 @@ export function MatchArena({
                     pose={
                       solveFresh
                         ? latestSolve?.id === playerId
-                          ? 'cheer'
-                          : 'hover'
+                          ? "cheer"
+                          : "hover"
                         : helloActive
-                          ? 'hover'
+                          ? "hover"
                           : mascotPose
                     }
                     onRuler={revealed}
@@ -559,7 +560,7 @@ export function MatchArena({
                     className="match-album"
                     onClick={play}
                     aria-label={
-                      playing ? 'Stop revealed song' : 'Play revealed song'
+                      playing ? "Stop revealed song" : "Play revealed song"
                     }
                   >
                     <img
@@ -577,15 +578,15 @@ export function MatchArena({
                 <>
                   <div className="match-stakes">
                     <strong>
-                      {me?.status === 'solved'
+                      {me?.status === "solved"
                         ? `+${me.delta.toLocaleString()}`
                         : canPlay
                           ? MATCH_POINTS[stage].toLocaleString()
-                          : '—'}
+                          : "—"}
                       <small>
-                        {me?.status === 'solved'
-                          ? 'points secured'
-                          : 'points available'}
+                        {me?.status === "solved"
+                          ? "points secured"
+                          : "points available"}
                       </small>
                     </strong>
                     <span
@@ -593,7 +594,7 @@ export function MatchArena({
                       aria-label={`${remaining} seconds remaining`}
                     >
                       {Math.floor(remaining / 60)}:
-                      {String(remaining % 60).padStart(2, '0')}
+                      {String(remaining % 60).padStart(2, "0")}
                       <small>round remaining</small>
                     </span>
                   </div>
@@ -619,7 +620,7 @@ export function MatchArena({
                         onClick={play}
                         aria-label={
                           playing
-                            ? 'Stop clip'
+                            ? "Stop clip"
                             : `Play ${MATCH_STAGES[stage]} second clip`
                         }
                       >
@@ -628,8 +629,8 @@ export function MatchArena({
                       <form
                         className="match-guess"
                         onSubmit={(e) => {
-                          e.preventDefault()
-                          guess(query)
+                          e.preventDefault();
+                          guess(query);
                         }}
                       >
                         <input
@@ -671,62 +672,65 @@ export function MatchArena({
                         disabled={pending}
                       >
                         <SkipForward size={16} />
-                        {stage === 4 ? 'Pass' : 'Skip'}
+                        {stage === 4 ? "Pass" : "Skip"}
                       </button>
                     </div>
                   ) : (
                     <p className="match-wait" role="status">
                       {countdown
-                        ? 'Everyone starts together.'
+                        ? "Everyone starts together."
                         : !me
-                          ? 'Join the next match to play.'
-                          : `${match.entries.filter((p) => p.status === 'playing').length} still listening. The answer reveals together.`}
+                          ? "Join the next match to play."
+                          : `${match.entries.filter((p) => p.status === "playing").length} still listening. The answer reveals together.`}
                     </p>
                   )}
                   <p className="match-feedback" role="status">
                     {audioError ||
-                      (me?.lastAction === 'miss'
-                        ? 'Not that one. A little more of the song is unlocked.'
+                      (me?.lastAction === "miss"
+                        ? "Not that one. A little more of the song is unlocked."
                         : canPlay
-                          ? 'Every skip or wrong guess unlocks more audio, worth 200 fewer points.'
-                          : '')}
+                          ? "Every skip or wrong guess unlocks more audio, worth 200 fewer points."
+                          : "")}
                   </p>
                 </>
               ) : (
                 <div className="match-recap">
                   <strong>
-                    {me ? `+${me.delta.toLocaleString()}` : 'Good listening.'}
-                    <small>{me ? 'this song' : ''}</small>
+                    {me ? `+${me.delta.toLocaleString()}` : "Good listening."}
+                    <small>{me ? "this song" : ""}</small>
                   </strong>
                   <p>
                     {finished
-                      ? `${match.length ?? 10} songs complete. ${me ? `You finished #${myRank} with ${me.points.toLocaleString()} points.` : ''}`
-                      : me?.status === 'solved'
-                        ? `Named at ${MATCH_STAGES[me.stage]} seconds. ${ahead ? `${ahead.points - me.points} points to catch ${ahead.name}.` : 'You’re in the lead.'}`
-                        : 'A fresh song is a fresh chance.'}
+                      ? `${match.length ?? 10} songs complete. ${me ? `You finished #${myRank} with ${me.points.toLocaleString()} points.` : ""}`
+                      : me?.status === "solved"
+                        ? `Named at ${MATCH_STAGES[me.stage]} seconds. ${ahead ? `${ahead.points - me.points} points to catch ${ahead.name}.` : "You’re in the lead."}`
+                        : "A fresh song is a fresh chance."}
                   </p>
                   {me ? (
                     <div className="match-ready">
+                      <p className="match-waiting" role="status">
+                        {me.ready ? (() => { const waiting = match.entries.filter(p => !p.ready && players.some(q => q.id === p.id && q.connected)); return waiting.length ? `Waiting for ${waiting.map(p => p.name).join(", ")}.` : "Everyone is ready. Preparing your next song…"; })() : "Take a moment. The next song starts when everyone is ready."}
+                      </p>
                       <button
                         className="match-primary"
                         disabled={
-                          pending || !connected || (finished && onlineCount < 2)
+                          pending || !connected || (Boolean(me.ready) && match.entries.some(p => !p.ready && players.some(q => q.id === p.id && q.connected))) || (finished && onlineCount < 2)
                         }
                         onClick={() => {
-                          setPending(true)
+                          setPending(true);
                           sendMatch({
-                            type: 'match-next',
+                            type: "match-next",
                             roundId: match.roundId,
-                          })
+                          });
                         }}
                       >
                         {pending
-                          ? 'Waiting…'
+                          ? "Waiting…"
                           : me.ready
-                            ? 'Ready · waiting for everyone'
+                            ? match.entries.some(p => !p.ready && players.some(q => q.id === p.id && q.connected)) ? "Ready · waiting for everyone" : "Try loading next song"
                             : finished
-                              ? 'Ready for another match'
-                              : 'Ready for next song'}
+                              ? "Ready for another match"
+                              : "Ready for next song"}
                         <Check size={17} />
                       </button>
                       <small>
@@ -736,19 +740,19 @@ export function MatchArena({
                               p.ready &&
                               players.some((q) => q.id === p.id && q.connected),
                           ).length
-                        }{' '}
-                        /{' '}
+                        }{" "}
+                        /{" "}
                         {
                           match.entries.filter((p) =>
                             players.some((q) => q.id === p.id && q.connected),
                           ).length
-                        }{' '}
+                        }{" "}
                         ready · connected players move on together
                         {finished
                           ? match.carryScores
-                            ? ' · points carry over'
-                            : ' · scores reset'
-                          : ''}
+                            ? " · points carry over"
+                            : " · scores reset"
+                          : ""}
                       </small>
                     </div>
                   ) : (
@@ -765,8 +769,8 @@ export function MatchArena({
                     <Check size={15} />
                     <span>
                       {solved
-                        .map((p) => (p.id === playerId ? 'You' : p.name))
-                        .join(', ')}{' '}
+                        .map((p) => (p.id === playerId ? "You" : p.name))
+                        .join(", ")}{" "}
                       got it
                       <small>
                         {solved.length} / {entries.length} named this song
@@ -781,23 +785,23 @@ export function MatchArena({
                 )}
               </div>
               <div className="match-section-heading">
-                <h2>{finished ? 'Final scores' : 'The race'}</h2>
+                <h2>{finished ? "Final scores" : "The race"}</h2>
                 <Users size={17} />
               </div>
               <p className="match-board-target">
                 {ahead
                   ? `${ahead.points - me!.points} points to catch ${ahead.name}`
                   : me
-                    ? 'Keep that lead. Every song counts.'
-                    : 'Cheer them on.'}
+                    ? "Keep that lead. Every song counts."
+                    : "Cheer them on."}
               </p>
               <ol>
                 {entries.map((p) => {
                   const rank =
-                    entries.findIndex((e) => e.points === p.points) + 1
+                    entries.findIndex((e) => e.points === p.points) + 1;
                   const online = players.some(
                     (e) => e.id === p.id && e.connected,
-                  )
+                  );
                   return (
                     <li key={p.id} data-you={p.id === playerId}>
                       <span className="match-rank">
@@ -816,32 +820,32 @@ export function MatchArena({
                         </strong>
                         <p>
                           {!online
-                            ? 'Reconnecting'
+                            ? "Reconnecting"
                             : revealed && p.ready
-                              ? 'Ready for next song'
-                              : p.status === 'solved'
+                              ? "Ready for next song"
+                              : p.status === "solved"
                                 ? `✓ Named it · +${p.delta}`
-                                : p.status === 'out'
-                                  ? 'Finished listening'
-                                  : p.lastAction === 'skip'
+                                : p.status === "out"
+                                  ? "Finished listening"
+                                  : p.lastAction === "skip"
                                     ? `Skipped → ${MATCH_STAGES[p.stage]}s`
-                                    : p.lastAction === 'miss'
+                                    : p.lastAction === "miss"
                                       ? `Trying ${MATCH_STAGES[p.stage]}s`
-                                      : 'Listening'}
+                                      : "Listening"}
                         </p>
                         <div className="match-player-stages">
                           {MATCH_STAGES.map((_, i) => (
                             <i
                               key={i}
                               data-lit={i <= p.stage}
-                              data-solved={p.status === 'solved'}
+                              data-solved={p.status === "solved"}
                             />
                           ))}
                         </div>
                       </div>
                       <b>{p.points.toLocaleString()}</b>
                     </li>
-                  )
+                  );
                 })}
               </ol>
               <div className="match-board-note">
@@ -861,5 +865,5 @@ export function MatchArena({
         <span>No speed bonus. Just good ears.</span>
       </footer>
     </main>
-  )
+  );
 }

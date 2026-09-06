@@ -1781,8 +1781,9 @@ export function Game() {
 
             {catalogError && !activeState.round && !catalogLoading && (
               <div className="notice">
-                <p className="notice-title">No songs match</p>
-                <p>Clear your filters or try another mix.</p>
+                <p className="notice-title">We couldn’t load a song</p>
+                <p>Try again. If this keeps happening, try a broader mix.</p>
+                <button type="button" className="btn btn-primary" onClick={() => void loadAllRounds()}>Try again</button>
                 {activeFilterTotal > 0 ? (
                   <button
                     type="button"
