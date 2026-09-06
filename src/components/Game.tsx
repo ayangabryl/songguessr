@@ -1,3 +1,4 @@
+import { MatchArena } from './MatchArena'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent } from 'react'
 import {
   type Difficulty,
@@ -1237,6 +1238,7 @@ export function Game() {
     const points = roundPoints({ status, solvedStage, stages: activeStages })
     setSittingTotal((total) => total + points)
     sitting.reportScore(points)
+    sitting.reportActivity(status === 'won' ? 'solved' : 'missed', solvedStage ?? currentStageEndpoint)
     setScoreDelta(points)
     if (points > 0) {
       setScoreBump(true)
@@ -1384,6 +1386,7 @@ export function Game() {
 
     // A skip mid-round does not change the streak. Using the last skip
     // ends the song as a loss, and revealAnswer clears the streak.
+    sitting.reportActivity('skip', currentStageEndpoint)
     if (isLastStage) setMascotLoseReason('timeout')
     setMascotSkip(true)
     setMascotEvent(event => event + 1)
@@ -1593,6 +1596,8 @@ export function Game() {
     return () => media.removeEventListener('change', onChange)
   }, [themePreference])
 
+  useEffect(()=>{if(sitting.code)void stopClip({preserveProgress:true})},[sitting.code])
+
   const tableBoardProps = sitting.live
     ? {
         players: sitting.players,
@@ -1602,6 +1607,8 @@ export function Game() {
         delta: scoreDelta,
       }
     : null
+
+  if(sitting.code) return <MatchArena table={sitting} theme={resolvedTheme}/>
 
   return (
     <div className="app-shell console" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
@@ -2025,7 +2032,7 @@ export function Game() {
         copyFailed={sitCopyFailed}
       />
 
-      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><button className="profile-edit" onClick={()=>{setSettingsOpen(false);window.dispatchEvent(new Event('open-noot-profile'))}}>Customize your Noot</button>
         <div className="settings-sheet-body">
           <SpotifyConnect
             isConnected={spotify.isConnected}

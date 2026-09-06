@@ -1,3 +1,4 @@
+import {createWearables} from './wearables.ts'
 import * as THREE from 'three'
 import { MASCOT_PALETTES } from '../mascot.ts'
 import { addSkinWeights, CROWN_Y, HEAD_Y, sculptBody, sculptLimb, surfaceOval } from './geometry.ts'
@@ -23,6 +24,7 @@ export function createNoot() {
   patch.name = 'conforming-belly'; torso.add(patch); patch.bind(skeleton)
   const face = createFace(head, skin)
   const headgear = createHeadgear(head)
+  const wearables = createWearables(head)
   const arms: { shoulder: THREE.Bone; wrist: THREE.Bone; skeleton: THREE.Skeleton; elbow: ReturnType<typeof spring>; pitch: ReturnType<typeof spring>; mesh: THREE.SkinnedMesh }[] = []
   const feet: THREE.Group[] = []
   for (const side of [-1, 1]) {
@@ -70,9 +72,8 @@ export function createNoot() {
     const sad = action === 'lose' || action === 'timeout' || wistful
     const celebrate = action === 'win' || action === 'streak'
     const skip = action === 'skip', walk = action === 'walk', run = action === 'run'
-    const skipStyle = Math.abs(eventId) % 3
-    const hopping = skip && skipStyle !== 0
-    const walking = walk || run || (skip && !hopping && age > .10 && age < 1.13)
+    const hopping = false
+    const walking = walk || run || (skip && age < 1.2)
     const measuredSpeed = state.travelSpeed === undefined ? undefined : Math.abs(state.travelSpeed)
     const moving = walking ? measuredSpeed === undefined ? 1 : THREE.MathUtils.smoothstep(measuredSpeed, .015, .18) : 0
     const stride = springs.stride.step(reduced ? 0 : moving, dt)
@@ -81,9 +82,8 @@ export function createNoot() {
     const beat = time * (party ? 8.6 : upbeat ? 6.5 : wistful ? 2.1 : 4.5)
     const sway = Math.sin(beat)
     const anticipation = pulse(age,0,.22), pet = action === 'tap' ? pulse(age,0,1.1) : 0
-    const flight = (start: number, end: number, height: number) => { const t = (age-start)/(end-start); return t>0 && t<1 ? 4*height*t*(1-t) : 0 }
-    const hop = hopping ? skipStyle===1 ? flight(.22,.54,.09)+flight(.73,1.05,.09) : flight(.36,.87,.16) : 0
-    const landing = hopping ? pulse(age,skipStyle===1?1.05:.87,1.28) : 0
+    const hop = 0, landing = 0
+    const bump = state.onRuler && (celebrate || sad) ? pulse(age,.12,.65) : 0
     const jump = hop + (celebrate ? pulse(age,.2,.9) * .25 + (action === 'streak' ? pulse(age,.98,1.58)*.2 : 0) : 0)
     const wave = action === 'hover' ? smooth(age/.55) * (1-smooth((age-1.75)/.65)) : 0
     const sleepy = action === 'sleepy'
@@ -94,9 +94,9 @@ export function createNoot() {
     const facing = state.travelSpeed !== undefined && Math.abs(state.travelSpeed)>.02 ? Math.sign(state.travelSpeed) : direction
     const yaw = walking || (hopping && age < 1.15) ? facing * (skip || run ? 1.40 : .55) : pointer.x * .075 + (music ? sway * groove : 0)
     const rootY = jump
-    const roll = hold*.035 + shrug*Math.sin(time*1.8)*.012 - cheer*.055 + stride * step * .035 + sway * groove * .43 + idleShift
+    const roll = bump*direction*.12 + hold*.035 + shrug*Math.sin(time*1.8)*.012 - cheer*.055 + stride * step * .035 + sway * groove * .43 + idleShift
     const crouch = celebrate || skip || action === 'switch' ? anticipation * -.035 : 0
-    const squash = crouch - landing*.055 + (hop>0 ? .018 : 0) - pet * .035 + breathe + (music && !wistful ? Math.cos(beat*2) * .012 : 0)
+    const squash = -bump*.025 + crouch - landing*.055 + (hop>0 ? .018 : 0) - pet * .035 + breathe + (music && !wistful ? Math.cos(beat*2) * .012 : 0)
     if (reduced) {
       root.position.set(0,0,0); root.rotation.set(0,0,0); torso.position.y=0; torso.rotation.set(0,0,0); torso.scale.set(1,1,1)
       head.rotation.set(0,0,0); crown.rotation.set(0,0,0); tip.rotation.set(0,0,0)
@@ -144,7 +144,7 @@ export function createNoot() {
     const blink = reduced ? 0 : blinkAmount(time-blinkAt)
     gaze.set(reduced ? 0 : pointer.x*.16 + lookX, reduced ? 0 : pointer.y*.12 + lookY + (sad ? -.055 : 0))
     const smile = sad ? -.55 : shrug ? -.12 : pet ? 1.25 : 1
-    const mouthOpen = shrug ? .72 : cheer ? 1 : celebrate ? .8 : party ? .7 : upbeat ? .35 : pet ? .45 : 0
+    const mouthOpen = bump>.15 ? .8 : shrug ? .72 : cheer ? 1 : celebrate ? .8 : party ? .7 : upbeat ? .35 : pet ? .45 : 0
     face.update(dt, sleepy ? Math.max(.68,blink) : blink, sad ? .25 : pet ? .55 : celebrate ? .38 : 0, smile, mouthOpen, sad ? 1 : shrug ? -.55 : 0, gaze)
     const armAngle = arms[0].shoulder.rotation.z+arms[1].shoulder.rotation.z
     const armImpulse = dt>0 ? THREE.MathUtils.clamp((armAngle-previousArmAngle)/dt,-2,2) : 0
@@ -152,6 +152,7 @@ export function createNoot() {
     const accessoryDrive = armImpulse*.22 + stride*step*.5 + (music ? sway*.35 : 0) + landing*1.2 + (wave ? Math.sin(age*7)*wave*.18 : 0) + cheer*Math.sin(age*4)*.25
     headgear.update(dt,accessoryDrive,hold,reduced)
     headgear.select(state.headgear ?? 'headphones')
+    wearables.update(dt,accessoryDrive,state,reduced)
     const palette = MASCOT_PALETTES[state.difficulty], t=state.paused ? 1 : 1-Math.exp(-dt*7)
     skin.color.lerp(color.set(palette.body),t); belly.color.lerp(color.set(palette.belly),t); face.pink.color.lerp(color.set(palette.cheek),t)
   }

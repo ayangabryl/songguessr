@@ -62,10 +62,17 @@ export async function peekSitting(code: string, playerId?: string): Promise<Sitt
   return body
 }
 
+let memoryToken = ''
+function sittingToken() {
+  if(memoryToken)return memoryToken
+  try {memoryToken=sessionStorage.getItem('songguessr-seat-token')??crypto.randomUUID();sessionStorage.setItem('songguessr-seat-token',memoryToken)} catch {memoryToken=crypto.randomUUID()}
+  return memoryToken
+}
 export function sittingSocketUrl(code: string, playerId: string, name: string, points: number): string {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const params = new URLSearchParams({
     playerId,
+    token:sittingToken(),
     name,
     points: String(Math.max(0, Math.floor(points))),
   })

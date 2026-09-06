@@ -61,7 +61,7 @@ export function mountNoot(canvas: HTMLCanvasElement, readState: () => NootState,
     const state = readState()
     const animationDt = dt * (state.speed ?? 1)
     if (!state.paused) elapsed += animationDt
-    const nextSignature = `${state.pose}:${state.eventId}:${state.headgear}:${state.mood}:${state.theme}:${state.paused}:${state.viewYaw}:${state.comparison}:${media.matches}`
+    const nextSignature = `${state.pose}:${state.eventId}:${state.headgear}:${state.clothing}:${state.eyewear}:${state.accessoryColor}:${state.mood}:${state.theme}:${state.paused}:${state.viewYaw}:${state.comparison}:${media.matches}`
     if (nextSignature !== signature) { signature = nextSignature; settleUntil = timestamp + 1800 }
     frameCamera(state)
     let travelSpeed: number | undefined

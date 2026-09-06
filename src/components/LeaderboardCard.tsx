@@ -27,6 +27,8 @@ export function LeaderboardCard({
   delta,
 }: LeaderboardCardProps) {
   const you = players.find((player) => player.id === youId)
+  const ahead = players.filter(player=>you && player.points>you.points).at(-1)
+  const chase = you ? ahead ? `${ahead.points-you.points} points to tie ${ahead.name}` : players.filter(p=>p.points===you.points).length>1 ? 'Tied for the lead' : 'You’re leading the table' : 'Make your first move'
   const countLabel = players.length === 1 ? '1 playing' : `${players.length} playing`
   const listRef = useRef<HTMLOListElement>(null)
   const firstTops = useRef(new Map<string, number>())
@@ -77,7 +79,7 @@ export function LeaderboardCard({
 
   return (
     <section className="sit-board" aria-label="Scores">
-      <p className="sit-board-count">{countLabel}</p>
+      <div className="sit-board-heading"><div><p className="sit-board-count">LIVE TABLE · {countLabel}</p><h3>{chase}</h3></div>{you && <strong>#{you.rank}</strong>}</div><p className="sit-board-rules">Casual table · independent songs and clip stages</p>
       {you ? (
         <p className="sr-only">
           You are {you.name}, rank {you.rank}, {you.points} points.
@@ -113,6 +115,7 @@ export function LeaderboardCard({
                   {player.name}
                   {mine ? <i>you</i> : null}
                   {player.connected ? null : <i>away</i>}
+                  {player.activity && <small className="sit-activity">{player.activity.action==='skip' ? 'Skipped' : player.activity.action==='solved' ? 'Named it' : player.activity.action==='missed' ? 'Finished · not named' : 'Listening'} · {player.activity.stage}s clip</small>}
                 </span>
                 <span className="sit-pts">
                   <b>{formatScoreValue(player.points)}</b>

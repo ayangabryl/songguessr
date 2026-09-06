@@ -1,3 +1,5 @@
+import {useNootPreferences} from '../lib/noot/preferences'
+import type { MatchView, MatchCommand } from '../../shared/match'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   filterPlayers,
@@ -30,6 +32,8 @@ export type SittingPending = 'host' | 'join' | null
 
 interface StatePayload {
   type: 'state'
+  match?: MatchView|null
+  serverNow?:number
   code: string
   hostId: string | null
   players: RankedPlayer[]
@@ -51,12 +55,16 @@ function inviteCodeFromUrl(): string | null {
 
 export function useSitting() {
   const playerId = useMemo(() => loadPlayerId(), [])
+  const [match,setMatch] = useState<MatchView|null>(null)
+  const [matchError,setMatchError] = useState<string|null>(null)
+  const [clockOffset,setClockOffset] = useState(0)
   const [status, setStatus] = useState<SittingStatus>('solo')
   const [code, setCode] = useState<string | null>(null)
   const [hostId, setHostId] = useState<string | null>(null)
   const [players, setPlayers] = useState<RankedPlayer[]>([])
   const [error, setError] = useState<SittingError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [appearance]=useNootPreferences()
   const [name, setName] = useState(loadDisplayName)
   const [query, setQuery] = useState('')
   const [joinCode, setJoinCode] = useState(() => inviteCodeFromUrl() ?? '')
@@ -81,6 +89,9 @@ export function useSitting() {
 
   const applyBoard = useCallback(
     (payload: StatePayload) => {
+      setMatch(payload.match??null)
+      setMatchError(null)
+      setClockOffset((payload.serverNow??Date.now())-Date.now())
       setCode(payload.code)
       setHostId(payload.hostId)
       setPlayers(payload.players)
@@ -146,6 +157,7 @@ export function useSitting() {
         } catch {
           return
         }
+        if ((payload as {type:string}).type === 'match-error') {setMatchError((payload as {message:string}).message);return}
         if (payload.type === 'state') {
           applyBoard(payload)
           return
@@ -165,6 +177,7 @@ export function useSitting() {
           return
         }
         if (statusRef.current !== 'live') return
+        setStatus('connecting')
         const delay = Math.min(8000, 500 * 2 ** retryRef.current)
         retryRef.current += 1
         window.setTimeout(() => {
@@ -260,6 +273,7 @@ export function useSitting() {
     }
     disconnectSocket()
     saveLastSittingCode(null)
+    setMatch(null);setMatchError(null)
     setStatus('solo')
     setCode(null)
     setHostId(null)
@@ -269,6 +283,17 @@ export function useSitting() {
     setSlow(false)
     setPending(null)
   }, [disconnectSocket])
+
+  useEffect(()=>{if(status==='live')socketRef.current?.send(JSON.stringify({type:'pet-profile',appearance,name}))},[appearance,status,name])
+  useEffect(()=>{const update=()=>setName(loadDisplayName());window.addEventListener('songguessr-profile',update);return()=>window.removeEventListener('songguessr-profile',update)},[])
+  const greet=useCallback((target:string)=>{socketRef.current?.send(JSON.stringify({type:'pet-greet',target}))},[])
+  const sendMatch = useCallback((command:MatchCommand) => {
+    if(socketRef.current?.readyState!==WebSocket.OPEN) {setMatchError('Reconnecting. Your progress is saved.');return}
+    setMatchError(null);socketRef.current.send(JSON.stringify(command))
+  },[])
+  const reportActivity = useCallback((action: 'skip'|'listening'|'solved'|'missed', stage: number) => {
+    if(socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({type:'activity',action,stage}))
+  }, [])
 
   const reportScore = useCallback((delta: number) => {
     if (statusRef.current !== 'live') return
@@ -297,6 +322,7 @@ export function useSitting() {
 
   return {
     playerId,
+    match,matchError,clockOffset,sendMatch,greet,
     status,
     code,
     hostId,
@@ -319,7 +345,9 @@ export function useSitting() {
     host,
     join,
     leave,
+    reconnect:()=>{if(code)connect(code,0)},
     reportScore,
+    reportActivity,
     live: status === 'live',
   }
 }

@@ -916,3 +916,26 @@
 @media (prefers-reduced-motion: reduce) {
   .stage[data-intent='skip'] .figure { transition: none; }
 }
+
+/* A short contact wobble as the revealed sleeve nudges Noot aside. */
+.answer-cover .result-play-toggle { animation: album-nudge 650ms ease-out both; }
+@keyframes album-nudge {
+  0% { transform: translateY(8px) rotate(-5deg); }
+  28% { transform: translateY(0) rotate(4deg); }
+  55% { transform: rotate(-2deg); }
+  100% { transform: rotate(0); }
+}
+@media(prefers-reduced-motion:reduce) { .answer-cover .result-play-toggle {animation:none;} }
+.score-beat .score-ladder {display:flex;gap:5px;margin-top:10px;flex-wrap:wrap;}
+.score-beat .score-ladder>span {font-size:11px;font-weight:400;line-height:1.4;border:1px solid var(--line, #ced7cf);padding:5px 8px;border-radius:7px;opacity:.65;}
+.score-beat .score-ladder>span[data-earned='true'] {opacity:1;font-weight:700;}
+
+.console .score-beat{display:flex;align-items:baseline;gap:8px;margin:0 0 12px}
+.console .score-beat b{font:600 16px var(--font);letter-spacing:0;color:var(--text)}
+.console .score-beat span{font-size:13px;font-weight:400;color:var(--text-2)}
+.sitting-sheet input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.sit-field input:focus-visible{outline:0;box-shadow:0 0 0 2px var(--accent);border-color:transparent}
+.profile-shell{position:fixed!important;inset:0!important;z-index:1000!important;min-height:0!important;padding:0!important;background:transparent!important;pointer-events:none}
+.profile-shell .sheet-overlay{pointer-events:auto}.profile-intro,.profile-note{color:var(--text-2);font-size:13px;line-height:1.6}.profile-pet.mascot{position:relative;width:180px;height:195px;margin:0 auto 16px;border:0;background:none;display:block;cursor:pointer}.profile-options{border:0;margin:18px 0;padding:0;display:flex;gap:7px;flex-wrap:wrap}.profile-options legend{font-size:13px;margin-bottom:9px}.profile-options button,.profile-edit{font:inherit;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--hairline-strong);border-radius:999px;padding:10px 14px;cursor:pointer}.profile-options button[aria-pressed=true]{border-color:var(--accent);background:var(--surface-2)}.profile-save{width:100%;border:0;border-radius:999px;padding:16px;background:var(--accent);color:var(--on-accent);font:inherit;cursor:pointer}
+.profile-shell .settings-sheet-body{gap:16px}.profile-pet.mascot{flex:0 0 160px;width:150px;height:160px;margin-bottom:0}.profile-shell form{flex-shrink:0}

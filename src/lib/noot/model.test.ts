@@ -108,7 +108,7 @@ test('springs settle consistently at 20 and 120 fps; blink closes faster than it
   assert.equal(blinkAmount(.32),0)
 })
 
-test('successive skips include grounded running and two ballistic variations', () => {
+test('successive skips always run with the body on the floor', () => {
   const peaks: number[] = []
   for(let variant=0;variant<3;variant++) {
     const state: NootState={pose:'skip',difficulty:'easy',eventId:300+variant}
@@ -122,8 +122,8 @@ test('successive skips include grounded running and two ballistic variations', (
     assert(Math.abs(rig.root.position.y)<.02,'returns to ground after each skip')
   }
   assert(peaks[0]<.02)
-  assert(peaks[1]>.08 && peaks[1]<.10)
-  assert(peaks[2]>.15 && peaks[2]<.17)
+  assert(peaks[1]<.02)
+  assert(peaks[2]<.02)
 })
 
 test('arm normals stay smooth across shared triangle corners', () => {
@@ -163,4 +163,28 @@ test('contact pivots earcups within hinge limits and releases without changing a
   const rotation=hinge.rotation.x
   rig.update(time,0,{...state,paused:true},pointer,false)
   assert.equal(hinge.rotation.x,rotation)
+})
+test('wearables switch without altering anatomy and remain finite during running',()=>{
+ const body=rig.root.getObjectByName('continuous-body-and-note') as THREE.SkinnedMesh
+ const geometry=body.geometry
+ simulate({clothing:'scarf',eyewear:'round',pose:'run',accessoryColor:'rose'},2,20)
+ assert.equal(rig.root.getObjectByName('scarf')!.visible,true)
+ assert.equal(rig.root.getObjectByName('round-glasses')!.visible,true)
+ simulate({clothing:'bow',eyewear:'sunny'},.2)
+ assert.equal(rig.root.getObjectByName('scarf')!.visible,false)
+ assert.equal(rig.root.getObjectByName('bow')!.visible,true)
+ assert.equal(rig.root.getObjectByName('round-glasses')!.visible,false)
+ assert.equal(body.geometry,geometry)
+ rig.root.traverse(p=>assert(p.matrixWorld.elements.every(Number.isFinite)))
+})
+test('bandana follows the chest surface and switches off with other clothing',()=>{
+ simulate({clothing:'bandana',accessoryColor:'lavender'},.2)
+ const bandana=rig.root.getObjectByName('bandana')!
+ assert.equal(bandana.visible,true)
+ const mesh=bandana.children[0] as THREE.Mesh
+ const pos=mesh.geometry.getAttribute('position')
+ assert(pos.count>300)
+ for(let i=0;i<pos.count;i++)assert(Number.isFinite(pos.getZ(i)))
+ simulate({clothing:'bow'},.1)
+ assert.equal(bandana.visible,false)
 })

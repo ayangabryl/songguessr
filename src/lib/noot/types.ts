@@ -9,6 +9,9 @@ export interface NootState {
   difficulty: Difficulty
   variant?: string
   headgear?: NootHeadgear
+  clothing?: 'none'|'scarf'|'bow'|'bandana'
+  eyewear?: 'none'|'round'|'sunny'
+  accessoryColor?: 'blue'|'rose'|'gold'|'mint'|'lavender'
   mood?: NootMood
   theme?: 'light' | 'dark'
   viewYaw?: number

@@ -1,7 +1,8 @@
+import {parseAppearance, type NootAppearance} from '../../../shared/noot-profile'
 import { useMemo, useSyncExternalStore } from 'react'
-import type { NootHeadgear, NootMood } from './types'
+import type { NootMood } from './types'
 
-interface Preferences { headgear: NootHeadgear; mood: NootMood }
+interface Preferences extends NootAppearance { mood: NootMood }
 const KEY = 'songguessr-noot', EVENT = 'noot-preferences'
 let memory = ''
 function snapshot() { try { return localStorage.getItem(KEY) ?? memory } catch { return memory } }
@@ -13,6 +14,7 @@ function parse(raw: string): Preferences {
   let value: Partial<Preferences> = {}
   try { value = JSON.parse(raw) ?? {} } catch { /* First visit. */ }
   return {
+    ...parseAppearance(value),
     headgear: ['headphones','cat-earphones','daisy','none'].includes(value.headgear ?? '') ? value.headgear! : 'headphones',
     mood: ['chill','happy','sad','dance'].includes(value.mood ?? '') ? value.mood! : 'chill',
   }

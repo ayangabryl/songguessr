@@ -10,6 +10,7 @@ import {
   MAX_SITTING_PLAYERS,
   normalizeSittingCode,
   parseSittingName,
+  parseClientSittingMessage,
   rankDelta,
   rankPlayers,
   sittingErrorMessage,
@@ -257,4 +258,14 @@ test('player ids and error copy cover the machine codes', () => {
   assert.equal(isPlayerId('short'), false)
   assert.equal(sittingErrorMessage('room-full'), 'This table is full (8).')
   assert.equal(sittingErrorMessage('not-found'), 'That code is not a table.')
+})
+
+
+test('equal points share competitive rank', () => {
+ const players=[10,10,5].map((points,i)=>({id:`player-${i}`,name:`Player ${i}`,points,joinedAt:i,connected:true}))
+ assert.deepEqual(rankPlayers(players).map(p=>p.rank),[1,1,3])
+})
+test('activity accepts only known actions and bounded finite stages', () => {
+ assert.deepEqual(parseClientSittingMessage(JSON.stringify({type:'activity',action:'skip',stage:.5})),{type:'activity',action:'skip',stage:.5})
+ for(const message of [{type:'activity',action:'cheat',stage:1},{type:'activity',action:'skip',stage:-1},{type:'activity',action:'skip',stage:999}]) assert.equal(parseClientSittingMessage(JSON.stringify(message)),null)
 })

@@ -9,7 +9,7 @@ The game and the development preview at `/?noot-studio` use the same Three.js ch
 - `scene.ts` owns rendering, light/dark lighting, pointer tracking, pause/speed, resizing, visibility suspension and GPU disposal. Reduced motion settles to a static expression. `Noot3D.tsx` retains the vector fallback for loading and unavailable WebGL.
 - `preferences.ts` saves headgear and listening mood locally and synchronizes open tabs. Music moods are user-selected animation presets; they do not analyze or classify song audio.
 
-The studio offers rotation, replay, pause, speed, lighting, palettes, outfits, happy/sad listening, dancing, walking, running, waving, pets and celebrations. New action tokens replay gestures without rebuilding the model. During game skips, the ruler owns horizontal travel and the rig supplies a run, double hop or bound (cycling with each event); measured canvas speed adjusts running cadence; the final skip moves toward the result's open side before settling into the loss expression.
+The studio offers rotation, replay, pause, speed, lighting, palettes, outfits, happy/sad listening, dancing, walking, running, waving, pets and celebrations. New action tokens replay gestures without rebuilding the model. During game skips, the ruler owns horizontal travel and the rig supplies a grounded run on every skip; measured canvas speed adjusts running cadence; the final skip moves toward the result's open side before settling into the loss expression.
 
 Run `npm run test:noot` for topology, skin weights, locomotion, replay, pause, accessory selection, low-frame-rate stability and reduced-motion checks. Run `npm run build` for production validation.
 

@@ -1,3 +1,4 @@
+import type {NootAppearance} from './noot-profile'
 export const SITTING_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ'
 export const SITTING_CODE_LENGTH = 4
 export const MAX_SITTING_PLAYERS = 8
@@ -24,6 +25,9 @@ export interface SittingPlayer {
   name: string
   points: number
   connected: boolean
+  appearance?: NootAppearance
+  greeting?: {from:string;at:number}
+  activity?: { action: 'skip' | 'listening' | 'solved' | 'missed'; stage: number; at: number }
   joinedAt: number
 }
 
@@ -107,7 +111,7 @@ export function rankPlayers(players: SittingPlayer[]): RankedPlayer[] {
     if (a.joinedAt !== b.joinedAt) return a.joinedAt - b.joinedAt
     return a.name.localeCompare(b.name)
   })
-  return sorted.map((player, index) => ({ ...player, rank: index + 1 }))
+  return sorted.map((player) => ({ ...player, rank: sorted.findIndex(other => other.points === player.points) + 1 }))
 }
 
 /** Places you moved up. Positive is an overtake; 0 if you were not on both boards. */
@@ -254,6 +258,7 @@ export function applySittingEvent(state: SittingState, event: SittingEvent): Sit
 
 export type ClientSittingMessage =
   | { type: 'score'; delta: number }
+  | { type: 'activity'; action: 'skip' | 'listening' | 'solved' | 'missed'; stage: number }
   | { type: 'leave' }
 
 export function parseClientSittingMessage(raw: string): ClientSittingMessage | null {
@@ -264,12 +269,15 @@ export function parseClientSittingMessage(raw: string): ClientSittingMessage | n
     return null
   }
   if (!parsed || typeof parsed !== 'object') return null
-  const message = parsed as { type?: unknown; delta?: unknown }
+  const message = parsed as { type?: unknown; delta?: unknown; action?: unknown; stage?: unknown }
   switch (message.type) {
     case 'score': {
       if (typeof message.delta !== 'number') return null
       return { type: 'score', delta: message.delta }
     }
+    case 'activity':
+      if (!['skip','listening','solved','missed'].includes(String(message.action)) || typeof message.stage !== 'number' || !Number.isFinite(message.stage) || message.stage < 0 || message.stage > 30) return null
+      return {type:'activity', action:message.action as 'skip'|'listening'|'solved'|'missed',stage:message.stage}
     case 'leave':
       return { type: 'leave' }
     default:

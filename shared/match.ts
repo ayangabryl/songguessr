@@ -1,0 +1,253 @@
+/** Authoritative match rules. Public views deliberately omit the song until reveal. */
+export const MATCH_STAGES = [0.1, 0.5, 2, 8, 15]
+export const MATCH_POINTS = [1000, 800, 600, 400, 200]
+export const MATCH_LENGTH = 10
+export const ROUND_MS = 90000
+export type MatchDifficulty =
+  | 'easy'
+  | 'medium'
+  | 'hard'
+  | 'expert'
+  | 'impossible'
+export interface MatchEntry {
+  id: string
+  name: string
+  points: number
+  stage: number
+  status: 'playing' | 'solved' | 'out'
+  lastAction: 'ready' | 'skip' | 'miss' | 'solved' | 'timeout'
+  delta: number
+  solvedAt?: number
+  ready?: boolean
+  history: number[]
+}
+export interface MatchSong {
+  id: string
+  title: string
+  artist: string
+  albumArt: string
+  audio: string
+  offset: number
+}
+export interface MatchState {
+  id: string
+  roundId: string
+  number: number
+  phase: 'playing' | 'reveal' | 'finished'
+  difficulty: MatchDifficulty
+  difficultyMode?: MatchDifficulty | 'mixed'
+  length?: number
+  carryScores?: boolean
+  startsAt: number
+  deadline: number
+  entries: MatchEntry[]
+  song: MatchSong
+  used: string[]
+}
+export type MatchView = Omit<MatchState, 'song' | 'used'> & {
+  audio: string
+  offset: number
+  answer: Omit<MatchSong, 'audio' | 'offset'> | null
+}
+export type MatchCommand =
+  | {
+      type: 'match-start'
+      difficulty: MatchDifficulty | 'mixed'
+      length?: number
+      carryScores?: boolean
+    }
+  | { type: 'match-next'; roundId: string }
+  | { type: 'match-skip'; roundId: string; stage: number }
+  | { type: 'match-guess'; roundId: string; stage: number; guess: string }
+export function parseMatchCommand(raw: string): MatchCommand | null {
+  let m: Record<string, unknown>
+  try {
+    m = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!m || typeof m !== 'object') return null
+  if (m.type === 'match-start') {
+    if (
+      !['mixed', 'easy', 'medium', 'hard', 'expert', 'impossible'].includes(
+        String(m.difficulty),
+      )
+    )
+      return null
+    if (
+      m.length !== undefined &&
+      (typeof m.length !== 'number' || ![5, 10, 15, 20].includes(m.length))
+    )
+      return null
+    if (m.carryScores !== undefined && typeof m.carryScores !== 'boolean')
+      return null
+    return {
+      type: 'match-start',
+      difficulty: m.difficulty as MatchDifficulty | 'mixed',
+      length: Number(m.length ?? 10),
+      carryScores: m.carryScores === true,
+    }
+  }
+  if (typeof m.roundId !== 'string' || m.roundId.length > 64) return null
+  if (m.type === 'match-next') return { type: m.type, roundId: m.roundId }
+  if (
+    !Number.isInteger(m.stage) ||
+    Number(m.stage) < 0 ||
+    Number(m.stage) >= MATCH_STAGES.length
+  )
+    return null
+  if (m.type === 'match-skip')
+    return { type: m.type, roundId: m.roundId, stage: Number(m.stage) }
+  if (
+    m.type === 'match-guess' &&
+    typeof m.guess === 'string' &&
+    m.guess.trim().length > 0 &&
+    m.guess.length <= 200
+  )
+    return {
+      type: m.type,
+      roundId: m.roundId,
+      stage: Number(m.stage),
+      guess: m.guess.trim(),
+    }
+  return null
+}
+export function publicMatch(match: MatchState): MatchView {
+  const { song, used: _used, ...rest } = match
+  return {
+    ...rest,
+    audio: song.audio,
+    offset: song.offset,
+    answer:
+      match.phase === 'playing'
+        ? null
+        : {
+            id: song.id,
+            title: song.title,
+            artist: song.artist,
+            albumArt: song.albumArt,
+          },
+  }
+}
+export function finishRound(match: MatchState): MatchState {
+  if (
+    match.phase !== 'playing' ||
+    match.entries.some((p) => p.status === 'playing')
+  )
+    return match
+  return {
+    ...match,
+    phase:
+      match.number === (match.length ?? MATCH_LENGTH) ? 'finished' : 'reveal',
+    entries: match.entries.map((p) => ({
+      ...p,
+      history: [...p.history, p.delta],
+    })),
+  }
+}
+export function expireRound(match: MatchState, now: number): MatchState {
+  if (match.phase !== 'playing' || now < match.deadline) return match
+  return finishRound({
+    ...match,
+    entries: match.entries.map((p) =>
+      p.status === 'playing'
+        ? { ...p, status: 'out', lastAction: 'timeout' }
+        : p,
+    ),
+  })
+}
+export function advancePlayer(
+  match: MatchState,
+  id: string,
+  roundId: string,
+  stage: number,
+  correct: boolean,
+  skip: boolean,
+  now: number,
+): MatchState {
+  if (
+    match.phase !== 'playing' ||
+    match.roundId !== roundId ||
+    now < match.startsAt
+  )
+    return match
+  if (now >= match.deadline) return expireRound(match, now)
+  const player = match.entries.find((p) => p.id === id)
+  if (!player || player.status !== 'playing' || player.stage !== stage)
+    return match
+  return finishRound({
+    ...match,
+    entries: match.entries.map((p) =>
+      p.id !== id
+        ? p
+        : correct
+          ? {
+              ...p,
+              status: 'solved',
+              solvedAt: now,
+              lastAction: 'solved',
+              delta: MATCH_POINTS[stage],
+              points: p.points + MATCH_POINTS[stage],
+            }
+          : {
+              ...p,
+              stage: Math.min(stage + 1, MATCH_STAGES.length - 1),
+              status: stage === MATCH_STAGES.length - 1 ? 'out' : 'playing',
+              lastAction: skip ? 'skip' : 'miss',
+            },
+    ),
+  })
+}
+
+/** A balanced rotation includes every difficulty once per five songs. */
+export function roundDifficulty(
+  mode: MatchDifficulty | 'mixed',
+  number: number,
+): MatchDifficulty {
+  return mode === 'mixed'
+    ? (['easy', 'medium', 'hard', 'expert', 'impossible'] as const)[
+        (number - 1) % 5
+      ]
+    : mode
+}
+export function readyForNext(
+  match: MatchState,
+  id: string,
+  roundId: string,
+): MatchState {
+  if (match.phase === 'playing' || match.roundId !== roundId) return match
+  return {
+    ...match,
+    entries: match.entries.map((p) =>
+      p.id === id ? { ...p, ready: true } : p,
+    ),
+  }
+}
+export function everyoneReady(match: MatchState, connected: string[]): boolean {
+  const present = match.entries.filter((p) => connected.includes(p.id))
+  return present.length > 0 && present.every((p) => p.ready)
+}
+
+export function nextEntries(
+  previous: MatchEntry[],
+  active: { id: string; name: string }[],
+  continuing: boolean,
+  carryScores: boolean,
+): MatchEntry[] {
+  return (continuing ? previous : active).map((p) => ({
+    id: p.id,
+    name: p.name,
+    points:
+      continuing || carryScores
+        ? (previous.find((e) => e.id === p.id)?.points ?? 0)
+        : 0,
+    stage: 0,
+    status: active.some((e) => e.id === p.id) ? 'playing' : 'out',
+    lastAction: 'ready',
+    delta: 0,
+    ready: false,
+    history: continuing
+      ? [...(previous.find((e) => e.id === p.id)?.history ?? [])]
+      : [],
+  }))
+}

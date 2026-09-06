@@ -1,8 +1,11 @@
+import {useNootPreferences} from '../lib/noot/preferences'
 import { useEffect, useRef, useState } from 'react'
 import { mountNoot, type NootState } from '../lib/noot/scene'
 import { NootRig } from './NootRig'
 
 export function Noot3D(props: NootState) {
+  const [appearance]=useNootPreferences()
+  props={...appearance,...props}
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const state = useRef(props)
   const scene = useRef<{ wake(): void; dispose(): void } | null>(null)
