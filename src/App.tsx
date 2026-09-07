@@ -7,6 +7,7 @@ import './seo-chrome.css'
 import './game-shell.css'
 import './console.css'
 import './noot.css'
+import './round-experience.css'
 
 const NootStudio = import.meta.env.DEV ? lazy(() => import('./components/NootStudio')) : null
 

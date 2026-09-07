@@ -1,3 +1,4 @@
+import { SongIdentity } from './SongIdentity'
 import { buttonSoundsEnabled, setButtonSounds } from '../lib/ui-audio'
 import { MatchArena } from './MatchArena'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent } from 'react'
@@ -1949,7 +1950,8 @@ export function Game() {
             )}
 
             {showResult && activeState.answer && (
-              <div className={`result ${activeState.status}`}>
+              <div className={`result round-answer ${activeState.status}`} role="region" aria-label="Song result">
+                <SongIdentity title={activeState.answer.title} artist={activeState.answer.artist} />
                 <ScoreBeat
                   status={activeState.status === 'won' ? 'won' : 'lost'}
                   points={thisRoundPoints}
@@ -1957,10 +1959,7 @@ export function Game() {
                   stages={activeStages}
                   teach={session.length <= 1}
                 />
-                <div className="track-meta">
-                  <h2 className="track-title">{activeState.answer.title}</h2>
-                  <p className="track-artist">{activeState.answer.artist}</p>
-                </div>
+
 
                 <div className="result-actions">
                   {autoRerollCountdown === null ? (
