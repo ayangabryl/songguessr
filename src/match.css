@@ -72,6 +72,28 @@
   letter-spacing: 3px;
   font-weight: 700 !important;
 }
+.match-code-label {
+  letter-spacing: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--match-muted);
+  text-transform: none;
+}
+.match-icon-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: var(--match-tint);
+  border: 1px solid var(--match-line);
+  border-radius: 999px;
+  color: inherit;
+  flex-shrink: 0;
+  padding: 0;
+}
+.match-icon-btn[aria-pressed="false"] {
+  color: var(--match-muted);
+}
 .match-code small {
   letter-spacing: 0;
 }
@@ -249,7 +271,7 @@
   display: flex;
   gap: 30px;
   align-items: center;
-  padding: 28px 0;
+  padding: 16px 0 8px;
   font-size: 10px;
   letter-spacing: 1px;
   color: var(--match-muted);
@@ -274,8 +296,7 @@
   opacity: 0.5;
 }
 .match-progress > span:last-child {
-  margin-left: auto;
-  text-transform: capitalize;
+  margin-left: 0;
 }
 .match-layout {
   display: grid;
@@ -337,7 +358,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0 0 22px;
+  margin: 0 0 12px;
 }
 .match-stakes > strong {
   font:
@@ -356,14 +377,14 @@
   margin-top: 3px;
 }
 .match-clock {
-  font-size: 24px;
+  font-size: 28px;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 .match-clips {
   list-style: none;
   padding: 0;
-  margin: 0 0 23px;
+  margin: 0 0 12px;
   display: flex;
   border: 1px solid var(--match-line);
   border-radius: 13px;
@@ -715,9 +736,6 @@
     gap: 15px;
     flex-wrap: wrap;
     padding: 24px 0;
-  }
-  .match-progress > span:last-child {
-    display: none;
   }
   .match-progress > div {
     max-width: none;
@@ -1127,13 +1145,13 @@
 .match-room .match-guess input:focus { outline: none; }
 .match-room .match-play { width: 56px; height: 56px; }
 .match-room .match-skip, .match-reveal-play {
-  min-height: 56px; padding: 0 20px; border-radius: 999px;
+  min-height: 56px; padding: 0 16px; border-radius: 999px;
   background: var(--surface); border: 1px solid var(--hairline-strong);
   color: var(--text); font: inherit; font-size: 14px;
   display: inline-flex; gap: 8px; align-items: center; justify-content: center; cursor: pointer;
+  min-width: 7rem; flex-shrink: 0;
 }
 .match-room .match-recap > .match-reveal-play { justify-self: start; }
-.match-room .match-album > span { opacity: 1; background: #0002; }
 .match-room .match-album { border-radius: 16px; overflow: hidden; display: grid; place-items: center; background: var(--surface-2); }
 .match-room .match-recap > strong { font-family: var(--font-display); font-weight: 400; }
 .match-room button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

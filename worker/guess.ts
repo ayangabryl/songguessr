@@ -1,3 +1,4 @@
+import { foldSearchText } from '../shared/search-text.ts'
 import { canonicalSongTitle, primaryArtistName } from './track-dedupe.ts'
 
 const STOP_WORDS = new Set([
@@ -20,14 +21,7 @@ function stripParentheticals(value: string): string {
 }
 
 export function normalizeGuess(value: string): string {
-  return stripParentheticals(value)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return foldSearchText(stripParentheticals(value))
 }
 
 function tokenize(value: string): string[] {
@@ -159,8 +153,7 @@ export function checkGuess(
 
 /** Competitive mode requires a complete title, never an artist or substring. */
 export function checkMatchGuess(guess: string, title: string, artist: string): boolean {
-  const normalize = (value: string) => value.toLowerCase().normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const normalize = (value: string) => foldSearchText(value)
   const candidate = withoutTrailingArtist(guess, artist) ?? guess
   const target = normalize(canonicalSongTitle(title) || title)
   const input = normalize(canonicalSongTitle(candidate) || candidate)

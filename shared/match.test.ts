@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   advancePlayer,
   expireRound,
+  matchSeatLabel,
   publicMatch,
   parseMatchCommand,
   type MatchState,
@@ -181,4 +182,11 @@ test('shared Mix filters include artists and exclusions with strict validation',
  assert.equal(start?.type,'match-start')
  if (start?.type==='match-start') assert.deepEqual(start.filters,filters)
  assert.equal(parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'easy',filters:{excludedGenres:['invalid']}})),null)
+})
+test('seat labels stay the same on the stage and the board', () => {
+  assert.equal(matchSeatLabel({ status: 'playing', ready: false, lastAction: 'ready', stage: 0 }, false), 'Listening')
+  assert.equal(matchSeatLabel({ status: 'playing', ready: false, lastAction: 'skip', stage: 1 }, false), 'Skipped to 0.5s')
+  assert.equal(matchSeatLabel({ status: 'out', ready: false, lastAction: 'timeout', stage: 2 }, true), '')
+  assert.equal(matchSeatLabel({ status: 'out', ready: true, lastAction: 'timeout', stage: 2 }, true), 'Ready')
+  assert.equal(matchSeatLabel({ status: 'solved', ready: false, lastAction: 'solved', stage: 1 }, true), 'Named it')
 })

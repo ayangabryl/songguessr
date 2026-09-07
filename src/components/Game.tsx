@@ -8,7 +8,6 @@ import {
   type SearchResult,
   fetchAvailability,
   fetchCollections,
-  fetchRandomRound,
   fetchRegions,
   prefetchCatalogArtists,
   searchTracks,
@@ -68,6 +67,7 @@ import {
   type ClipTimerHandle,
 } from '../lib/clip-timer'
 import { hasPlayableAudio, resolvePlaybackSource } from '../lib/playback-source'
+import { fetchPlayableRound } from '../lib/playable-round'
 import { spotifyStartPositionMs } from '../lib/spotify-playback'
 import {
   activateSpotifyElement,
@@ -216,6 +216,7 @@ export function Game() {
   const timerRef = useRef<number | null>(null)
   const rafRef = useRef<number | null>(null)
   const playSessionRef = useRef(0)
+  const deadAudioSkipsRef = useRef(0)
   const usingSpotifyRef = useRef(false)
   const spotifyTimelineRef = useRef(0)
   const spotifyBaseMsRef = useRef(0)
@@ -398,7 +399,7 @@ export function Game() {
   }
 
   function warmRoundAudio(round: GameRound) {
-    const preview = resolvePlaybackSource(round, 'intro', { previewOnly: true }).url
+    const preview = resolvePlaybackSource(round, 'intro').url
     warmHtmlPreview(preview)
   }
 
@@ -407,7 +408,7 @@ export function Game() {
     const currentId = roundsRef.current[level].round?.trackId
     prefetchInFlightRef.current[level] = (async () => {
       try {
-        const round = await fetchRandomRound(level, catalogFiltersRef.current, collectPrefetchExcludes(level))
+        const round = await fetchPlayableRound(level, catalogFiltersRef.current, collectPrefetchExcludes(level))
         if (round.trackId === currentId) return
         rememberTrack(round.trackId, round.songKey)
         prefetchedRef.current[level] = round
@@ -449,7 +450,7 @@ export function Game() {
         DIFFICULTIES.map(async (level) => {
           const currentRound = roundsRef.current[level].round
           try {
-            const round = await fetchRandomRound(level, filters, {
+            const round = await fetchPlayableRound(level, filters, {
               excludeTrackIds: [
                 ...recent.trackIds,
                 ...(currentRound?.trackId ? [currentRound.trackId] : []),
@@ -504,7 +505,7 @@ export function Game() {
         ...recent.songKeys,
         ...(currentRound?.songKey ? [currentRound.songKey] : []),
       ]
-      const round = await fetchRandomRound(level, filters, {
+      const round = await fetchPlayableRound(level, filters, {
         excludeTrackIds,
         excludeSongKeys,
       })
@@ -823,6 +824,15 @@ export function Game() {
     void loadDifficultyRound(level)
   }
 
+  function skipDeadAudio() {
+    if (deadAudioSkipsRef.current >= 4) {
+      setAudioError('This mix has songs that won’t play. Try another filter.')
+      return
+    }
+    deadAudioSkipsRef.current += 1
+    startNextSong()
+  }
+
   function updateRound(level: Difficulty, patch: Partial<RoundState>) {
     setRounds((current) => ({
       ...current,
@@ -871,7 +881,7 @@ export function Game() {
     if (spotify.canUseStartModes) {
       return spotifyStartPositionMs(round, startModeRef.current) / 1000
     }
-    return resolvePlaybackSource(round, startModeRef.current, { previewOnly: true }).offsetSeconds
+    return resolvePlaybackSource(round, startModeRef.current).offsetSeconds
   }
 
   function getSpotifyTimelineSeconds(): number {
@@ -1032,10 +1042,10 @@ export function Game() {
     if (!audio) return
 
     beginClipLoading()
-    const previewSource = resolvePlaybackSource(round, 'intro', { previewOnly: true })
+    const previewSource = resolvePlaybackSource(round, 'intro')
     if (!previewSource.url) {
       endClipLoading()
-      setAudioError('The clip could not be played.')
+      skipDeadAudio()
       return
     }
 
@@ -1061,6 +1071,7 @@ export function Game() {
 
       endClipLoading()
       setIsPlaying(true)
+      deadAudioSkipsRef.current = 0
       updateRound(difficulty, {
         unlockedSeconds: Math.max(activeState.unlockedSeconds, startTimeline),
         playbackSeconds: startTimeline,
@@ -1085,12 +1096,16 @@ export function Game() {
           writePlaybackBar(stageEndpoint)
         },
       })
-    } catch {
+    } catch (error) {
       if (session !== playSessionRef.current) return
       endClipLoading()
       setIsPlaying(false)
       audio.pause()
-      setAudioError('The clip could not be played.')
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        setAudioError('Tap play to hear the clip.')
+        return
+      }
+      skipDeadAudio()
     }
   }
 
@@ -1163,7 +1178,7 @@ export function Game() {
     const audio = audioRef.current
     if (!audio) return
 
-    const previewSource = resolvePlaybackSource(round, startModeRef.current, { previewOnly: true })
+    const previewSource = resolvePlaybackSource(round, startModeRef.current)
     if (!previewSource.url) {
       setAudioError('The song could not be played.')
       return
@@ -1187,6 +1202,7 @@ export function Game() {
       if (session !== playSessionRef.current) return
 
       setIsPlaying(true)
+      deadAudioSkipsRef.current = 0
 
       const onEnded = () => {
         if (session !== playSessionRef.current) return
@@ -1600,9 +1616,7 @@ export function Game() {
   }
 
   useEffect(() => {
-    if (sitting.inviteCode) {
-      try { if (localStorage.getItem("songguessr-profile-seen")) setSitOpen(true) } catch { /* Welcome closes into the invite when storage is unavailable. */ }
-    }
+    if (sitting.inviteCode) setSitOpen(true)
   }, [sitting.inviteCode])
 
   useEffect(() => {
@@ -1631,7 +1645,7 @@ export function Game() {
       }
     : null
 
-  if(sitting.code) return <MatchArena table={sitting} theme={resolvedTheme}/>
+  if(sitting.code) return <MatchArena table={sitting} theme={resolvedTheme} initialFilters={catalogFilters}/>
 
   return (
     <div className="app-shell console" data-difficulty={difficulty} data-status={shellStatus} data-theme={resolvedTheme}>
@@ -2041,6 +2055,7 @@ export function Game() {
       <SittingSheet
         open={sitOpen}
         onClose={() => setSitOpen(false)}
+        invited={Boolean(sitting.inviteCode && !sitting.code)}
         name={sitting.name}
         onName={sitting.setName}
         joinCode={sitting.joinCode}

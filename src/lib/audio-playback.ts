@@ -33,6 +33,30 @@ export function warmHtmlPreview(url: string | undefined): void {
   }
 }
 
+/** True when the browser can decode this URL. 404/403 fail instead of reaching play(). */
+export function probeHtmlAudio(url: string, timeoutMs = 3500): Promise<boolean> {
+  if (!url) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const audio = new Audio()
+    let settled = false
+    const finish = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      audio.onerror = null
+      audio.onloadeddata = null
+      audio.removeAttribute('src')
+      audio.load()
+      resolve(ok)
+    }
+    const timer = window.setTimeout(() => finish(false), timeoutMs)
+    audio.preload = 'auto'
+    audio.onerror = () => finish(false)
+    audio.onloadeddata = () => finish(true)
+    audio.src = url
+  })
+}
+
 export function startTimedHtmlClip(
   audio: HTMLAudioElement,
   options: {

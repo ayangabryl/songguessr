@@ -256,7 +256,7 @@ test('disconnect keeps the row and search filters names', () => {
 test('player ids and error copy cover the machine codes', () => {
   assert.equal(isPlayerId('player-one-id'), true)
   assert.equal(isPlayerId('short'), false)
-  assert.equal(sittingErrorMessage('room-full'), 'This table is full (8).')
+  assert.equal(sittingErrorMessage('room-full'), 'This table is full (12).')
   assert.equal(sittingErrorMessage('not-found'), 'That code is not a table.')
 })
 

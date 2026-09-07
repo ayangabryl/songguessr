@@ -222,7 +222,7 @@ export async function searchTracks(query: string): Promise<SearchResult[]> {
   if (!query.trim()) return []
   const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
   const data = await parseJson<{ results: SearchResult[] }>(response)
-  return (data.results ?? []).slice(0, 50)
+  return (data.results ?? []).slice(0, 12)
 }
 
 export async function submitGuess(

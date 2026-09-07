@@ -67,11 +67,16 @@
 }
 .console .level-switch {
   justify-self: center;
-  width: auto;
+  width: max-content;
   max-width: 100%;
   height: 44px;
-  padding: 0 var(--space-1);
+  padding: 0 4px;
   border-radius: var(--r-pill);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.console .level-switch::-webkit-scrollbar {
+  display: none;
 }
 .console .level-indicator {
   top: 0;
@@ -80,9 +85,12 @@
 }
 .console .level-switch button {
   flex: 0 0 auto;
+  min-width: max-content;
   height: 100%;
-  padding: 0 var(--space-5);
+  padding: 0 14px;
   font-size: var(--fs-1);
+  overflow: visible;
+  text-overflow: unset;
   border-radius: var(--r-pill);
 }
 .console .bar-btn {
@@ -747,6 +755,27 @@
 /* ------------------------------------------------------------------ *
  * Breakpoints
  * ------------------------------------------------------------------ */
+@media (max-width: 1279px) {
+  .console .bar {
+    grid-template-columns: auto auto;
+    justify-content: space-between;
+  }
+  .console .bar .wordmark {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .console .bar-actions {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .console .level-switch {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    width: 100%;
+    max-width: 100%;
+  }
+}
 @media (max-width: 899px) {
   .console {
     --page-x: var(--space-4);
@@ -1239,12 +1268,12 @@
   .console .wordmark-name { font-size: 23px; }
   .console .level-switch {
     grid-row: 2; grid-column: 1 / -1;
-    display: flex; width: 100%; height: 48px; padding: 3px;
-    box-sizing: border-box; overflow: hidden;
+    display: flex; width: 100%; max-width: 100%; height: 48px; padding: 3px;
+    box-sizing: border-box; overflow-x: auto;
   }
   .console .level-switch button {
-    flex: 1 1 0; min-width: 0; padding: 0 2px;
-    font-size: 12px; height: 40px;
+    flex: 0 0 auto; min-width: max-content; padding: 0 12px;
+    font-size: 13px; height: 40px;
   }
   .console .level-indicator { top: 3px; bottom: 3px; }
   .console .sit-code-chip { display: none; }
@@ -1253,10 +1282,7 @@
 @media (max-width: 359px) {
   .console .wordmark-mark { display: none; }
   .console .wordmark-name { font-size: 22px; }
-  .console .level-switch button { font-size: 11px; }
-}
-@media (max-width: 359px) {
-  .console .level-switch button { font-size: 10px; letter-spacing: 0; padding: 0 1px; }
+  .console .level-switch button { font-size: 12px; padding: 0 10px; }
 }
 .console .suggestions, .match-room .match-suggestions {
   max-height: min(40dvh, 340px); overflow-y: auto; overscroll-behavior: contain;
@@ -1267,7 +1293,6 @@
 }
 @media (max-width: 719px) {
   .console .level-switch { overflow-x: auto; }
-  .console .level-switch button { flex: 1 0 74px; font-size: 12px; }
 }
 @media (max-width: 899px) {
   .console .suggestions, .match-room .match-suggestions { max-height: min(32dvh, 240px); }

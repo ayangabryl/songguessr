@@ -4,6 +4,7 @@ export const MATCH_STAGES = [0.1, 0.5, 2, 8, 15]
 export const MATCH_POINTS = [1000, 800, 600, 400, 200]
 export const MATCH_LENGTH = 10
 export const ROUND_MS = 90000
+export const MATCH_SUGGESTION_LIMIT = 8
 export type MatchDifficulty =
   | 'easy'
   | 'medium'
@@ -266,3 +267,30 @@ export function matchStreak(entry: MatchEntry, revealed: boolean): number {
   for (let i = history.length - 1; i >= 0 && history[i] > 0; i--) count++
   return count
 }
+
+/** One status line for the seat, the board, and the recap. */
+export function matchSeatLabel(
+  entry: Pick<MatchEntry, 'status' | 'ready' | 'lastAction' | 'stage'>,
+  revealed: boolean,
+): string {
+  if (entry.status === 'solved') return 'Named it'
+  if (entry.ready) return 'Ready'
+  if (revealed) return ''
+  switch (entry.lastAction) {
+    case 'skip':
+      return `Skipped to ${MATCH_STAGES[entry.stage]}s`
+    case 'miss':
+      return `Trying ${MATCH_STAGES[entry.stage]}s`
+    case 'timeout':
+      return 'Time ran out'
+    case 'solved':
+      return 'Named it'
+    case 'ready':
+      return 'Listening'
+    default: {
+      const exhaustive: never = entry.lastAction
+      return exhaustive
+    }
+  }
+}
+

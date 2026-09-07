@@ -2178,3 +2178,14 @@ input {
 .score-ladder {display:flex;gap:5px;margin:10px 0 0;flex-wrap:wrap;}
 .score-ladder span {padding:5px 9px;border:1px solid currentColor;border-radius:7px;opacity:.4;font-size:11px;}
 .score-ladder span[data-earned='true'] {opacity:1;background:var(--surface-2,rgba(100,160,110,.12));font-weight:700;}
+
+/* Exclusions use the same field and pill family as the rest of Mix. */
+.mix-exclusions { gap: 12px; }
+.mix-exclusions .mix-search { margin: 0; }
+.mix-exclusions .mix-search-input { width: 100%; min-width: 0; }
+.mix-exclusion-help {
+  margin: -4px 0 4px;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}

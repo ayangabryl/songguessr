@@ -27,6 +27,7 @@ interface SittingSheetProps {
   onCopy: () => void
   copied: boolean
   copyFailed: boolean
+  invited?: boolean
 }
 
 export function SittingSheet({
@@ -52,6 +53,7 @@ export function SittingSheet({
   onCopy,
   copied,
   copyFailed,
+  invited = false,
 }: SittingSheetProps) {
   const live = status === 'live'
   const busy = status === 'connecting'
@@ -62,11 +64,16 @@ export function SittingSheet({
 
   function handleHost(event: FormEvent) {
     event.preventDefault()
-    if (!busy) onHost()
+    if (busy) return
+    if (invited && joinReady) {
+      onJoin()
+      return
+    }
+    onHost()
   }
 
   return (
-    <SettingsSheet open={open} onClose={onClose} title="Table" closeLabel="Close">
+    <SettingsSheet open={open} onClose={onClose} title={invited ? "You’re invited" : "Table"} closeLabel="Close">
       <div className="sit-stack">
       {!live && <button type="button" className="profile-edit" onClick={() => { onClose(); window.dispatchEvent(new Event("open-noot-profile")); }}>Choose your Noot</button>}
       <form className="sit-form" onSubmit={handleHost}>
@@ -87,7 +94,7 @@ export function SittingSheet({
             {sittingErrorMessage(nameIssue.error)}
           </p>
         ) : (
-          <p className="sit-hint">This is the name your friends will see.</p>
+          <p className="sit-hint">This is the name your friends will see at the table.</p>
         )}
 
         {live && code ? (
@@ -116,6 +123,41 @@ export function SittingSheet({
               )
             ) : null}
           </div>
+        ) : invited ? (
+          <>
+            <p className="sit-or">Table {joinCode}. Enter your name, then join.</p>
+            <div className="sit-join">
+              <label className="sit-field">
+                <span>Host’s code</span>
+                <input
+                  value={joinCode}
+                  onChange={(event) => onJoinCode(event.target.value.toUpperCase())}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      if (!busy && joinReady) onJoin()
+                    }
+                  }}
+                  maxLength={8}
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  placeholder="Four letters"
+                  aria-label="Host’s code"
+                />
+              </label>
+              <button
+                type="button"
+                className="btn sit-join-go btn-primary"
+                disabled={busy || !joinReady}
+                onClick={() => onJoin()}
+              >
+                {busy && pending === 'join' ? 'Joining…' : 'Join table'}
+              </button>
+            </div>
+            <button type="submit" className="btn btn-quiet sit-host" disabled={busy}>
+              {busy && pending === 'host' ? 'Opening…' : 'Or create your own table'}
+            </button>
+          </>
         ) : (
           <>
             <button type="submit" className="btn btn-primary sit-host" disabled={busy}>
@@ -203,7 +245,7 @@ export function SittingSheet({
           </div>
         ) : null}
 
-        {!live && friends.length === 0 ? (
+        {!live && friends.length === 0 && !invited ? (
           <p className="sit-floor" role="status">
             No recent tables. Host one, or join with a four-letter code. There is no public list.
           </p>

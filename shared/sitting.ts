@@ -1,7 +1,7 @@
 import type {NootAppearance} from './noot-profile'
 export const SITTING_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ'
 export const SITTING_CODE_LENGTH = 4
-export const MAX_SITTING_PLAYERS = 8
+export const MAX_SITTING_PLAYERS = 12
 export const NAME_MIN_LENGTH = 2
 export const NAME_MAX_LENGTH = 24
 export const MAX_SCORE_DELTA = 6
@@ -141,7 +141,7 @@ export function sittingErrorMessage(error: SittingError): string {
     case 'bad-code':
       return 'Codes are four letters.'
     case 'room-full':
-      return 'This table is full (8).'
+      return `This table is full (${MAX_SITTING_PLAYERS}).`
     case 'unknown-player':
       return 'You are not at this table.'
     case 'bad-delta':

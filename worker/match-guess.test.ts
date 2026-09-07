@@ -12,6 +12,8 @@ test('competitive answers reject fragments, artist-only guesses and unrelated ti
   assert.equal(checkMatchGuess('Hello', 'Hello', 'Adele'), true)
   assert.equal(checkMatchGuess('Hell', 'Hello', 'Adele'), false)
   assert.equal(checkMatchGuess('夜に駆ける', '夜に駆ける', 'YOASOBI'), true)
+  assert.equal(checkMatchGuess("cant hold us", "Can't Hold Us", 'Macklemore'), true)
+  assert.equal(checkMatchGuess("Can't Hold Us", 'Cant Hold Us', 'Macklemore'), true)
 })
 test('streak counts each song once and breaks on a failed song', () => {
   const entry = { history: [0, 800, 400], status: 'solved', delta: 600 } as MatchEntry

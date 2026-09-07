@@ -452,14 +452,49 @@ export function FilterModal({
           </div>
         </fieldset>
 
-        {onExclusions && <fieldset className="filter-group">
-          <legend>Keep out of this mix</legend>
-          <label className="sit-field"><span>Artists to exclude</span>
-            <input key={excludedArtists.join(";")} aria-label="Artists to exclude" placeholder="Artist names, separated by semicolons" defaultValue={excludedArtists.join('; ')} onBlur={e => onExclusions(e.target.value.split(';').map(v => v.trim()).filter(Boolean).slice(0,50), excludedGenres)} />
-          </label>
-          <p className="mix-note">Use full artist names. Exclusions also apply to collaborations.</p>
-          <div className="filter-chips">{GENRE_OPTIONS.map(genre => <button key={genre} type="button" aria-pressed={excludedGenres.includes(genre)} onClick={() => onExclusions(excludedArtists, excludedGenres.includes(genre) ? excludedGenres.filter(g => g !== genre) : [...excludedGenres, genre])}>Exclude {GENRE_LABELS[genre]}</button>)}</div>
-        </fieldset>}
+        {onExclusions && (
+          <fieldset className="filter-group mix-exclusions">
+            <legend>Exclude from your mix</legend>
+            <label className="mix-search">
+              <span className="mix-search-label">Artists</span>
+              <input
+                key={excludedArtists.join(';')}
+                className="filter-region-search mix-search-input"
+                aria-label="Artists to exclude"
+                aria-describedby="mix-exclusion-help"
+                placeholder="e.g. Taylor Swift; Drake"
+                defaultValue={excludedArtists.join('; ')}
+                onBlur={event => onExclusions(
+                  [...new Set(event.target.value.split(';').map(value => value.trim()).filter(Boolean))].slice(0, 50),
+                  excludedGenres,
+                )}
+              />
+            </label>
+            <p id="mix-exclusion-help" className="mix-exclusion-help">
+              Separate full names with a semicolon. Includes collaborations.
+            </p>
+            <span className="mix-search-label">Genres to leave out</span>
+            <div className="filter-options" role="group" aria-label="Genres to exclude">
+              {GENRE_OPTIONS.map(genre => {
+                const selected = excludedGenres.includes(genre)
+                return (
+                  <button
+                    key={genre}
+                    type="button"
+                    className={selected ? 'selected' : ''}
+                    aria-label={`Exclude ${GENRE_LABELS[genre]}`}
+                    aria-pressed={selected}
+                    onClick={() => onExclusions(excludedArtists, selected
+                      ? excludedGenres.filter(value => value !== genre)
+                      : [...excludedGenres, genre])}
+                  >
+                    {GENRE_LABELS[genre]}{selected && <span aria-hidden="true"> ×</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </fieldset>
+        )}
         <fieldset className="filter-group">
           <legend>Country</legend>
           {showCountrySearch ? (

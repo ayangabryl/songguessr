@@ -1,4 +1,5 @@
 import { artistWordDistance } from './search-match'
+import { foldSearchText, rankSearchHits, searchTerms, sqlFoldExpr } from '../shared/search-text'
 import {
   DEFAULT_CATALOG,
   DEFAULT_COUNTRY,
@@ -1023,6 +1024,7 @@ async function pickOneFromPool(
           `${poolTieredCte(attempt.sql)}
            SELECT * FROM tiered
            WHERE pool_tier = ?${extraSql}
+           AND ((preview_url IS NOT NULL AND preview_url != '') OR (hook_preview_url IS NOT NULL AND hook_preview_url != ''))
            ORDER BY ${candidateShuffleSql()}
            LIMIT ${RANDOM_CANDIDATE_LIMIT}`,
         )
@@ -1112,27 +1114,59 @@ export async function pickRandomTrack(
 }
 
 export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {
-  const normalized = query.trim().toLowerCase()
-  if (!normalized) return []
+  const terms = searchTerms(query)
+  if (!terms.length) return []
 
   const db = requireDb(env)
-  const terms = normalized.split(/\s+/).filter(Boolean).slice(0, 8)
-  const conditions = terms.map(() => `(lower(title) LIKE ? ESCAPE '\\' OR lower(artist) LIKE ? ESCAPE '\\')`).join(' AND ')
-  const params = terms.flatMap(term => [likePattern(term), likePattern(term)])
-  const result = await db.prepare(
-    `SELECT * FROM tracks WHERE ${conditions}
-     ORDER BY CASE WHEN lower(title) = ? THEN 0 WHEN lower(artist) = ? THEN 1 ELSE 2 END, title
+  const foldedTitle = sqlFoldExpr('title')
+  const foldedArtist = sqlFoldExpr('artist')
+  const conditions = terms
+    .map(() => `(${foldedTitle} LIKE ? ESCAPE '\\' OR ${foldedArtist} LIKE ? ESCAPE '\\')`)
+    .join(' AND ')
+  const params = terms.flatMap((term) => [likePattern(term), likePattern(term)])
+  const foldedQuery = foldSearchText(query)
+  const result = await db
+    .prepare(
+      `SELECT * FROM tracks WHERE ${conditions}
+     ORDER BY CASE WHEN ${foldedTitle} = ? THEN 0 WHEN ${foldedArtist} = ? THEN 1 ELSE 2 END, title
      LIMIT ?`,
-  ).bind(...params, normalized, normalized, Math.min(500, limit * 5)).all<TrackRow>()
-  const matches = dedupeTracks((result.results ?? []).map(rowToTrack)).slice(0, limit)
-  if (matches.length || terms.length !== 1 || normalized.length < 4) return matches
-  const artists = await db.prepare('SELECT DISTINCT artist FROM tracks LIMIT 5000').all<{artist: string}>()
-  const ranked = (artists.results ?? []).map(row => ({...row, distance: Math.min(...row.artist.toLowerCase().split(/[^\p{L}\p{N}]+/u).map(word => artistWordDistance(normalized, word)))})).filter(row => Number.isFinite(row.distance)).sort((a,b) => a.distance - b.distance)
-  const related = ranked.filter(row => row.distance === ranked[0]?.distance).slice(0, 12)
+    )
+    .bind(...params, foldedQuery, foldedQuery, Math.min(500, limit * 5))
+    .all<TrackRow>()
+  const matches = rankSearchHits(
+    query,
+    dedupeTracks((result.results ?? []).map(rowToTrack)),
+    (track) => track.title,
+    (track) => track.artist,
+  ).slice(0, limit)
+  if (matches.length || terms.length !== 1 || foldedQuery.length < 4) return matches
+  const artists = await db.prepare('SELECT DISTINCT artist FROM tracks LIMIT 5000').all<{ artist: string }>()
+  const ranked = (artists.results ?? [])
+    .map((row) => ({
+      ...row,
+      distance: Math.min(
+        ...row.artist
+          .toLowerCase()
+          .split(/[^\p{L}\p{N}]+/u)
+          .map((word) => artistWordDistance(foldedQuery, word)),
+      ),
+    }))
+    .filter((row) => Number.isFinite(row.distance))
+    .sort((a, b) => a.distance - b.distance)
+  const related = ranked.filter((row) => row.distance === ranked[0]?.distance).slice(0, 12)
   if (!related.length) return []
-  const fallback = await db.prepare(`SELECT * FROM tracks WHERE artist IN (${related.map(() => '?').join(',')}) ORDER BY title LIMIT ?`)
-    .bind(...related.map(row => row.artist), Math.min(500, limit * 5)).all<TrackRow>()
-  return dedupeTracks((fallback.results ?? []).map(rowToTrack)).slice(0, limit)
+  const fallback = await db
+    .prepare(
+      `SELECT * FROM tracks WHERE artist IN (${related.map(() => '?').join(',')}) ORDER BY title LIMIT ?`,
+    )
+    .bind(...related.map((row) => row.artist), Math.min(500, limit * 5))
+    .all<TrackRow>()
+  return rankSearchHits(
+    query,
+    dedupeTracks((fallback.results ?? []).map(rowToTrack)),
+    (track) => track.title,
+    (track) => track.artist,
+  ).slice(0, limit)
 }
 
 export interface CatalogArtistHit {

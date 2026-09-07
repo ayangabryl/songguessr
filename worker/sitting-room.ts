@@ -14,7 +14,8 @@ import {
   type SittingState,
 } from '../shared/sitting'
 import { nextEntries, roundDifficulty, readyForNext, everyoneReady, parseMatchCommand, publicMatch, advancePlayer, expireRound, finishRound, ROUND_MS, type MatchState } from '../shared/match'
-import { pickRandomTrack, findTrackById, getAvailabilityCounts } from './catalog'
+import { findTrackById, getAvailabilityCounts } from './catalog'
+import { pickPlayableTrack } from './playable-audio'
 import { checkMatchGuess } from './guess'
 import { songIdentityKey } from './track-dedupe'
 import type { Env } from './types'
@@ -411,18 +412,19 @@ export class SittingRoom extends DurableObject<Env> {
       // Bound catalog latency below the Durable Object's concurrency-lock timeout.
       // A stalled catalog request must leave the current round retryable.
       let catalogTimer: ReturnType<typeof setTimeout> | undefined
-      const track = await Promise.race([
-        pickRandomTrack(this.env,difficulty,crypto.randomUUID(),catalogFilters,new Set(continuing?match!.used:[])),
+      const picked = await Promise.race([
+        pickPlayableTrack(this.env,difficulty,catalogFilters,new Set(continuing?match!.used:[])),
         new Promise<never>((_, reject) => {
           catalogTimer = setTimeout(() => reject(new Error('Catalog timed out')), 12_000)
         }),
       ]).finally(() => clearTimeout(catalogTimer))
-      if(!track)throw new Error('No songs available')
+      if(!picked)throw new Error('No songs available')
+      const track = picked.track
       const now=Date.now(), startsAt=now+3000
       const previous=continuing||carryScores?(match?.entries??[]):[]
       match={id:continuing?match!.id:crypto.randomUUID(),roundId:crypto.randomUUID(),number:continuing?match!.number+1:1,phase:'playing',difficulty,filters,difficultyMode:mode,length,carryScores,startsAt,deadline:startsAt+ROUND_MS,
         entries:nextEntries(previous,active,continuing,carryScores),
-        song:{id:track.id,title:track.title,artist:track.artist,albumArt:track.albumArt,audio:track.introClipUrl||track.audioUrl||track.previewUrl,offset:track.introClipUrl?0:track.audioUrl?(track.startAtMs??0)/1000:0},used:[...(continuing?match!.used:[]),track.id]}
+        song:{id:track.id,title:track.title,artist:track.artist,albumArt:track.albumArt,audio:picked.audio.url,offset:picked.audio.offset},used:[...(continuing?match!.used:[]),track.id]}
       match=finishRound(match)
       await this.ctx.storage.put('match',match)
       await this.ctx.storage.setAlarm(match.deadline)

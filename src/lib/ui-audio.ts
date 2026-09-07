@@ -3,11 +3,11 @@ import { loadVolume } from './game-state'
 
 const clickSound = defineSound({
   source: { type: 'sine', frequency: { start: 440, end: 720 } },
-  envelope: { attack: 0.002, decay: 0.035, sustain: 0, release: 0.015 }, gain: 0.12,
+  envelope: { attack: 0.002, decay: 0.04, sustain: 0, release: 0.02 }, gain: 0.38,
 })
 const hoverSound = defineSound({
   source: { type: 'sine', frequency: { start: 760, end: 620 } },
-  envelope: { attack: 0.003, decay: 0.018, sustain: 0, release: 0.012 }, gain: 0.045,
+  envelope: { attack: 0.003, decay: 0.022, sustain: 0, release: 0.016 }, gain: 0.16,
 })
 let enabledOverride: boolean | undefined
 let voice: VoiceHandle | undefined
@@ -36,7 +36,7 @@ export function installButtonSounds() {
     try { volume = loadVolume() } catch { /* Use default volume without storage. */ }
     if (!volume) return
     voice?.stop()
-    voice = (hover ? hoverSound : clickSound)({volume})
+    voice = (hover ? hoverSound : clickSound)({volume: Math.max(0.72, volume)})
   }
   const unlock = () => { void ensureReady().then(()=>{if(active) unlocked=true}).catch(()=>{}) }
   const click = (event: MouseEvent) => {

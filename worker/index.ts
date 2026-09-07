@@ -14,6 +14,7 @@ import { getCatalogStats, listCatalogCountries } from './catalog-d1'
 import { listCatalogs } from './catalogs-d1'
 import { isCatalogKind, isCountryCode } from '../shared/catalog-meta'
 import { countryDisplayName } from '../shared/iso-countries'
+import { pickPlayableTrack } from './playable-audio'
 import { songIdentityKey } from './track-dedupe.ts'
 import {
   type CatalogFilters,
@@ -442,16 +443,15 @@ app.get('/api/random', async (c) => {
     const seed = c.req.query('seed') ?? crypto.randomUUID()
     const counts = await getAvailabilityCounts(c.env, filters)
     const poolSize = counts[difficulty]
-    const track = await pickRandomTrack(
+    const picked = await pickPlayableTrack(
       c.env,
       difficulty,
-      seed,
       filters,
       excludeIds,
       excludeSongKeys,
     )
 
-    if (!track) {
+    if (!picked) {
       return c.json(
         {
           error: 'Catalogue error',
@@ -461,19 +461,20 @@ app.get('/api/random', async (c) => {
         404,
       )
     }
+    const track = picked.track
 
     return c.json({
       seed,
       difficulty,
       trackId: track.id,
       songKey: songIdentityKey(track),
-      previewUrl: track.previewUrl,
+      previewUrl: picked.audio.url,
       hookPreviewUrl: track.hookPreviewUrl,
       hookStartSeconds: track.hookStartSeconds ?? 12,
       audioUrl: track.audioUrl,
       introClipUrl: track.introClipUrl,
       hookClipUrl: track.hookClipUrl,
-      startAtMs: track.startAtMs,
+      startAtMs: Math.round(picked.audio.offset * 1000),
       hookStartMs: track.hookStartMs,
       albumArt: track.albumArt,
       stages: DEFAULT_STAGES,
