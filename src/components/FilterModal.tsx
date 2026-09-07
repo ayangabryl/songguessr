@@ -39,6 +39,9 @@ function singersMatching(artists: CatalogArtist[], query: string): CatalogArtist
 }
 
 interface FilterModalProps {
+  excludedArtists?: string[]
+  excludedGenres?: GenreFilter[]
+  onExclusions?: (artists: string[], genres: GenreFilter[]) => void
   variant?: 'desk' | 'sheet'
   open: boolean
   difficulty: Difficulty
@@ -67,6 +70,7 @@ interface FilterModalProps {
 }
 
 export function FilterModal({
+  excludedArtists = [], excludedGenres = [], onExclusions,
   variant = 'sheet',
   open,
   difficulty,
@@ -196,7 +200,7 @@ export function FilterModal({
     draftGenres.length > 0 ||
     draftCountries.length > 0 ||
     draftCollections.length > 0 ||
-    draftArtists.length > 0
+    draftArtists.length > 0 || excludedArtists.length > 0 || excludedGenres.length > 0
   const showCountrySearch = regions.filter((region) => (region.count ?? 0) > 0).length > 8
   const emptyPreview = previewReady && previewCount === 0
   const isDesk = variant === 'desk'
@@ -448,6 +452,14 @@ export function FilterModal({
           </div>
         </fieldset>
 
+        {onExclusions && <fieldset className="filter-group">
+          <legend>Keep out of this mix</legend>
+          <label className="sit-field"><span>Artists to exclude</span>
+            <input key={excludedArtists.join(";")} aria-label="Artists to exclude" placeholder="Artist names, separated by semicolons" defaultValue={excludedArtists.join('; ')} onBlur={e => onExclusions(e.target.value.split(';').map(v => v.trim()).filter(Boolean).slice(0,50), excludedGenres)} />
+          </label>
+          <p className="mix-note">Use full artist names. Exclusions also apply to collaborations.</p>
+          <div className="filter-chips">{GENRE_OPTIONS.map(genre => <button key={genre} type="button" aria-pressed={excludedGenres.includes(genre)} onClick={() => onExclusions(excludedArtists, excludedGenres.includes(genre) ? excludedGenres.filter(g => g !== genre) : [...excludedGenres, genre])}>Exclude {GENRE_LABELS[genre]}</button>)}</div>
+        </fieldset>}
         <fieldset className="filter-group">
           <legend>Country</legend>
           {showCountrySearch ? (

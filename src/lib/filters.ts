@@ -34,6 +34,8 @@ export interface CatalogFilters {
   countries: CountryCode[]
   collections: CatalogKind[]
   artists: string[]
+  excludedArtists?: string[]
+  excludedGenres?: GenreFilter[]
 }
 
 export const ERA_LABELS: Record<EraFilter | 'all', string> = {
@@ -177,7 +179,7 @@ export function activeFilterCount(filters: CatalogFilters): number {
     filters.genres.length +
     filters.countries.length +
     filters.collections.length +
-    filters.artists.length
+    filters.artists.length + (filters.excludedArtists?.length ?? 0) + (filters.excludedGenres?.length ?? 0)
   )
 }
 
@@ -194,6 +196,8 @@ export function filtersToSearchParams(filters: CatalogFilters): string {
     params.set('catalogs', filters.collections.join(','))
   }
   if (filters.artists.length > 0) params.set('artists', filters.artists.join('|'))
+  if (filters.excludedArtists?.length) params.set("excludedArtists", filters.excludedArtists.join("|"))
+  if (filters.excludedGenres?.length) params.set("excludedGenres", filters.excludedGenres.join(","))
   const query = params.toString()
   return query ? `&${query}` : ''
 }

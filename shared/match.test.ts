@@ -175,3 +175,10 @@ test('host filters are allowlisted and preserved in start commands', () => {
  assert.equal(parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'easy',filters:{genre:'injected'}})),null)
  assert.equal(parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'easy',filters:[]})),null)
 })
+test('shared Mix filters include artists and exclusions with strict validation', () => {
+ const filters = {artists:['Olivia Rodrigo'],excludedArtists:['Taylor Swift'],excludedGenres:['rock'],eras:['modern'],countries:['PH'],collections:[]}
+ const start = parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'easy',filters}))
+ assert.equal(start?.type,'match-start')
+ if (start?.type==='match-start') assert.deepEqual(start.filters,filters)
+ assert.equal(parseMatchCommand(JSON.stringify({type:'match-start',difficulty:'easy',filters:{excludedGenres:['invalid']}})),null)
+})

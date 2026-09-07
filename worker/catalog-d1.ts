@@ -340,6 +340,14 @@ function buildFilterSql(filters: CatalogFilters): { sql: string; params: SqlValu
     params.push(...filters.collections, ...filters.collections)
   }
 
+  for (const artist of filters.excludedArtists ?? []) {
+    clauses.push(`instr(',' || lower(replace(tracks.artist, ', ', ',')) || ',', ',' || lower(?) || ',') = 0`)
+    params.push(artist)
+  }
+  for (const genre of filters.excludedGenres ?? []) {
+    clauses.push(`NOT EXISTS (SELECT 1 FROM json_each(tracks.genre_groups) WHERE json_each.value = ?)`)
+    params.push(genre)
+  }
   if (filters.artists.length > 0) {
     const artistClauses = filters.artists.map(
       () =>

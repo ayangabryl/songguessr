@@ -62,6 +62,8 @@ function parseCatalogFilters(c: { req: { query: (key: string) => string | undefi
     countries: parseCountryFilters(c.req.query('countries'), c.req.query('regions')),
     collections: parseCollectionFilters(c.req.query('collections'), c.req.query('catalogs')),
     artists: parseArtistFilters(c.req.query('artists')),
+    excludedArtists: parseArtistFilters(c.req.query('excludedArtists')),
+    excludedGenres: parseGenreFilters(c.req.query('excludedGenres')),
   }
 }
 
@@ -73,6 +75,8 @@ function parseCatalogFiltersFromBody(body: {
   collections?: string[]
   catalogs?: string[]
   artists?: string[]
+  excludedArtists?: string[]
+  excludedGenres?: string[]
 }): CatalogFilters {
   const countryValues = [...(body.countries ?? []), ...(body.regions ?? [])]
     .map((item) => item.trim().toUpperCase())
@@ -90,6 +94,8 @@ function parseCatalogFiltersFromBody(body: {
     countries: [...new Set(countryValues)],
     collections: [...new Set(collectionValues)],
     artists: parseArtistFilters((body.artists ?? []).join('|')),
+    excludedArtists: parseArtistFilters((body.excludedArtists ?? []).join('|')),
+    excludedGenres: parseGenreFilters((body.excludedGenres ?? []).join(',')),
   }
 }
 

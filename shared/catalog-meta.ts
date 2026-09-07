@@ -3,7 +3,7 @@ import {
   countryDisplayName,
   isIsoCountryCode,
   type IsoCountryCode,
-} from './iso-countries'
+} from './iso-countries.ts'
 
 /** ISO 3166-1 alpha-2, plus GLOBAL for mixed/non-territorial D1 rows. */
 export type CountryCode = IsoCountryCode | 'GLOBAL'

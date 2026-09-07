@@ -294,6 +294,8 @@ export function Game() {
   const [draftCountries, setDraftCountries] = useState<CountryCode[]>([])
   const [draftCollections, setDraftCollections] = useState<CatalogKind[]>([])
   const [draftArtists, setDraftArtists] = useState<string[]>([])
+  const [exclusions, setExclusions] = useState<{excludedArtists:string[];excludedGenres:GenreFilter[]}>(() => {try{return JSON.parse(localStorage.getItem('songguessr-exclusions') ?? '{"excludedArtists":[],"excludedGenres":[]}')}catch{return {excludedArtists:[],excludedGenres:[]}}})
+  const [draftExclusions, setDraftExclusions] = useState(exclusions)
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<Difficulty, number> | null>(
     null,
   )
@@ -332,8 +334,9 @@ export function Game() {
       countries: regionFilters,
       collections: collectionFilters,
       artists: artistFilters,
+      ...exclusions,
     }),
-    [eraFilters, genreFilters, regionFilters, collectionFilters, artistFilters],
+    [eraFilters, genreFilters, regionFilters, collectionFilters, artistFilters, exclusions],
   )
   const draftFilters = useMemo<CatalogFilters>(
     () => ({
@@ -342,8 +345,9 @@ export function Game() {
       countries: draftCountries,
       collections: draftCollections,
       artists: draftArtists,
+      ...draftExclusions,
     }),
-    [draftEras, draftGenres, draftCountries, draftCollections, draftArtists],
+    [draftEras, draftGenres, draftCountries, draftCollections, draftArtists, draftExclusions],
   )
   const activeFilterTotal = activeFilterCount(catalogFilters)
 
@@ -1481,6 +1485,7 @@ export function Game() {
   }
 
   function openFilterModal() {
+    setDraftExclusions(exclusions)
     setDraftEras([...eraFilters])
     setDraftGenres([...genreFilters])
     setDraftCountries([...regionFilters])
@@ -1490,6 +1495,8 @@ export function Game() {
   }
 
   function applyFilters() {
+    setExclusions(draftExclusions)
+    try {localStorage.setItem("songguessr-exclusions", JSON.stringify(draftExclusions))} catch {}
     setEraFilters([...draftEras])
     setGenreFilters([...draftGenres])
     setRegionFilters([...draftCountries])
@@ -1499,6 +1506,9 @@ export function Game() {
   }
 
   function clearAllFilters() {
+    setExclusions({excludedArtists:[],excludedGenres:[]})
+    setDraftExclusions({excludedArtists:[],excludedGenres:[]})
+    try {localStorage.removeItem("songguessr-exclusions")} catch {}
     setEraFilters([])
     setGenreFilters([])
     setRegionFilters([])
@@ -2215,6 +2225,9 @@ export function Game() {
         </div>
       }>
         <FilterModal
+          excludedArtists={draftExclusions.excludedArtists}
+          excludedGenres={draftExclusions.excludedGenres}
+          onExclusions={(excludedArtists,excludedGenres) => setDraftExclusions({excludedArtists,excludedGenres})}
           open={filterModalOpen}
           difficulty={difficulty}
           draftEras={draftEras}
@@ -2249,6 +2262,7 @@ export function Game() {
           onClearRegions={() => setDraftCountries([])}
           onClearCollections={() => setDraftCollections([])}
           onClearAll={() => {
+            setDraftExclusions({excludedArtists:[],excludedGenres:[]})
             setDraftEras([])
             setDraftGenres([])
             setDraftCountries([])

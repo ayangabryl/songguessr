@@ -1,5 +1,5 @@
-import { MATCH_ERAS, MATCH_GENRES, MATCH_COUNTRIES, type MatchFilters } from '../../shared/match-filters'
-import useSound from "use-sound";
+import { HostMix } from './HostMix'
+import type { CatalogFilters } from '../lib/filters'
 import { buttonSoundsEnabled, setButtonSounds } from "../lib/ui-audio";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -38,12 +38,12 @@ export function MatchArena({
 }) {
   const { match, players, playerId, hostId, sendMatch } = table;
   const [sounds, setSounds] = useState(buttonSoundsEnabled);
-  const [playTap] = useSound('/audio/ui-tap.wav', { volume: 0.18 * loadVolume(), interrupt: true, soundEnabled: sounds });
   const [difficulty, setDifficulty] = useState<MatchDifficulty | "mixed">(
     "mixed",
   );
   const [length, setLength] = useState(10);
-  const [filters, setFilters] = useState<MatchFilters>({});
+  const [mixOpen, setMixOpen] = useState(false);
+  const [filters, setFilters] = useState<CatalogFilters>({eras:[],genres:[],countries:[],collections:[],artists:[]});
   const [carryScores, setCarryScores] = useState(false);
   const [friendId, setFriendId] = useState("");
   const [greeting, setGreeting] = useState(0);
@@ -240,7 +240,7 @@ export function MatchArena({
         const fresh = Boolean(entry?.solvedAt && now + table.clockOffset - entry.solvedAt < 3200);
         return <div className="noot-party-member" key={p.id}>
           <button className="mascot party-pet" aria-label={p.id === playerId ? 'Customize your Noot' : `Wave to ${p.name}’s Noot`}
-            onClick={() => { playTap(); if (p.id === playerId) window.dispatchEvent(new Event('open-noot-profile')); else { setFriendId(p.id); table.greet(p.id); setGreeting(Date.now()); } }}>
+            onClick={() => { if (p.id === playerId) window.dispatchEvent(new Event('open-noot-profile')); else { setFriendId(p.id); table.greet(p.id); setGreeting(Date.now()); } }}>
             <Noot3D {...(p.appearance ?? {headgear:'headphones',clothing:'none',eyewear:'none',accessoryColor:'blue',pattern:'plain'})}
               pose={fresh ? 'cheer' : wave || newcomer?.id === p.id ? 'hover' : 'idle'}
               eventId={Math.max(entry?.solvedAt ?? 0, p.joinedAt, wave ? greeting : 0, wave ? incoming?.at ?? 0 : 0)} difficulty="easy" theme={theme}/>
@@ -265,11 +265,9 @@ export function MatchArena({
       className="app-shell match-room"
       data-theme={theme}
       data-difficulty="easy"
-      onClick={event => {
-        const target = event.target instanceof Element ? event.target.closest('button') : null;
-        if (target && !target.disabled && !playing && !target.closest('.match-controls, .match-album, .noot-party')) playTap();
-      }}
+      data-sound-playing={playing}
     >
+      {mixOpen && <HostMix value={filters} difficulty={difficulty === "mixed" ? "easy" : difficulty} onClose={()=>setMixOpen(false)} onApply={value=>{setFilters(value);setMixOpen(false)}}/>}
       <header className="match-header">
         <button className="profile-edit" aria-pressed={sounds} onClick={() => {setSounds(!sounds);setButtonSounds(!sounds);}}>Sounds {sounds ? 'on' : 'off'}</button>
         <button
@@ -387,16 +385,7 @@ export function MatchArena({
             </label>
             {isHost && (
               <>
-                <fieldset className="match-host-filters">
-                  <legend>Song mix</legend>
-                  {([{key:'era', label:'Era', values:MATCH_ERAS}, {key:'genre',label:'Genre',values:MATCH_GENRES}, {key:'country',label:'Country',values:MATCH_COUNTRIES}] as const).map(({key,label,values}) => <label className="match-difficulty" key={key}>
-                    {label}<select value={filters[key] ?? ''} onChange={e => setFilters(current => ({...current, [key]: e.target.value || undefined}))}>
-                      <option value="">All {key === "country" ? "countries" : `${label.toLowerCase()}s`}</option>
-                      {values.map(value => <option key={value} value={value}>{({modern:'2020s',classics:'Classics',PH:'Philippines',US:'United States',GB:'United Kingdom',KR:'South Korea',JP:'Japan','hip-hop':'Hip-hop','r&b':'R&B'} as Record<string,string>)[value] ?? value[0].toUpperCase()+value.slice(1)}</option>)}
-                    </select>
-                  </label>)}
-                  <small>One shared mix for everyone. Filters stay fixed for the match.</small>
-                </fieldset>
+                <button className="profile-edit" onClick={()=>setMixOpen(true)}>Mix · artists, genres & exclusions</button>
                 <label className="match-difficulty">
                   Songs per match
                   <select
@@ -423,7 +412,7 @@ export function MatchArena({
               </>
             )}
             <p className="match-fine">
-              {Object.values(filters).filter(Boolean).length ? "Custom mix" : "Global mix"} · same intro · 90 seconds per song
+              {Object.values(filters).some(value => value.length > 0) ? "Custom mix" : "Global mix"} · same intro · 90 seconds per song
               <br />
               {carryScores
                 ? "Points carry into the next match."

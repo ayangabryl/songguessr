@@ -25,6 +25,8 @@ export interface CatalogFilters {
   countries: CountryCode[]
   collections: CatalogKind[]
   artists: string[]
+  excludedArtists?: string[]
+  excludedGenres?: GenreFilter[]
 }
 
 export const EMPTY_CATALOG_FILTERS: CatalogFilters = {
@@ -210,7 +212,8 @@ export function trackMatchesFilters(track: Track, filters: CatalogFilters): bool
   const artistMatch =
     artists.length === 0 || artists.some((artist) => matchesArtist(track, artist))
 
-  return eraMatch && genreMatch && countryMatch && collectionMatch && artistMatch
+  const excluded = (filters.excludedArtists ?? []).some(artist => matchesArtist(track, artist)) || (filters.excludedGenres ?? []).some(genre => matchesGenre(track, genre))
+  return !excluded && eraMatch && genreMatch && countryMatch && collectionMatch && artistMatch
 }
 
 export function filterTracks(tracks: Track[], filters: CatalogFilters): Track[] {
