@@ -13,7 +13,7 @@ import {
   type SittingError,
   type SittingState,
 } from '../shared/sitting'
-import { completedMatchRounds, nextEntries, roundDifficulty, readyForNext, everyoneReady, parseMatchCommand, publicMatch, advancePlayer, expireRound, finishRound, ROUND_MS, type MatchState } from '../shared/match'
+import { alignMatchScoring, completedMatchRounds, nextEntries, roundDifficulty, readyForNext, everyoneReady, parseMatchCommand, publicMatch, advancePlayer, expireRound, finishRound, ROUND_MS, type MatchState } from '../shared/match'
 import { findTrackById, getAvailabilityCounts } from './catalog'
 import { pickPlayableTrack } from './playable-audio'
 import { checkSubmittedSong } from './guess'
@@ -72,6 +72,10 @@ export class SittingRoom extends DurableObject<Env> {
           joined_at INTEGER NOT NULL
         )
       `)
+      const match = await this.ctx.storage.get<MatchState>('match')
+      if (match && match.scoringVersion !== 3) {
+        await this.ctx.storage.put('match', alignMatchScoring(match))
+      }
     })
   }
 
@@ -421,7 +425,7 @@ export class SittingRoom extends DurableObject<Env> {
       const track = picked.track
       const now=Date.now(), startsAt=now+3000
       const previous=continuing||carryScores?(match?.entries??[]):[]
-      match={id:continuing?match!.id:crypto.randomUUID(),roundId:crypto.randomUUID(),number:continuing?match!.number+1:1,phase:'playing',difficulty,filters,difficultyMode:mode,length,carryScores,scoringVersion:continuing?match!.scoringVersion:2,startsAt,deadline:startsAt+ROUND_MS,
+      match={id:continuing?match!.id:crypto.randomUUID(),roundId:crypto.randomUUID(),number:continuing?match!.number+1:1,phase:'playing',difficulty,filters,difficultyMode:mode,length,carryScores,scoringVersion:3,startsAt,deadline:startsAt+ROUND_MS,
         entries:nextEntries(previous,active,continuing,carryScores),
         completedRounds:continuing?completedMatchRounds(match!):[],
         song:{id:track.id,title:track.title,artist:track.artist,albumArt:track.albumArt,audio:picked.audio.url,offset:picked.audio.offset},used:[...(continuing?match!.used:[]),track.id]}

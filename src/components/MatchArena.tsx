@@ -385,7 +385,7 @@ export function MatchArena({
                 <label className="match-difficulty">After a match<select value={String(carryScores)} onChange={e => setCarryScores(e.target.value === 'true')}><option value="false">Reset scores</option><option value="true">Keep points</option></select></label>
               </details>
             </div> : <p className="match-fine">The host chooses the mix. You’ll hear the same song.</p>}
-            <p className="match-fine">90 seconds per song. Up to 5,000 points. No speed bonus.</p>
+            <p className="match-fine">90 seconds per song. Up to {points[0]} points. Each later clip earns one less.</p>
             {isHost ? onlineCount < 2 ? <button className="match-primary" onClick={() => void copy()}>{copied ? 'Invite copied' : 'Invite a friend'}<Copy size={17}/></button>
               : <button className="match-primary" disabled={pending || !connected} onClick={() => { setPending(true); sendMatch({type:'match-start',difficulty,length,carryScores,filters}); }}>{pending ? 'Finding your first song…' : 'Start the match'}<ArrowRight size={18}/></button>
               : <p className="match-wait" role="status">Waiting for the host to start…</p>}
@@ -415,7 +415,7 @@ export function MatchArena({
                     : <button type="button" className="btn btn-quiet skip-button" onClick={skip} disabled={!canPlay || pending} title={stage === 4 ? 'Give up this song' : 'Hear a longer clip'}><SkipIcon/><span>{stage === 4 ? 'Pass' : 'Skip'}</span></button>}
                 </form>
               </div>
-              <div className="match-round-meta"><span>{!me ? 'Watching this round' : me.status === 'out' ? 'Song passed' : me.status === 'solved' ? <><strong>+{me.delta.toLocaleString()}</strong> points secured</> : <><strong>{points[stage].toLocaleString()}</strong> points available</>}</span>
+              <div className="match-round-meta"><span>{!me ? 'Watching this round' : me.status === 'out' ? 'Song passed' : me.status === 'solved' ? <><strong>+{me.delta.toLocaleString()}</strong> {me.delta === 1 ? 'point' : 'points'} secured</> : <><strong>{points[stage].toLocaleString()}</strong> {points[stage] === 1 ? 'point' : 'points'} available</>}</span>
                 <span className="match-clock" data-urgent={remaining <= 15} aria-label={`${remaining} seconds left in this round`}>{Math.floor(remaining/60)}:{String(remaining%60).padStart(2,'0')} <small>left</small></span>
               </div>
               <p className="match-feedback" role="status">{audioError || (audioState === 'loading' ? 'Loading the clip…' : '') || (countdown > 0 ? 'Everyone starts together.' : !me ? 'Join the next match to play.' : me.status !== 'playing' ? `${match.entries.filter(p => p.status === 'playing').length} still listening. The answer reveals together.` : me.lastAction === 'miss' ? 'Not that one. A longer clip is ready.' : selectedTrack ? 'Ready when you are. Confirm your guess.' : 'Press play, then name the track. Skip for a longer clip.')}</p>

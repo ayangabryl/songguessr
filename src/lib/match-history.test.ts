@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {advancePlayer, completedMatchRounds, expireRound, finishRound, nextEntries, publicMatch, type MatchState} from '../../shared/match.ts'
 import {matchSittingHistory} from './match-history.ts'
-const make = (): MatchState => ({id:'match',roundId:'r1',number:1,phase:'playing',scoringVersion:2,difficulty:'easy',startsAt:0,deadline:90000,used:['secret'],song:{id:'secret',title:'Unrevealed song',artist:'Artist',albumArt:'cover',audio:'audio',offset:0},entries:nextEntries([],['alice','bob'].map(id=>({id,name:id})),false,false)})
+const make = (): MatchState => ({id:'match',roundId:'r1',number:1,phase:'playing',scoringVersion:3,difficulty:'easy',startsAt:0,deadline:90000,used:['secret'],song:{id:'secret',title:'Unrevealed song',artist:'Artist',albumArt:'cover',audio:'audio',offset:0},entries:nextEntries([],['alice','bob'].map(id=>({id,name:id})),false,false)})
 test('all skips are recorded, including final Pass, without revealing the song early', () => {
  let m=make()
  for(let stage=0;stage<5;stage++)m=advancePlayer(m,'alice','r1',stage,false,true,1000)
@@ -23,7 +23,7 @@ test('mixed miss/skip history survives reconnect and a following round without l
  m=expireRound(m,90000)
  const reconnected=JSON.parse(JSON.stringify(m)) as MatchState
  const rows=matchSittingHistory(publicMatch(reconnected),'alice')
- assert.deepEqual(rows[0].marks,[{stage:.1,kind:'miss'},{stage:.5,kind:'skip'}]);assert.equal(rows[0].points,3000);assert.equal(rows[0].solvedStage,2)
+ assert.deepEqual(rows[0].marks,[{stage:.1,kind:'miss'},{stage:.5,kind:'skip'}]);assert.equal(rows[0].points,3);assert.equal(rows[0].solvedStage,2)
  const next:MatchState={...reconnected,roundId:'r2',number:2,phase:'playing',entries:nextEntries(m.entries,m.entries,true,false),completedRounds:completedMatchRounds(reconnected),song:{...m.song,id:'next-secret',title:'Next secret'}}
  assert.deepEqual(matchSittingHistory(publicMatch(next),'alice'),rows)
  assert.equal(JSON.stringify(publicMatch(next)).includes('Next secret'),false)

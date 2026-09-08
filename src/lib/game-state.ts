@@ -2,7 +2,8 @@ import type { Difficulty } from './api'
 import { readMigratedItem } from './storage'
 
 export const ALL_STAGES = [0.01, 0.1, 0.5, 2, 8, 15] as const
-export const DEFAULT_STAGES = [0.1, 0.5, 2, 8, 15] as const
+export { DEFAULT_SCORE_STAGES as DEFAULT_STAGES } from '../../shared/score.ts'
+import { DEFAULT_SCORE_STAGES as DEFAULT_STAGES } from '../../shared/score.ts'
 
 export type StartMode = 'intro' | 'hook'
 export type ShellStatus = 'idle' | 'playing' | 'won' | 'lost'

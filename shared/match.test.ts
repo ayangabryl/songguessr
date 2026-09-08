@@ -10,6 +10,7 @@ import {
 } from './match.ts'
 const make = (): MatchState => ({
   id: 'match',
+  scoringVersion: 3,
   roundId: 'round',
   number: 1,
   phase: 'playing',
@@ -42,12 +43,12 @@ test('same song, independent stages, no premature reveal', () => {
   assert.equal(m.entries[0].stage, 1)
   assert.equal(m.entries[1].stage, 0)
   m = advancePlayer(m, 'bob', 'round', 0, true, false, 2000)
-  assert.equal(m.entries[1].points, 1000)
+  assert.equal(m.entries[1].points, 5)
   assert.equal(publicMatch(m).answer, null)
   assert(!JSON.stringify(publicMatch(m)).includes('secret'))
   m = advancePlayer(m, 'alice', 'round', 1, true, false, 3000)
   assert.equal(m.phase, 'reveal')
-  assert.equal(m.entries[0].points, 800)
+  assert.equal(m.entries[0].points, 4)
   assert.equal(publicMatch(m).answer?.title, 'Answer')
 })
 test('stale stages, round IDs and duplicate guesses cannot award or skip twice', () => {
@@ -69,7 +70,7 @@ test('deadline resolves disconnected players once, keeps earned points', () => {
   const solved = advancePlayer(make(), 'alice', 'round', 0, true, false, 2000)
   const expired = expireRound(solved, 91000)
   assert.equal(expired.phase, 'reveal')
-  assert.equal(expired.entries[0].points, 1000)
+  assert.equal(expired.entries[0].points, 5)
   assert.equal(expired.entries[1].status, 'out')
   assert.deepEqual(expired.entries[1].history, [0])
   assert.equal(expireRound(expired, 92000), expired)
@@ -193,8 +194,10 @@ test('seat labels stay the same on the stage and the board', () => {
   assert.equal(matchSeatLabel({ status: 'solved', ready: false, lastAction: 'solved', stage: 1 }, true), 'Named it')
 })
 
-test('new scoring offers 5,000 while active classic matches retain their original stakes',async()=>{
+test('current scoring matches solo while legacy scales remain readable for migration',async()=>{
  const {matchPoints,matchRank}=await import('./match.ts')
+ assert.deepEqual(matchPoints(),[5,4,3,2,1])
+ assert.deepEqual(matchPoints({scoringVersion:3}),[5,4,3,2,1])
  assert.deepEqual(matchPoints({scoringVersion:2}),[5000,4000,3000,2000,1000])
  assert.deepEqual(matchPoints({}),[1000,800,600,400,200])
  const entries=[{id:'a',points:17500},{id:'b',points:17500},{id:'c',points:11500}]

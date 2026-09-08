@@ -1,7 +1,9 @@
+import { DEFAULT_SCORE_STAGES, roundPoints } from './score.ts'
 import { parseMatchFilters, type MatchFilters } from './match-filters.ts'
 /** Authoritative match rules. Public views deliberately omit the song until reveal. */
-export const MATCH_STAGES = [0.1, 0.5, 2, 8, 15]
-export const MATCH_POINTS = [5000, 4000, 3000, 2000, 1000]
+export const MATCH_STAGES = [...DEFAULT_SCORE_STAGES]
+export const MATCH_POINTS = MATCH_STAGES.map(solvedStage => roundPoints({status: 'won', solvedStage, stages: MATCH_STAGES}))
+const V2_POINTS = [5000, 4000, 3000, 2000, 1000]
 const CLASSIC_POINTS = [1000, 800, 600, 400, 200]
 export const MATCH_LENGTH = 10
 export const ROUND_MS = 90000
@@ -40,7 +42,7 @@ export interface MatchSong {
 }
 export interface MatchState {
   completedRounds?: MatchRoundSummary[]
-  scoringVersion?: 2
+  scoringVersion?: 2 | 3
   id: string
   roundId: string
   number: number
@@ -56,9 +58,30 @@ export interface MatchState {
   song: MatchSong
   used: string[]
 }
-/** Preserve the rules of a match already in progress across a deployment. */
+/** Legacy scales are read only for compatibility before stored-state migration. */
 export function matchPoints(match?: Pick<MatchState, 'scoringVersion'>): readonly number[] {
-  return match && match.scoringVersion !== 2 ? CLASSIC_POINTS : MATCH_POINTS
+  if (!match || match.scoringVersion === 3) return MATCH_POINTS
+  return match.scoringVersion === 2 ? V2_POINTS : CLASSIC_POINTS
+}
+/** Convert stored totals and every history surface together, once, before handling events. */
+export function alignMatchScoring(match: MatchState): MatchState {
+  if (match.scoringVersion === 3) return match
+  const divisor = match.scoringVersion === 2 ? 1000 : 200
+  const convert = (points: number) => points / divisor
+  return {
+    ...match,
+    scoringVersion: 3,
+    entries: match.entries.map(entry => ({
+      ...entry,
+      points: convert(entry.points),
+      delta: convert(entry.delta),
+      history: entry.history.map(convert),
+    })),
+    ...(match.completedRounds ? {completedRounds: match.completedRounds.map(round => ({
+      ...round,
+      results: round.results.map(result => ({...result, delta: convert(result.delta)})),
+    }))} : {}),
+  }
 }
 export function matchRank(entries: Pick<MatchEntry, 'id' | 'points'>[], id: string) {
   const player = entries.find(entry => entry.id === id)
