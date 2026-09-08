@@ -63,3 +63,19 @@ test('Blender fashion and separate custom colors survive multiplayer validation'
   assert.equal(parseAppearance({footwear:'flying-shoes'}).footwear, 'none')
   assert.equal(parseAppearance({}).headColor, undefined, 'old outfits retain linked hat color until edited')
 })
+
+test('expanded head, eye and foot choices and independent frame colors survive room serialization', () => {
+  const slots = {
+    headgear: ['cap','beret','visor','crown','party-hat','flower-crown'],
+    eyewear: ['round','square','cat-eye','aviator','heart','star','sport'],
+    footwear: ['sneakers','boots','high-tops','mary-janes','loafers','sandals','slippers','ballet-flats'],
+  } as const
+  for (const [slot, choices] of Object.entries(slots)) for (const choice of choices) {
+    const parsed = parseAppearance({[slot]:choice,eyeColor:'#Af092B',headColor:'ivory',shoeColor:'cocoa'})
+    assert.equal(parsed[slot as keyof typeof slots], choice)
+    assert.equal(parsed.eyeColor, '#af092b')
+    assert.deepEqual(parseAppearance(JSON.parse(JSON.stringify(parsed))), parsed)
+  }
+  assert.equal(parseAppearance({eyeColor:'url(bad)'}).eyeColor, 'blue')
+  assert.equal(parseAppearance({}).eyeColor, undefined)
+})

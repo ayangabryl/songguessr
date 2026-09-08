@@ -6,7 +6,7 @@ import { spring } from "./motion.ts";
 import { createScarf } from './scarf.ts';
 import { createSunglasses } from './sunglasses.ts';
 /** Accessories follow the head anchor; fabric has bounded secondary motion. */
-export function createWearables(head: THREE.Bone, surface = frontSurface) {
+export function createWearables(head: THREE.Bone, surface = frontSurface, blenderFrames = false) {
   const mount = new THREE.Group();
   mount.position.y = -HEAD_Y;
   head.add(mount);
@@ -119,7 +119,9 @@ export function createWearables(head: THREE.Bone, surface = frontSurface) {
       scarf.visible = state.clothing === "scarf";
       bow.visible = state.clothing === "bow";
       bandana.visible = state.clothing === "bandana";
-      glasses.visible = state.eyewear === "round";
+      glasses.visible = !blenderFrames && state.eyewear === "round";
+      frame.color.set(state.eyeColor ? nootColorHex(state.eyeColor) : "#454b48");
+      sunglasses.tint(state.eyeColor ? nootColorHex(state.eyeColor) : "#293431");
       sunny.visible = state.eyewear === "sunny";
       sunglasses.fit(state.headgear ?? 'headphones');
       fabric.color.set(nootColorHex(state.accessoryColor));

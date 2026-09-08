@@ -236,7 +236,7 @@ export function mountNoot(
   media.addEventListener("change", wake);
   assetPromise.then(asset => {
     if (disposed) return;
-    noot = createNootFromAsset(asset);
+    noot = createNootFromAsset(asset, undefined, wake);
     turntable.add(noot.root);
     resize();
     wake();

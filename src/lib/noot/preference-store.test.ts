@@ -61,3 +61,16 @@ test('new fashion and independent colors persist across stores and partial edits
   assert.equal(restored.clothing, 'overalls'); assert.equal(restored.footwear, 'boots')
   assert.equal(restored.accessoryColor, '#1278ab'); assert.equal(restored.headColor, 'yellow'); assert.equal(restored.shoeColor, 'cocoa')
 })
+
+test('new accessory choices retain independent colors through interleaved edits and reopening', () => {
+  let raw: string | null = null
+  const a = createPreferenceStore(()=>raw,v=>{raw=v}), b = createPreferenceStore(()=>raw,v=>{raw=v})
+  a.update({headgear:'flower-crown',headColor:'pink',eyewear:'heart',eyeColor:'#123456'})
+  b.update({footwear:'sandals',shoeColor:'coral'})
+  a.update({clothing:'dress',trimColor:'ivory'})
+  const saved = parsePreferences(createPreferenceStore(()=>raw,()=>{}).snapshot())
+  assert.equal(saved.headgear,'flower-crown'); assert.equal(saved.headColor,'pink')
+  assert.equal(saved.eyewear,'heart'); assert.equal(saved.eyeColor,'#123456')
+  assert.equal(saved.footwear,'sandals'); assert.equal(saved.shoeColor,'coral')
+  assert.equal(saved.clothing,'dress'); assert.equal(saved.trimColor,'ivory')
+})

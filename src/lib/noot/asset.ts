@@ -1,4 +1,4 @@
-import { createFashion, loadFashionData } from "./fashion.ts"
+import { createFashion } from "./fashion.ts"
 import { nootColorHex } from "../../../shared/noot-colors.ts"
 import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
@@ -18,7 +18,7 @@ let template: Promise<GLTF> | undefined
 
 /** One immutable download; every mounted Noot owns its skeleton, mixer and materials. */
 export function loadNootAsset() {
-  template ??= Promise.all([new GLTFLoader().loadAsync(NOOT_ASSET_URL), loadFashionData()]).then(([gltf]) => gltf).catch(error => {
+  template ??= new GLTFLoader().loadAsync(NOOT_ASSET_URL).catch(error => {
     template = undefined
     throw error
   })
@@ -46,7 +46,7 @@ const loops = new Set<string>([...DANCE_CLIPS, 'Idle', 'Walk', 'WalkSoft', 'Run'
 let instance = 0
 
 /** Plays the authored Blender clips; runtime only adds gaze, palettes and game travel. */
-export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`) {
+export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`, onWearableReady: () => void = () => {}) {
   const root = new THREE.Group()
   root.name = 'Noot'
   const character = clone(gltf.scene)
@@ -111,8 +111,8 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
   for (const child of cat.children) {
     if (!(child instanceof THREE.Mesh && child.geometry.type === 'ExtrudeGeometry')) child.visible = false
   }
-  const wearables = createWearables(wardrobeAnchor, (x, y) => frontSurface(x, y) * .84 / .72)
-  const fashion = createFashion(character, sharedSkeleton!)
+  const wearables = createWearables(wardrobeAnchor, (x, y) => frontSurface(x, y) * .84 / .72, true)
+  const fashion = createFashion(character, sharedSkeleton!, onWearableReady)
   const soft = createSoftAccessories(character)
   const mixer = new THREE.AnimationMixer(character)
   const clips = new Map(gltf.animations.map(clip => [clip.name, clip]))
@@ -274,7 +274,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
     for (const {material,pattern} of fabrics) { material.color.set([...hatMaterials.values()].includes(material) ? hatColor : fabricColor); pattern.value=[...hatMaterials.values()].includes(material) ? 0 : ['plain','stripes','dots','gingham','confetti'].indexOf(state.pattern ?? 'plain') }
     seams.forEach(material => material.color.set([...hatMaterials.values()].includes(material) ? hatColor : fabricColor).multiplyScalar(.78))
     }
-    fashion.update(state, time, reduced)
+    fashion.update(state, time, reduced, clothDrive)
     gear.update(dt, reduced ? 0 : Math.sin(time * 2) * .15, 0, reduced)
     wearables.update(dt, clothDrive, state.clothing === 'bandana' && soft.wardrobe.length ? {...state,clothing:'none'} : state, reduced)
   }

@@ -42,7 +42,9 @@ export function createSoftAccessories(character: THREE.Object3D) {
         hands[i].getWorldPosition(position); character.worldToLocal(position)
         const height = position.y - (chest.position.y - chestRest.y)
         if (height < .65 || height > 1.67 || position.z < .08) break
-        const radius = height < 1 ? .99 : 1.01 - (height-1)*.09
+        const bodyRadius = height < 1 ? .99 : 1.01 - (height-1)*.09
+        const skirt = state.clothing === 'dress' || state.clothing === 'ballet'
+        const radius = skirt ? Math.max(bodyRadius, 1.055 + THREE.MathUtils.clamp((1.08-height)/.72,0,1) * (state.clothing === 'ballet' ? .28 : .20)) : bodyRadius + (NOOT_TAILORED.includes(state.clothing as typeof NOOT_TAILORED[number]) ? .035 : 0)
         const envelope = (position.x/radius)**2 + (position.z/(radius*.84))**2
         if (envelope >= 1.05) break
         target.copy(position)

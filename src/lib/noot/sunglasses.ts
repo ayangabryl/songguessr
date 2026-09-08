@@ -32,6 +32,7 @@ export function createSunglasses() {
   const temples = root.getObjectByName('Noot_Sunglasses_temples') as THREE.Mesh
   return {
     root,
+    tint(color: string) { acetate.color.set(color) },
     fit(headgear: NootState['headgear']) {
       temples.morphTargetInfluences![0] = headgear === 'headphones' || headgear === 'cat-earphones' ? 1 : 0
     },

@@ -16,7 +16,7 @@ export type NootAction =
   | "cheer"
   | "look-around" | "stretch" | "yawn" | "wave-small" | "high-five"
   | "boop" | "laugh" | "angry" | "startled" | "tumble" | "sit" | "get-up" | "catch" | "samba" | "outfit" | "jump";
-export type NootHeadgear = "headphones" | "cat-earphones" | "daisy" | "beanie" | "bucket" | "none";
+export type NootHeadgear = NootAppearance["headgear"];
 export type NootMood = "chill" | "happy" | "sad" | "dance";
 export interface NootState extends Partial<NootAppearance> {
   pose: NootAction;
@@ -64,5 +64,11 @@ export const HEADGEAR: {
   },
   { id: "beanie", label: "Beanie", description: "A soft ribbed knit cap" },
   { id: "bucket", label: "Bucket", description: "A curved canvas sun hat" },
+  { id: "cap", label: "Cap", description: "Curved bill and a soft crown" },
+  { id: "beret", label: "Beret", description: "A soft tilted wool silhouette" },
+  { id: "visor", label: "Visor", description: "An open crown and shaded bill" },
+  { id: "crown", label: "Crown", description: "Satin points and little jewels" },
+  { id: "party-hat", label: "Party hat", description: "A tiny cone and soft pom" },
+  { id: "flower-crown", label: "Flower crown", description: "A wreath of little blossoms" },
   { id: "none", label: "Just Noot", description: "No accessories" },
 ];

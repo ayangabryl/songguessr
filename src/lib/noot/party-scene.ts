@@ -67,7 +67,7 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
     let rosterChanged = false
     for (const id of models.keys()) if (!ids.has(id)) { remove(id); rosterChanged = true }
     for (const participant of options.participants) if (!models.has(participant.id)) {
-      const noot = createNootFromAsset(asset, participant.id), wrapper = new THREE.Group(); wrapper.add(noot.root)
+      const noot = createNootFromAsset(asset, participant.id, wake), wrapper = new THREE.Group(); wrapper.add(noot.root)
       const shadow = new THREE.Mesh(shadowGeometry, new THREE.MeshBasicMaterial({ map: shadowTexture, transparent: true, depthWrite: false }))
       shadow.rotation.x = -Math.PI / 2; shadow.position.y = -.013
       models.set(participant.id, { noot, wrapper, shadow }); scene.add(wrapper, shadow); rosterChanged = true

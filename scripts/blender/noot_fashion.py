@@ -14,7 +14,7 @@ def build():
         for o in list(old.objects): bpy.data.objects.remove(o,do_unlink=True)
         bpy.data.scenes.remove(old)
     scene=bpy.data.scenes.new('Noot Fashion Atelier')
-    materials={k:n.mat('Noot_Fashion_'+k,c,r) for k,c,r in [('base','#7893ab',.88),('trim','#eee7d7',.9),('detail','#b7a77f',.44),('lining','#f3eddf',.8)]}
+    materials={k:n.mat('Noot_Fashion_'+k,c,r) for k,c,r in [('base','#7893ab',.88),('trim','#eee7d7',.9),('detail','#b7a77f',.44),('lining','#f3eddf',.8),('lens','#17323a',.14),('glass','#d9eeee',.10),('sole','#35302a',.85)]}
     groups={}; bone_names=['pelvis','chest','head','upper_arm_L','forearm_L','upper_arm_R','forearm_R','foot_L','foot_R']
     def add(o,style,role,weight='body'):
         o['fashion']=style;o['material_role']=role;o['weight_mode']=weight
@@ -34,7 +34,7 @@ def build():
         for p,co in zip(s.points,points):p.co=(*xyz(co),1)
         return add(bpy.data.objects.new(name,data),style,role,weight)
     def sphere(name,c,scale,style,role='base',weight='body'):
-        seg=16;rows=8;v=[];f=[]
+        seg=10 if name.startswith('Wreath') else 16;rows=6 if name.startswith('Wreath') else 8;v=[];f=[]
         for i in range(rows+1):
             p=i/rows*math.pi
             for j in range(seg):
@@ -98,28 +98,8 @@ def build():
         sphere('Overall_buckle',(sign*.34,1.33,front(sign*.34,1.33,.077)),(.029,.038,.012),style,'detail')
     # Curved bib-pocket seam.
     tube('Overall_pocket',[(-.19,1.22,front(-.19,1.22,.071)),(-.18,1.05,front(-.18,1.05,.071)),(0,1.01,front(0,1.01,.071)),(.18,1.05,front(.18,1.05,.071)),(.19,1.22,front(.19,1.22,.071))],.009,style,'trim')
-    for style in ['sneakers','boots','high-tops','mary-janes']:
-        for sign,side in [(-1,'L'),(1,'R')]:
-            weight='foot_'+side;cx=sign*.45
-            # Rounded toe and shaped upper clear the original foot; flat rubber sole at ground.
-            sphere(style+'_upper_'+side,(cx,.17,.115),(.335,.164,.35),style,'base',weight)
-            seg=40;v=[];f=[]
-            for y,r in [(0,.94),(.018,1),(.075,1.01),(.10,.95)]:
-                for j in range(seg):a=j/seg*math.tau;v.append((cx+.34*r*math.cos(a),y,.115+.355*r*math.sin(a)))
-            for i in range(3):
-                for j in range(seg):a=i*seg+j;b=i*seg+(j+1)%seg;f.append((a,b,b+seg,a+seg))
-            f += [tuple(reversed(range(seg))),tuple(3*seg+j for j in range(seg))]
-            mesh(style+'_sole_'+side,v,f,style,'trim',weight)
-            if style in ['boots','high-tops']:
-                # Padded ankle cuff, carried by the foot rather than the chest.
-                sphere('Boot_ankle_'+side,(cx,.255,.015),(.23,.14,.245),style,'base',weight)
-                tube('Boot_cuff_'+side,[(cx+.21*math.cos(j/32*math.tau),.34,.015+.20*math.sin(j/32*math.tau)) for j in range(32)],.016,style,'trim',weight,True)
-            if style=='mary-janes':
-                tube('MaryJane_strap_'+side,[(cx-.24,.225,.075),(cx-.12,.305,.075),(cx+.12,.305,.075),(cx+.24,.225,.075)],.022,style,'trim',weight)
-                sphere('MaryJane_buckle_'+side,(cx+.23,.245,.088),(.033,.025,.019),style,'detail',weight)
-            for k in range(0 if style=='mary-janes' else 4 if style=='high-tops' else 3):
-                y=.255+k*.017;z=.29-k*.07
-                tube(style+'_lace_'+side+'_'+str(k),[(cx-.105,y,z),(cx,y+.016,z-.012),(cx+.105,y,z)],.011,style,'trim',weight)
+    import noot_accessories
+    noot_accessories.build(mesh,tube,sphere)
     def surface_patch(name, corners, style, role='base', depth=.07):
         # Subdivide each panel onto the pear surface before giving it thickness.
         verts=[];faces=[];steps=8
@@ -139,7 +119,7 @@ def build():
         for sign in [-1,1]:sphere(name+'_loop',(sign*.10,y,z),(.13,.077,.046),style,role)
         sphere(name+'_knot',(0,y,z+.012),(.049,.052,.053),style,role)
     def dress(style):
-        segments=64;rows=22;v=[];f=[];ballet=style=='ballet'
+        segments=48;rows=20;v=[];f=[];ballet=style=='ballet'
         def point(a,t):
             bottom=.36+(.024*math.cos(12*a) if ballet else .012*math.cos(10*a))
             top=1.55-.20*max(0,math.sin(a))**6
@@ -160,7 +140,7 @@ def build():
         for sign in [-1,1]:
             verts=[];faces=[];steps=40
             for i in range(steps+1):
-                t=i/steps;a=1.18*(1-2*t);y=1.39+.12*t+.40*math.sin(math.pi*t);r=n.radius(y)+.061
+                t=i/steps;a=1.18*(1-2*t);y=1.42+.06*t+.18*math.sin(math.pi*t);r=n.radius(y)+.034
                 for offset in [-.048,.048]:
                     angle=a+offset
                     verts.append((sign*r*math.cos(angle),y,r*.84*math.sin(angle)))
@@ -252,6 +232,7 @@ def build():
                     for y in [.66,.91,1.16,1.39]:sphere('Rain_snap',(sign*.12,y,front(sign*.12,y,.092)),(.021,.023,.014),style,'detail')
     for style in ['hoodie','tracksuit','raincoat']:street_top(style)
     def weights(p,mode):
+        if mode=='head':return {'head':1}
         if mode.startswith('foot'):return {mode:1}
         if mode.startswith('arm'):
             t=n.smooth((1.39-p[1])/.27);s=mode[-1]
@@ -278,8 +259,13 @@ def build():
             result.append({'style':style,'role':role,'position':pack(pos),'normal':pack(norm),'index':pack(index,'H'),'joints':pack(joints,'B'),'weights':pack(skin,'H')})
             if sway:result[-1]['sway']=pack(sway)
             counts[style]=counts.get(style,0)+len(index)//3
+    target=os.path.join(ROOT,'src/lib/noot/fashion-meshes');os.makedirs(target,exist_ok=True)
+    for style in counts:
+        with open(os.path.join(target,style+'.ts'),'w') as f:
+            f.write('// Generated through Blender MCP.\nexport default '+json.dumps([part for part in result if part['style']==style],separators=(',',':'))+'\n')
     with open(os.path.join(ROOT,'src/lib/noot/fashion-data.ts'),'w') as f:
-        f.write('// Generated through Blender MCP by scripts/blender/noot_fashion.py.\nexport const fashionBones='+json.dumps(bone_names)+'\nexport default '+json.dumps(result,separators=(',',':'))+'\n')
+        f.write('// Generated through Blender MCP by scripts/blender/noot_fashion.py.\nexport const fashionBones='+json.dumps(bone_names)+'\n')
+        f.write('export const fashionStyles = {\n'+''.join(json.dumps(style)+': () => import(\'./fashion-meshes/'+style+'.ts\'),\n' for style in counts)+'}\n')
     bpy.data.libraries.write(os.path.join(ROOT,'assets/noot/fashion.blend'),{scene},fake_user=True,compress=True)
     print(json.dumps({'triangles':counts,'draw_groups':len(result)}))
 

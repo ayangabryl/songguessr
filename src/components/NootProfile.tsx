@@ -5,7 +5,7 @@ import { Noot3D } from './Noot3D'
 import { useNootPreferences } from '../lib/noot/preferences'
 import { loadDisplayName, saveDisplayName } from '../lib/player'
 import { parseSittingName } from '../../shared/sitting'
-import { NOOT_TAILORED, type NootAppearance } from '../../shared/noot-profile'
+import { NOOT_TAILORED, NOOT_FASHION_HATS, NOOT_FASHION_EYES, NOOT_FOOTWEAR, type NootAppearance } from '../../shared/noot-profile'
 import { NOOT_COLORS, nootColorHex, type NootColor } from '../../shared/noot-colors'
 import '../wardrobe.css'
 
@@ -24,12 +24,24 @@ const items: Record<Slot, { id: string; label: string; detail: string; icon?: ty
     { id: 'beanie', label: 'Knit beanie', detail: 'A cozy ribbed crown.' },
     { id: 'bucket', label: 'Bucket hat', detail: 'Made for sunny days.' },
     { id: 'daisy', label: 'Daisy', detail: 'A flower for your favorite song.', icon: Flower2 },
+    { id: 'cap', label: 'Baseball cap', detail: 'A curved bill and soft crown.' },
+    { id: 'beret', label: 'Soft beret', detail: 'Tilted wool with a fitted band.' },
+    { id: 'visor', label: 'Sun visor', detail: 'An open crown and curved shade.' },
+    { id: 'crown', label: 'Little crown', detail: 'Rounded points and tiny jewels.' },
+    { id: 'party-hat', label: 'Party hat', detail: 'A tiny cone with a soft pom.' },
+    { id: 'flower-crown', label: 'Flower crown', detail: 'A wreath of little blossoms.' },
     { id: 'none', label: 'Just Noot', detail: 'That familiar little note.', icon: Circle },
   ],
   eyewear: [
     { id: 'none', label: 'Bare eyes', detail: 'Let those big eyes shine.', icon: Circle },
     { id: 'round', label: 'Round frames', detail: 'A thoughtful little look.', icon: Glasses },
     { id: 'sunny', label: 'Sunglasses', detail: 'Rounded frames. Smoked lenses.', icon: Glasses },
+    { id: 'square', label: 'Square frames', detail: 'Soft corners with clear lenses.', icon: Glasses },
+    { id: 'cat-eye', label: 'Cat-eye frames', detail: 'Swept corners with clear lenses.', icon: Glasses },
+    { id: 'aviator', label: 'Aviators', detail: 'Teardrop smoked lenses.', icon: Glasses },
+    { id: 'heart', label: 'Heart shades', detail: 'Rounded hearts with smoked lenses.', icon: Glasses },
+    { id: 'star', label: 'Star shades', detail: 'Soft star frames for the encore.', icon: Glasses },
+    { id: 'sport', label: 'Sport shades', detail: 'A low wraparound sports frame.', icon: Glasses },
   ],
   clothing: [
     { id: 'none', label: 'Just Noot', detail: 'Comfortable in your own skin.', icon: Circle },
@@ -53,6 +65,10 @@ const items: Record<Slot, { id: string; label: string; detail: string; icon?: ty
     { id: 'boots', label: 'Ankle boots', detail: 'Ready for a little adventure.', icon: Footprints },
     { id: 'high-tops', label: 'High-tops', detail: 'Padded ankles and fresh little laces.', icon: Footprints },
     { id: 'mary-janes', label: 'Mary Janes', detail: 'Rounded toes and a tiny buckle.', icon: Footprints },
+    { id: 'loafers', label: 'Penny loafers', detail: 'Square toes and a penny strap.', icon: Footprints },
+    { id: 'sandals', label: 'Summer sandals', detail: 'Open toes with soft straps.', icon: Footprints },
+    { id: 'slippers', label: 'Cozy slippers', detail: 'Fleece-lined with a little pom.', icon: Footprints },
+    { id: 'ballet-flats', label: 'Ballet flats', detail: 'A low opening and tiny ribbons.', icon: Footprints },
   ],
 }
 const patterns = [['plain', 'Plain'], ['stripes', 'Stripes'], ['dots', 'Dots'], ['gingham', 'Check'], ['confetti', 'Confetti']] as const
@@ -60,15 +76,18 @@ const looks: { label: string; color: string; outfit: Partial<NootAppearance> }[]
   { label: 'Cozy club', color: '#b87985', outfit: { headgear: 'beanie', headColor: 'ivory', clothing: 'cardigan', trimColor: 'ivory', accessoryColor: 'rose', footwear: 'boots', shoeColor: 'cocoa', eyewear: 'round', pattern: 'plain' } },
   { label: 'Team Noot', color: '#426b54', outfit: { headgear: 'headphones', headColor: 'ivory', clothing: 'varsity', trimColor: 'ivory', accessoryColor: 'forest', footwear: 'sneakers', shoeColor: 'ivory', eyewear: 'none', pattern: 'plain' } },
   { label: 'Day off', color: '#7893ab', outfit: { headgear: 'bucket', headColor: 'yellow', clothing: 'overalls', trimColor: 'ivory', accessoryColor: 'blue', footwear: 'sneakers', shoeColor: 'coral', eyewear: 'sunny', pattern: 'plain' } },
-  { label: 'Garden party', color: '#e7abc0', outfit: { headgear: 'daisy', clothing: 'dress', accessoryColor: 'pink', trimColor: 'ivory', footwear: 'mary-janes', shoeColor: 'rose', eyewear: 'none', pattern: 'dots' } },
-  { label: 'Little encore', color: '#4e647c', outfit: { headgear: 'headphones', clothing: 'suit', accessoryColor: 'navy', trimColor: 'black', footwear: 'mary-janes', shoeColor: 'black', eyewear: 'none', pattern: 'plain' } },
+  { label: 'Garden party', color: '#e7abc0', outfit: { headgear: 'flower-crown', clothing: 'dress', accessoryColor: 'pink', trimColor: 'ivory', footwear: 'mary-janes', shoeColor: 'rose', eyewear: 'none', pattern: 'dots' } },
+  { label: 'Little encore', color: '#4e647c', outfit: { headgear: 'beret', headColor: 'navy', clothing: 'suit', accessoryColor: 'navy', trimColor: 'black', footwear: 'loafers', shoeColor: 'black', eyewear: 'none', pattern: 'plain' } },
   { label: 'Street beat', color: '#303635', outfit: { headgear: 'beanie', headColor: 'red', clothing: 'hoodie', accessoryColor: 'black', trimColor: 'red', footwear: 'high-tops', shoeColor: 'red', eyewear: 'sunny', pattern: 'plain' } },
-  { label: 'Ballet club', color: '#9c88b6', outfit: { headgear: 'daisy', clothing: 'ballet', accessoryColor: 'lavender', trimColor: 'pink', footwear: 'mary-janes', shoeColor: 'pink', eyewear: 'none', pattern: 'plain' } },
-  { label: 'Track day', color: '#438c91', outfit: { headgear: 'headphones', clothing: 'tracksuit', accessoryColor: 'teal', trimColor: 'ivory', footwear: 'high-tops', shoeColor: 'teal', eyewear: 'none', pattern: 'plain' } },
+  { label: 'Ballet club', color: '#9c88b6', outfit: { headgear: 'flower-crown', clothing: 'ballet', accessoryColor: 'lavender', trimColor: 'pink', footwear: 'ballet-flats', shoeColor: 'pink', eyewear: 'none', pattern: 'plain' } },
+  { label: 'Track day', color: '#438c91', outfit: { headgear: 'visor', headColor: 'teal', clothing: 'tracksuit', accessoryColor: 'teal', trimColor: 'ivory', footwear: 'high-tops', shoeColor: 'teal', eyewear: 'none', pattern: 'plain' } },
   { label: 'Rainy day', color: '#e5c86d', outfit: { headgear: 'bucket', headColor: 'yellow', clothing: 'raincoat', accessoryColor: 'yellow', trimColor: 'orange', footwear: 'boots', shoeColor: 'orange', eyewear: 'none', pattern: 'plain' } },
 ]
 
+const modeledItems = new Set<string>([...NOOT_FASHION_HATS, ...NOOT_FASHION_EYES, ...NOOT_FOOTWEAR])
+
 function ItemIcon({ slot, id, Icon }: { slot: Slot; id: string; Icon?: typeof Shirt }) {
+  if (modeledItems.has(id)) return <img src={`/mascot/wardrobe/${id}.png`} width={40} height={40} alt="" loading="lazy"/>
   if (id === 'dress' || id === 'ballet') return <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 3 1 5h6l1-5M8 3l-2 2 3 6-5 10h16l-5-10 3-6-2-2M9 11h6" />{id === 'ballet' && <path d="m6 16 6 2 6-2" />}</svg>
   if (id === 'suit') return <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 3-4 3v15h16V6l-4-3-4 7-4-7ZM8 3l-1 7 5 6 5-6-1-7M12 16v5" /><path d="m10 5 2 1 2-1v3l-2-1-2 1Z" /></svg>
   if (id === 'hoodie') return <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 7a4 4 0 0 1 8 0l4 3 1 10h-4v2H7v-2H3l1-10 4-3ZM8 7l4 3 4-3M9 16h6l1 4H8l1-4M10 10v3m4-3v3" /></svg>
@@ -93,9 +112,9 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
   const options = items[slot], selectedIndex = Math.max(0, options.findIndex(o => o.id === (appearance[slot] ?? 'none'))), selected = options[selectedIndex]
   const hasAccent = slot === 'clothing' && NOOT_TAILORED.some(id => id === appearance.clothing)
   const editingAccent = hasAccent && colorPart === 'accent'
-  const colorKey = editingAccent ? 'trimColor' : slot === 'headgear' ? 'headColor' : slot === 'footwear' ? 'shoeColor' : 'accessoryColor'
-  const color = appearance[colorKey] ?? (editingAccent ? '#eee7d7' : appearance.accessoryColor)
-  const canColor = slot === 'clothing' || slot === 'footwear' ? selected.id !== 'none' : slot === 'headgear' && ['beanie', 'bucket'].includes(selected.id)
+  const colorKey = editingAccent ? 'trimColor' : slot === 'headgear' ? 'headColor' : slot === 'footwear' ? 'shoeColor' : slot === 'eyewear' ? 'eyeColor' : 'accessoryColor'
+  const color = appearance[colorKey] ?? (editingAccent ? '#eee7d7' : slot === 'eyewear' ? '#293431' : appearance.accessoryColor)
+  const canColor = slot !== 'headgear' ? selected.id !== 'none' : ['beanie', 'bucket', ...NOOT_FASHION_HATS].includes(selected.id)
   const colorLabel = Object.hasOwn(NOOT_COLORS, color) ? NOOT_COLORS[color as keyof typeof NOOT_COLORS].label : 'Custom'
   const categoryTitle = { headgear: 'Headwear', eyewear: 'Eyewear', clothing: 'Outfits', footwear: 'Footwear', looks: 'Complete looks' }[category]
   useEffect(() => {
@@ -168,7 +187,7 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
             {options.map((item, i) => <button key={item.id} type="button" role="radio" aria-checked={i === selectedIndex} tabIndex={i === selectedIndex ? 0 : -1} onClick={() => choose(i)} onKeyDown={e => itemKeys(e, i)}><span className="wardrobe-item-icon"><ItemIcon slot={slot} id={item.id} Icon={item.icon}/></span><span>{item.label}</span>{i === selectedIndex && <Check size={18} className="wardrobe-equipped" aria-hidden="true"/>}</button>)}
           </div> : <div className="wardrobe-color-editor">
             {hasAccent && <div className="wardrobe-color-parts" role="group" aria-label="Color section"><button type="button" aria-pressed={!editingAccent} onClick={() => setColorPart('main')}>Fabric</button><button type="button" aria-pressed={editingAccent} onClick={() => setColorPart('accent')}>Details</button></div>}
-            <fieldset className="wardrobe-colors"><legend>{editingAccent ? 'Detail color' : slot === 'headgear' ? 'Hat color' : slot === 'footwear' ? 'Shoe color' : 'Fabric color'}<span>{colorLabel}</span></legend><div className="wardrobe-palette">
+            <fieldset className="wardrobe-colors"><legend>{editingAccent ? 'Detail color' : slot === 'headgear' ? 'Hat color' : slot === 'footwear' ? 'Shoe color' : slot === 'eyewear' ? 'Frame color' : 'Fabric color'}<span>{colorLabel}</span></legend><div className="wardrobe-palette">
               {Object.entries(NOOT_COLORS).map(([value, swatch]) => <button type="button" key={value} aria-label={swatch.label} title={swatch.label} aria-pressed={color === value} style={{ '--swatch': swatch.hex } as CSSProperties} onClick={() => tint(value as NootColor)}>{color === value && <Check size={16} aria-hidden="true"/>}</button>)}
             </div></fieldset>
             <label className="wardrobe-custom"><Palette size={18} aria-hidden="true"/><span>Choose any color</span><span className="wardrobe-custom-chip" style={{background:nootColorHex(color)}}/><input type="color" aria-label="Custom color" value={nootColorHex(color)} onInput={e => tint(e.currentTarget.value as NootColor)} onChange={e => tint(e.target.value as NootColor)}/></label>
