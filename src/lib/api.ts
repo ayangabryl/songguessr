@@ -1,3 +1,4 @@
+import { songSearchCache, songSearchKey } from './song-search-cache'
 import {
   type CatalogFilters,
   type CatalogKind,
@@ -228,10 +229,17 @@ export interface SearchPage {
 }
 
 export async function searchTracks(query: string, offset = 0, signal?: AbortSignal): Promise<SearchPage> {
-  if (!query.trim()) return { results: [], total: 0, nextOffset: null }
-  const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&offset=${offset}`, { signal })
+  signal?.throwIfAborted()
+  const key = songSearchKey(query)
+  if (!key) return { results: [], total: 0, nextOffset: null }
+  const cached = songSearchCache.get(key, offset)
+  if (cached) return cached
+  const timeout = AbortSignal.timeout(8000)
+  const response = await fetch(`/api/search?q=${encodeURIComponent(key)}&offset=${offset}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
   const data = await parseJson<SearchPage>(response)
-  return { results: data.results ?? [], total: data.total ?? data.results?.length ?? 0, nextOffset: data.nextOffset ?? null }
+  const page = { results: data.results ?? [], total: data.total ?? data.results?.length ?? 0, nextOffset: data.nextOffset ?? null }
+  if (!signal?.aborted) songSearchCache.put(key, offset, page)
+  return page
 }
 
 export async function submitGuess(

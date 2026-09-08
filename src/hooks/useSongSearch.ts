@@ -1,28 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { searchTracks, type SearchPage } from '../lib/api'
+import { songSearchCache, songSearchKey } from '../lib/song-search-cache'
 
 const EMPTY: SearchPage = { results: [], total: 0, nextOffset: null }
 
 /** Both game modes share cancellation, pagination and recoverable failures. */
 export function useSongSearch(query: string, enabled = true) {
-  const key = enabled ? query.trim() : ''
+  const key = enabled ? songSearchKey(query) : ''
   const [state, setState] = useState({ key: '', page: EMPTY, loading: false, error: false })
   const request = useRef<AbortController | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const immediate = useMemo(() => {
+    const cached = key ? songSearchCache.get(key) : null
+    return { page: cached ?? (key ? songSearchCache.preview(key) : EMPTY), complete: Boolean(cached) }
+  }, [key])
   useEffect(() => {
     const controller = new AbortController()
     request.current = controller
     if (!key) return () => controller.abort()
+    if (immediate.complete) {
+      setState({ key, page: immediate.page, loading: false, error: false })
+      return () => controller.abort()
+    }
     const timer = setTimeout(() => {
-      setState({ key, page: EMPTY, loading: true, error: false })
+      setState({ key, page: immediate.page, loading: true, error: false })
       searchTracks(key, 0, controller.signal).then(page => {
         if (!controller.signal.aborted) setState({ key, page, loading: false, error: false })
       }).catch(() => {
-        if (!controller.signal.aborted) setState({ key, page: EMPTY, loading: false, error: true })
+        if (!controller.signal.aborted) setState({ key, page: immediate.page, loading: false, error: true })
       })
-    }, 180)
+    }, 60)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [key, attempt])
+  }, [key, attempt, immediate])
 
   const busy = useRef(false)
   const loadMore = useCallback(async () => {
@@ -41,7 +50,7 @@ export function useSongSearch(query: string, enabled = true) {
     } finally { busy.current = false }
   }, [key, state])
 
-  const current = state.key === key && key ? state : { key, page: EMPTY, loading: Boolean(key), error: false }
+  const current = state.key === key && key ? state : { key, page: immediate.page, loading: Boolean(key) && !immediate.complete, error: false }
   return {
     ...current.page, loading: current.loading, error: current.error, loadMore,
     retry: () => current.page.nextOffset !== null ? void loadMore() : setAttempt(value => value + 1),

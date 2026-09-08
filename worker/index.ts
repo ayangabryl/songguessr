@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { foldSearchText } from '../shared/search-text'
 import { cors } from 'hono/cors'
 import { serveR2Audio } from './audio'
 import {
@@ -491,8 +492,22 @@ app.get('/api/random', async (c) => {
 
 app.get('/api/search', async (c) => {
   try {
-    const query = (c.req.query('q') ?? '').slice(0, 200)
-    const page = await searchCatalogPage(c.env, query, Number(c.req.query('offset') ?? 0))
+    const query = foldSearchText((c.req.query('q') ?? '').slice(0, 200))
+    const rawOffset = Number(c.req.query('offset') ?? 0)
+    const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.floor(rawOffset)) : 0
+    // Search metadata is public. Canonical keys share punctuation/case variants
+    // while keeping each page separate; failed searches are never cached.
+    const cacheUrl = new URL('/api/search', c.req.url)
+    cacheUrl.search = new URLSearchParams({ q: query, offset: String(offset), v: '2' }).toString()
+    const cacheKey = new Request(cacheUrl)
+    const cached = await caches.default.match(cacheKey).catch(() => undefined)
+    if (cached) {
+      const response = new Response(cached.body, cached)
+      response.headers.set('Server-Timing', 'search-cache;desc="hit"')
+      return response
+    }
+    const started = performance.now()
+    const page = await searchCatalogPage(c.env, query, offset)
     const results = page.tracks.map((track) => ({
       id: track.id,
       title: track.title,
@@ -500,7 +515,11 @@ app.get('/api/search', async (c) => {
       albumArt: track.albumArt,
     }))
 
-    return c.json({ results, total: page.total, nextOffset: page.nextOffset })
+    c.header('Cache-Control', 'public, max-age=60')
+    c.header('Server-Timing', `search;dur=${(performance.now() - started).toFixed(1)}`)
+    const response = c.json({ results, total: page.total, nextOffset: page.nextOffset })
+    c.executionCtx.waitUntil(caches.default.put(cacheKey, response.clone()).catch(() => {}))
+    return response
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {
       return catalogUnavailable(c, error)

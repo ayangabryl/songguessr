@@ -136,7 +136,7 @@ export function FilterModal({
       }, 300)
     }
 
-    const debounce = singerQuery.trim() ? 140 : 0
+    const debounce = singerQuery.trim() && !exact ? 60 : 0
     const timer = window.setTimeout(() => {
       void fetchCatalogArtists(singerQuery, draftCollections).then((hits) => {
         if (cancelled) return

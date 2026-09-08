@@ -37,7 +37,7 @@ export function ArtistExclusions({ selected, onChange }: { selected: string[]; o
         setLoading(false)
         setError(true)
       })
-    }, query.trim() ? 160 : 0)
+    }, query.trim() && !cached ? 60 : 0)
     return () => { stale = true; window.clearTimeout(timer) }
   }, [query, open, retry])
 
