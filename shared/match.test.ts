@@ -205,3 +205,21 @@ test('current scoring matches solo while legacy scales remain readable for migra
  assert.deepEqual(matchRank(entries,'b'),{rank:1,tied:true})
  assert.deepEqual(matchRank(entries,'c'),{rank:3,tied:false})
 })
+
+test('results need a current host confirmation after every connected player is ready', async () => {
+  const {readyForNext,canContinueMatch} = await import('./match.ts')
+  let m = {...make(),phase:'reveal' as const}
+  for(const id of ['alice','bob'])m=readyForNext(m,id,m.roundId) as typeof m
+  assert.equal(m.phase,'reveal','readying does not advance the game')
+  assert(canContinueMatch(m,'alice','alice',['alice','bob'],m.roundId))
+  assert.equal(canContinueMatch(m,'bob','alice',['alice','bob'],m.roundId),false)
+  assert.equal(canContinueMatch(m,'alice','alice',['alice','bob'],'stale'),false)
+  assert.equal(canContinueMatch({...m,phase:'playing'},'alice','alice',['alice','bob'],m.roundId),false)
+  m=readyForNext(m,'bob',m.roundId,false) as typeof m
+  assert.equal(canContinueMatch(m,'alice','alice',['alice','bob'],m.roundId),false,'unready cancels consent')
+  assert.equal(m.phase,'reveal')
+  assert.equal(canContinueMatch({...m,phase:'finished'},'alice','alice',['alice'],m.roundId),false,'one player cannot start a new match')
+  assert.deepEqual(parseMatchCommand(JSON.stringify({type:'match-continue',roundId:m.roundId})),{type:'match-continue',roundId:m.roundId})
+  assert.deepEqual(parseMatchCommand(JSON.stringify({type:'match-ready',roundId:m.roundId})),{type:'match-ready',roundId:m.roundId})
+  assert.deepEqual(parseMatchCommand(JSON.stringify({type:'match-unready',roundId:m.roundId})),{type:'match-unready',roundId:m.roundId})
+})

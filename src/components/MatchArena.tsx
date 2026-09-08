@@ -1,3 +1,4 @@
+import { MatchResults } from './MatchResults'
 import { NootAvatar } from './NootAvatar';
 import { SittingHistory } from './SittingHistory'
 import { matchSittingHistory } from '../lib/match-history'
@@ -19,7 +20,6 @@ import { useEffect, useRef, useState, type KeyboardEvent, type CSSProperties } f
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   Copy,
   Headphones,
   Play,
@@ -88,6 +88,7 @@ export function MatchArena({
   const audio = useRef<HTMLAudioElement | null>(null);
   const player = useRef<ReturnType<typeof createMatchAudioPlayer> | null>(null);
   const revealedRef = useRef(false);
+  const resultHeading = useRef<HTMLHeadingElement>(null);
   const autoClipRound = useRef<string | null>(null);
   const resumeAt = useRef<number | null>(null);
   const skipContinuation = useRef<{ roundId: string; stage: number } | null>(null);
@@ -99,6 +100,11 @@ export function MatchArena({
     connected = table.status === "live";
   const revealed = Boolean(match && match.phase !== "playing"),
     finished = match?.phase === "finished";
+  useEffect(() => {
+    if (!revealed || document.querySelector('[aria-modal="true"]')) return
+    resultHeading.current?.focus({preventScroll:true})
+    resultHeading.current?.scrollIntoView({block:'start'})
+  }, [revealed, match?.roundId]);
   const countdown = match
     ? Math.max(0, Math.ceil((match.startsAt - now - table.clockOffset) / 1000))
     : 0;
@@ -143,7 +149,7 @@ export function MatchArena({
     if (table.matchError) { setPending(false); skipContinuation.current = null; }
   }, [table.matchError]);
   useEffect(() => {
-    if (me?.ready) setPending(false);
+    setPending(false);
   }, [me?.ready]);
   useEffect(() => {
     if (!pending) return;
@@ -271,24 +277,6 @@ export function MatchArena({
       solved.length === 0 &&
       match?.entries.some((p) => p.lastAction === "timeout"),
   );
-  const waitingNames = match
-    ? match.entries
-        .filter(
-          (p) =>
-            !p.ready && players.some((q) => q.id === p.id && q.connected),
-        )
-        .map((p) => p.name)
-    : [];
-  const readyCount = match
-    ? match.entries.filter((p) =>
-        p.ready && players.some((q) => q.id === p.id && q.connected),
-      ).length
-    : 0;
-  const connectedPlayers = match
-    ? match.entries.filter((p) =>
-        players.some((q) => q.id === p.id && q.connected),
-      ).length
-    : 0;
   const party = players.filter(p => p.connected)
   const partyParticipants: NootParticipant[] = party.map(p => {
     const entry = entries.find(e => e.id === p.id);
@@ -366,8 +354,9 @@ export function MatchArena({
             </span>}
           </div>
           {!match ? <><h1>Good music.<br/>Better together.</h1><p className="match-lobby-description">Same song. Your own ears. Invite a friend, then press play.</p></>
-            : finished ? <><h1>{entries.filter(p => p.points === entries[0]?.points).length > 1 ? entries[0]?.points === 0 ? 'An even match.' : 'A shared victory.' : `${entries[0]?.name} takes it.`}</h1>
+            : finished ? <><h1 ref={resultHeading} tabIndex={-1}>{entries.filter(p => p.points === entries[0]?.points).length > 1 ? entries[0]?.points === 0 ? 'An even match.' : 'A shared victory.' : `${entries[0]?.name} takes it.`}</h1>
               {me && <p className="match-final-summary"><span>{place.tied ? 'Tied ' : ''}#{myRank}</span><span aria-hidden="true">·</span><strong><ScoreNumber value={me.points}/> <small>pts</small></strong></p>}</>
+            : revealed ? <h1 ref={resultHeading} tabIndex={-1}>Song revealed.</h1>
             : <div className="match-stage-head"><h1 className="match-numeral" aria-label={`${MATCH_STAGES[stage]} second clip`}>{MATCH_STAGES[stage]}<small>s</small></h1>
               <span className="match-readout" role="status">{revealed ? me?.status === 'solved' ? 'That’s the track.' : 'One for your next listen.' : countdown > 0 ? `Starts in ${countdown}` : !me ? 'You’re spectating' : me.status === 'solved' ? 'Locked in. Nice ears.' : me.status === 'out' ? 'Waiting for the others' : playing ? 'Listening…' : ''}</span>
             </div>}
@@ -394,7 +383,7 @@ export function MatchArena({
               : <button className="match-primary" disabled={pending || !connected} onClick={() => { setPending(true); sendMatch({type:'match-start',difficulty,length,carryScores,filters}); }}>{pending ? 'Finding your first song…' : 'Start the match'}<ArrowRight size={18}/></button>
               : <p className="match-wait" role="status">Waiting for the host to start…</p>}
           </> : <>
-            {me && <Ruler stages={MATCH_STAGES} stageIndex={stage} marks={me.attempts ?? marks} status={revealed || me?.status === 'out' ? me?.status === 'solved' ? 'won' : 'lost' : me?.status === 'solved' ? 'won' : 'playing'}
+            {me && !revealed && <Ruler stages={MATCH_STAGES} stageIndex={stage} marks={me.attempts ?? marks} status={revealed || me?.status === 'out' ? me?.status === 'solved' ? 'won' : 'lost' : me?.status === 'solved' ? 'won' : 'playing'}
               solvedStage={me.status === 'solved' ? MATCH_STAGES[stage] : null} playheadRef={playhead} isPlaying={playing}
               description={me.lastAction === 'timeout' ? `Time ran out with ${MATCH_STAGES[stage]} seconds unlocked, on try ${stage + 1}.`
                 : me.status === 'solved' ? `Named at ${MATCH_STAGES[stage]} seconds after ${stage + 1} ${stage === 0 ? 'try' : 'tries'}.` : undefined}/>}
@@ -432,18 +421,19 @@ export function MatchArena({
               </div>
               {hearReveal && <button className="match-hear" onClick={play}><Play size={16}/>Tap to hear it</button>}
               {audioError && <p className="match-feedback" role="alert">{audioError}</p>}
-              {me ? <div className="match-ready">
-                <button className="match-primary" disabled={pending || !connected || (Boolean(me.ready) && (waitingNames.length > 0 || !table.matchError)) || (finished && onlineCount < 2)}
-                  onClick={() => { setPending(true); sendMatch({type:'match-next', roundId:match.roundId}); }}>
-                  {pending ? 'Waiting…' : me.ready ? waitingNames.length ? 'Ready · waiting' : table.matchError ? 'Try again' : 'Starting…' : finished ? 'Play again' : 'Ready up'}{me.ready && !pending ? <Check size={17}/> : <ArrowRight size={17}/>}
-                </button><small>{readyCount}/{connectedPlayers} ready{finished ? match.carryScores ? ' · points carry over' : ' · scores reset' : ''}</small>
-                {me.ready && <p className="match-waiting" role="status">{waitingNames.length ? `Waiting for ${waitingNames.join(', ')}.` : table.matchError ? 'Couldn’t load the next round. Try again.' : 'Everyone is ready. Loading the next song…'}</p>}
-              </div> : <p className="match-wait">Waiting for the players.</p>}
+              <MatchResults key={match.roundId} entries={entries} playerId={playerId} hostId={hostId}
+                online={party.map(p=>p.id)} appearances={Object.fromEntries(players.map(p=>[p.id,p.id===playerId?appearance:p.appearance]))}
+                difficulty={match.difficulty} finished={Boolean(finished)} carryScores={Boolean(match.carryScores)}
+                pending={pending} connected={connected} error={table.matchError}
+                onReady={()=>{setPending(true);sendMatch({type:'match-ready',roundId:match.roundId})}}
+                onUnready={()=>{setPending(true);sendMatch({type:'match-unready',roundId:match.roundId})}}
+                onContinue={()=>{setPending(true);sendMatch({type:'match-continue',roundId:match.roundId})}}/>
+
             </div>}
           </>}
         </section>
         {match && sittingHistory.length > 0 && <SittingHistory entries={sittingHistory} total={sittingHistory.reduce((sum, entry) => sum + entry.points, 0)}/>}
-        {match && <MatchScoreboard entries={entries} playerId={playerId} matchId={match.id} finished={Boolean(finished)} revealed={revealed}
+        {match && !revealed && <MatchScoreboard entries={entries} playerId={playerId} matchId={match.id} finished={Boolean(finished)} revealed={revealed}
           online={party.map(p => p.id)} onChoose={chooseNoot} appearances={Object.fromEntries(players.map(p => [p.id, p.id === playerId ? appearance : p.appearance]))} difficulty={match.difficulty}/>}
 
       </div>

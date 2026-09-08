@@ -25,7 +25,7 @@ const connect = async (
     loadRetries: 0,
     send: (payload) => {
       const command = JSON.parse(payload)
-      if (command.type === 'match-start' || command.type === 'match-next') {
+      if (command.type === 'match-start' || command.type === 'match-continue') {
         client.loadCommand = payload
         client.loadRetries = 0
       }
@@ -101,10 +101,12 @@ for (let stage = 0; stage < 5; stage++) {
 }
 await alice.wait((s) => s.match.phase === 'reveal')
 assert(alice.state.match.answer.title)
-bob.send(JSON.stringify({ type: 'match-next', roundId }))
+bob.send(JSON.stringify({ type: 'match-ready', roundId }))
 await new Promise((r) => setTimeout(r, 200))
 assert.equal(bob.state.match.roundId, roundId)
-alice.send(JSON.stringify({ type: 'match-next', roundId }))
+alice.send(JSON.stringify({ type: 'match-ready', roundId }))
+await alice.wait(s=>s.match.entries.every(p=>p.ready))
+alice.send(JSON.stringify({type:'match-continue',roundId}))
 await alice.wait((s) => s.match.number === 2)
 assert.equal(alice.state.match.entries[0].history.length, 1)
 alice.send(JSON.stringify({ type: 'match-skip', roundId, stage: 0 }))
@@ -134,20 +136,25 @@ for (let number = 2; number <= 10; number++) {
   }
   await alice.wait((s) => s.match.phase !== 'playing')
   assert.equal(alice.state.match.entries[0].history.length, number)
-  if (number < 10)
+  if (number < 10) {
     rejoined.send(
-      JSON.stringify({ type: 'match-next', roundId: current.roundId }),
+      JSON.stringify({ type: 'match-ready', roundId: current.roundId }),
     )
   if (number < 10)
-    alice.send(JSON.stringify({ type: 'match-next', roundId: current.roundId }))
+    alice.send(JSON.stringify({ type: 'match-ready', roundId: current.roundId }))
+    await alice.wait(s=>s.match.entries.every(p=>p.ready))
+    alice.send(JSON.stringify({type:'match-continue',roundId:current.roundId}))
+  }
 }
 assert.equal(alice.state.match.phase, 'finished')
 rejoined.send(
-  JSON.stringify({ type: 'match-next', roundId: alice.state.match.roundId }),
+  JSON.stringify({ type: 'match-ready', roundId: alice.state.match.roundId }),
 )
 alice.send(
-  JSON.stringify({ type: 'match-next', roundId: alice.state.match.roundId }),
+  JSON.stringify({ type: 'match-ready', roundId: alice.state.match.roundId }),
 )
+await alice.wait(s=>s.match.entries.every(p=>p.ready))
+alice.send(JSON.stringify({type:'match-continue',roundId:alice.state.match.roundId}))
 await alice.wait((s) => s.match.number === 1 && s.match.phase === 'playing')
 assert.equal(alice.state.match.entries[0].history.length, 0)
 assert.equal(alice.state.match.entries[0].points, 0)

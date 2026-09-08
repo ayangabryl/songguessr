@@ -14,7 +14,7 @@ import {
   type SittingError,
   type SittingState,
 } from '../shared/sitting'
-import { alignMatchScoring, completedMatchRounds, nextEntries, roundDifficulty, readyForNext, everyoneReady, parseMatchCommand, publicMatch, advancePlayer, expireRound, finishRound, ROUND_MS, type MatchState } from '../shared/match'
+import { alignMatchScoring, completedMatchRounds, nextEntries, roundDifficulty, readyForNext, canContinueMatch, parseMatchCommand, publicMatch, advancePlayer, expireRound, finishRound, ROUND_MS, type MatchState } from '../shared/match'
 import { findTrackById, getAvailabilityCounts } from './catalog'
 import { pickPlayableTrack } from './playable-audio'
 import { checkSubmittedSong } from './guess'
@@ -156,6 +156,10 @@ export class SittingRoom extends DurableObject<Env> {
     }
     const command = parseMatchCommand(text)
     if(command) {
+      if (command.type === 'match-next') {
+        ws.send(JSON.stringify({type:'match-error',message:'The results screen has been updated. Refresh this page to continue; your scores are saved.'}))
+        return
+      }
       try { await this.handleMatch(attachment.playerId,command) }
       catch (error) { ws.send(JSON.stringify({type:'match-error',message:error instanceof Error && error.message.startsWith('Not enough songs') ? error.message : 'Could not load the next song. Try again; your scores are safe.'})) }
       return
@@ -231,15 +235,7 @@ export class SittingRoom extends DurableObject<Env> {
     if (!result.ok) return
     this.saveState(result.state)
     await this.broadcast(result.state)
-    const match=await this.ctx.storage.get<MatchState>('match')
-    const connected=this.withConnections(result.state).players.filter(p=>p.connected).map(p=>p.id)
-    if(match && match.phase!=='playing' && everyoneReady(match,connected)) {
-      const ready=match.entries.find(p=>connected.includes(p.id)&&p.ready)
-      if(ready) {
-        try {await this.handleMatch(ready.id,{type:'match-next',roundId:match.roundId})}
-        catch {for(const socket of this.ctx.getWebSockets())socket.send(JSON.stringify({type:'match-error',message:'Could not load the next song. Your scores are safe; tap ready to retry.'}))}
-      }
-    }
+
   }
 
   private async open(request: Request): Promise<Response> {
@@ -427,18 +423,17 @@ export class SittingRoom extends DurableObject<Env> {
     if(!state.players.some(p=>p.id===playerId && p.connected))return
     const host=state.players.find(p=>p.id===state.hostId && p.connected)?.id ?? state.players.find(p=>p.connected)?.id
     let match=await this.ctx.storage.get<MatchState>('match')
-    if(command.type==='match-start'||command.type==='match-next') {
-      if(command.type==='match-start' && playerId!==host)return
+    if (command.type === 'match-ready' || command.type === 'match-unready') {
+      if (!match || match.phase === 'playing' || match.roundId !== command.roundId || !match.entries.some(p => p.id === playerId)) return
+      await this.ctx.storage.put('match', readyForNext(match, playerId, command.roundId, command.type === 'match-ready'))
+      await this.broadcast(state)
+      return
+    }
+    if(command.type==='match-start'||command.type==='match-continue') {
+      if (playerId !== host) return
       if(command.type==='match-start' && match)return
-      if(command.type==='match-next' && (!match || match.roundId!==command.roundId || match.phase==='playing'))return
-      if(command.type==='match-next') {
-        if(!match!.entries.some(p=>p.id===playerId))return
-        match=readyForNext(match!,playerId,command.roundId)
-        await this.ctx.storage.put('match',match)
-        await this.broadcast(state)
-        if(!everyoneReady(match,state.players.filter(p=>p.connected).map(p=>p.id)))return
-      }
-      const continuing=command.type==='match-next' && match!.phase==='reveal'
+      if(command.type==='match-continue' && (!match || !canContinueMatch(match,playerId,host ?? null,state.players.filter(p=>p.connected).map(p=>p.id),command.roundId)))return
+      const continuing=command.type==='match-continue' && match!.phase==='reveal'
       const mode=command.type==='match-start'?command.difficulty:(match!.difficultyMode??match!.difficulty)
       const length=command.type==='match-start'?(command.length??10):(match!.length??10)
       const carryScores=command.type==='match-start'?(command.carryScores??false):(match!.carryScores??false)
@@ -474,7 +469,7 @@ export class SittingRoom extends DurableObject<Env> {
       match=finishRound(match)
       await this.ctx.storage.put('match',match)
       await this.ctx.storage.setAlarm(match.deadline)
-    } else if(match) {
+    } else if(match && (command.type==='match-skip' || command.type==='match-guess')) {
       const receivedAt = Date.now()
       let correct = false
       if (command.type === 'match-guess') {

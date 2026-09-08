@@ -1,6 +1,6 @@
 // Local end-to-end QA: live Spotify import, scoped picks and a private three-player table.
 import assert from 'node:assert/strict'
-import { readPlaylistEmbed } from '../worker/playlist-mix.ts'
+import { execFileSync } from 'node:child_process'
 
 const base = process.env.QA_BASE ?? 'http://127.0.0.1:3000'
 assert(['localhost','127.0.0.1','[::1]'].includes(new URL(base).hostname),'Use a local test server')
@@ -10,8 +10,11 @@ const imported = await post('/api/mix/playlist',{url:`https://open.spotify.com/p
 const data = await imported.json()
 assert(imported.ok,JSON.stringify(data))
 const playlist = data.playlist
-const source = readPlaylistEmbed(await (await fetch(`https://open.spotify.com/embed/playlist/${spotifyId}`)).text())
-const members = new Set(source.ids)
+// Compare against the imported snapshot, not a second Spotify response: public
+// chart embeds can return a different revision from another edge/location.
+assert(/^[a-f0-9]{64}$/.test(playlist.id))
+const stored = JSON.parse(execFileSync('npx',['wrangler','d1','execute','songguessr','--remote','--command',`SELECT track_ids FROM playlist_mixes WHERE id='${playlist.id}'`,'--json'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}))
+const members = new Set(JSON.parse(stored[0].results[0].track_ids))
 assert(members.size)
 const counts = (await (await fetch(`${base}/api/catalog/availability?playlistId=${playlist.id}`)).json()).counts
 console.log('IMPORTED',playlist.name,playlist.matched,'playable; difficulty counts',counts)
@@ -77,11 +80,31 @@ try {
     assert(active.every(p=>p.state.match.filters.playlist.id===playlist.id))
   }
   await passRound([host,guest,third])
+  host.send({type:'match-ready',roundId:firstRound})
+  third.send({type:'match-ready',roundId:firstRound})
+  await until(()=>host.state.match.entries.filter(p=>p.id!==guest.id).every(p=>p.ready))
   guest.ws.close(1000,'QA reconnect')
   await until(()=>host.state.players.find(p=>p.id===guest.id)?.connected===false)
+  await delay(500)
+  assert.equal(host.state.match.roundId,firstRound,'disconnect cannot auto-advance results')
   const rejoined = await connect(guest.name,guest.id,guest.token)
   assert.equal(rejoined.state.match.filters.playlist.id,playlist.id)
-  for (const peer of [host,rejoined,third])peer.send({type:'match-next',roundId:firstRound})
+  for (const peer of [host,rejoined,third])peer.send({type:'match-ready',roundId:firstRound})
+  await until(()=>host.state.match.entries.every(p=>p.ready))
+  await delay(500)
+  assert.equal(host.state.match.roundId,firstRound,'readiness must not auto-advance')
+  rejoined.send({type:'match-continue',roundId:firstRound})
+  host.send({type:'match-continue',roundId:'stale'})
+  await delay(250)
+  assert.equal(host.state.match.roundId,firstRound,'only current host confirmation can advance')
+  rejoined.send({type:'match-unready',roundId:firstRound})
+  await until(()=>!host.state.match.entries.find(p=>p.id===rejoined.id).ready)
+  host.send({type:'match-continue',roundId:firstRound})
+  await delay(250)
+  assert.equal(host.state.match.roundId,firstRound,'unready blocks confirmation')
+  rejoined.send({type:'match-ready',roundId:firstRound})
+  await until(()=>host.state.match.entries.every(p=>p.ready))
+  host.send({type:'match-continue',roundId:firstRound})
   await until(()=>[host,rejoined,third].every(p=>p.state.match.number===2))
   await passRound([host,rejoined,third])
   assert.equal(host.state.match.completedRounds.length,2)

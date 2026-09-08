@@ -102,7 +102,10 @@ export type MatchCommand =
       length?: number
       carryScores?: boolean
     }
-  | { type: 'match-next'; roundId: string }
+  | { type: 'match-next'; roundId: string } // Older pages receive an update notice.
+  | { type: 'match-ready'; roundId: string }
+  | { type: 'match-unready'; roundId: string }
+  | { type: 'match-continue'; roundId: string }
   | { type: 'match-skip'; roundId: string; stage: number }
   | { type: 'match-guess'; roundId: string; stage: number; guess: string; trackId?: string }
 export function parseMatchCommand(raw: string): MatchCommand | null {
@@ -138,7 +141,8 @@ export function parseMatchCommand(raw: string): MatchCommand | null {
     }
   }
   if (typeof m.roundId !== 'string' || m.roundId.length > 64) return null
-  if (m.type === 'match-next') return { type: m.type, roundId: m.roundId }
+  if (m.type === 'match-next' || m.type === 'match-ready') return { type: m.type, roundId: m.roundId }
+  if (m.type === 'match-unready' || m.type === 'match-continue') return { type: m.type, roundId: m.roundId }
   if (
     !Number.isInteger(m.stage) ||
     Number(m.stage) < 0 ||
@@ -280,18 +284,23 @@ export function readyForNext(
   match: MatchState,
   id: string,
   roundId: string,
+  ready = true,
 ): MatchState {
   if (match.phase === 'playing' || match.roundId !== roundId) return match
   return {
     ...match,
     entries: match.entries.map((p) =>
-      p.id === id ? { ...p, ready: true } : p,
+      p.id === id ? { ...p, ready } : p,
     ),
   }
 }
 export function everyoneReady(match: MatchState, connected: string[]): boolean {
   const present = match.entries.filter((p) => connected.includes(p.id))
   return present.length > 0 && present.every((p) => p.ready)
+}
+export function canContinueMatch(match: MatchState, actor: string, host: string | null, connected: string[], roundId: string): boolean {
+  return actor === host && connected.includes(actor) && match.roundId === roundId && match.phase !== 'playing'
+    && everyoneReady(match, connected) && (match.phase !== 'finished' || connected.length >= 2)
 }
 
 export function nextEntries(
