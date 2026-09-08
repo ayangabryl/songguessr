@@ -49,6 +49,9 @@
 .match-kicker { font-size: 13px; color: var(--text-2); }
 .match-stage-title h1 { font-size: clamp(44px,5.5vw,76px); margin: 8px 0 12px; }
 .match-stage-title h1 > small { margin-left: 3px; font-size: .35em; color: var(--text-2); }
+.match-final-summary { display: flex; align-items: baseline; gap: 10px; margin: 0 0 28px; color: var(--text-2); font-size: 15px; }
+.match-final-summary strong { color: var(--accent-ink); font-weight: 650; }
+.match-final-summary small { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .match-theatre.shared-stage { display: block; margin: 4px 0 24px; }
 .match-floor { display: none; }
 .match-noot-world { min-width: 0; width: 100%; }

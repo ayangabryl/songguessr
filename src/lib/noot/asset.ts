@@ -125,7 +125,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
   const headBase = head.quaternion.clone(), tailBase = tail?.quaternion.clone()
   const facialBase = blinkMeshes.flatMap(({ upper, lower, crease }) => [upper, lower, crease].map(mesh => ({mesh, values: [...mesh.morphTargetInfluences!]})))
   const restBones = sharedSkeleton!.bones.map(bone => ({ bone, position: bone.position.clone(), quaternion: bone.quaternion.clone(), scale: bone.scale.clone() }))
-  const socialArms = restBones.filter(({bone}) => /^(upper_arm|forearm|hand)_[LR]$/.test(bone.name)).map(item => ({...item,base:item.quaternion.clone()}))
+  const socialArms = restBones.filter(({bone}) => /^(upper_arm|forearm|hand)_[LR]$/.test(bone.name)).map(item => ({...item,base:item.quaternion.clone(),basePosition:item.position.clone()}))
   let current: THREE.AnimationAction | undefined
   let wardrobeStyle = ''
   let signature = '', started = 0, gazeX = 0, gazeY = 0
@@ -153,7 +153,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
     // Restore authored values before evaluation: Three's mixer can skip unchanged
     // tracks, so an additive attention/blink layer must never become the new base.
     soft.restore()
-    socialArms.forEach(item=>item.bone.quaternion.copy(item.base))
+    socialArms.forEach(item=>{ item.bone.quaternion.copy(item.base); item.bone.position.copy(item.basePosition) })
     head.quaternion.copy(headBase)
     if (tailBase) tail?.quaternion.copy(tailBase)
     for (const {mesh, values} of facialBase) mesh.morphTargetInfluences!.splice(0, values.length, ...values)
@@ -239,6 +239,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
     } else if (reduced && tailRotation) tail?.quaternion.copy(tailRotation)
     socialArms.forEach(item => {
       item.base.copy(item.bone.quaternion)
+      item.basePosition.copy(item.bone.position)
       if (state.pose === 'high-five' && state.interactionHand && !item.bone.name.endsWith(state.interactionHand)) {
         const reach = smooth((current?.time ?? 0)/.4) * (1-smooth(((current?.time ?? 0)-1.75)/.65))
         item.bone.quaternion.slerp(item.quaternion, reach)

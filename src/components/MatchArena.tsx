@@ -555,10 +555,8 @@ export function MatchArena({
           </div>
               {(!revealed || finished) && (
               <div className="match-stage-title">
-                <span className="match-kicker">
-                  {finished
-                    ? "Final standings"
-                    : !me
+                {!finished && <span className="match-kicker">
+                  {!me
                       ? "You’re spectating"
                       : me.status === "solved"
                         ? "Locked in. Nice ears."
@@ -569,7 +567,7 @@ export function MatchArena({
                             : heardClip
                               ? "Name the track"
                               : "Your turn to listen"}
-                </span>
+                </span>}
                 <h1 aria-label={!finished && countdown === 0 ? `${MATCH_STAGES[stage]} second clip` : undefined}>
                   {finished
                     ? entries.filter((p) => p.points === entries[0]?.points)
@@ -580,6 +578,11 @@ export function MatchArena({
                       ? `Starts in ${countdown}`
                       : <>{MATCH_STAGES[stage]}<small>s</small></>}
                 </h1>
+                {finished && me && <p className="match-final-summary">
+                  <span>{place.tied ? 'Tied ' : ''}#{myRank}</span>
+                  <span aria-hidden="true">·</span>
+                  <strong><ScoreNumber value={me.points} /> <small>pts</small></strong>
+                </p>}
               </div>
               )}
               {!revealed && (
@@ -734,9 +737,9 @@ export function MatchArena({
                 </>
               ) : (
                 <div className="match-recap round-answer" role="region" aria-label="Song result">
-                  <p className="round-result-banner" data-perfect={me?.delta === points[0]}>
+                  {!finished && <p className="round-result-banner" data-perfect={me?.delta === points[0]}>
                     {me?.delta === points[0] ? 'Perfect listen.' : me?.status === 'solved' ? 'That’s the track.' : 'One for your next listen.'}
-                  </p>
+                  </p>}
                   <div className="match-answer-row">
                     {match.answer && (
                       <button
@@ -759,19 +762,17 @@ export function MatchArena({
                     )}
                     <div className="match-answer-copy">
                       {match.answer && <SongIdentity title={match.answer.title} artist={match.answer.artist} />}
-                      <strong>
+                      {!finished && <strong>
                         {me ? <ScoreNumber value={me.delta} prefix="+"/> : "Good listening."}
                         <small>{me ? "this song" : ""}</small>
-                      </strong>
-                      <p className="match-outcome">
-                        {finished
-                          ? `${match.length ?? 10} songs complete. ${me ? `You finished ${place.tied ? "tied " : ""}#${myRank} with ${me.points.toLocaleString()} points.` : ""}`
-                          : me?.status === "solved"
+                      </strong>}
+                      {!finished && <p className="match-outcome">
+                        {me?.status === "solved"
                             ? `Named at ${MATCH_STAGES[me.stage]} seconds.${ahead ? ` ${ahead.points - me.points} to catch ${ahead.name}.` : place.tied ? " You’re tied for the lead." : " You’re in the lead."}`
                             : timedOut
                               ? "Nobody named it in time."
-                              : solved.length ? `${solved.map(p=>p.name).join(", ")} named it. Your next song is a fresh chance.` : "Nobody named this one."}
-                      </p>
+                              : solved.length ? `${solved.map(p=>p.name).join(", ")} named it.` : "Nobody named this one."}
+                      </p>}
                     </div>
                   </div>
                   {hearReveal && (
@@ -783,15 +784,13 @@ export function MatchArena({
                   {audioError && <p className="match-feedback" role="alert">{audioError}</p>}
                   {me ? (
                     <div className="match-ready">
-                      {(me.ready || finished) && (
+                      {me.ready && (
                       <p className="match-waiting" role="status">
-                        {me.ready
-                          ? waitingNames.length
-                            ? `Waiting for ${waitingNames.join(", ")}.`
-                            : table.matchError
-                              ? "The next song couldn’t load. Try again when you’re ready."
-                              : "Everyone is ready. Preparing your next song…"
-                          : "Next song when everyone is ready."}
+                        {waitingNames.length
+                          ? `Waiting for ${waitingNames.join(", ")}.`
+                          : table.matchError
+                            ? "Couldn’t load the next round. Try again."
+                            : finished ? "Everyone is ready. Starting a new match…" : "Everyone is ready. Loading the next song…"}
                       </p>
                       )}
                       <button
@@ -810,9 +809,9 @@ export function MatchArena({
                         {pending
                           ? "Waiting…"
                           : me.ready
-                            ? waitingNames.length ? "Ready · waiting" : "Try loading next song"
+                            ? waitingNames.length ? "Ready · waiting" : "Try again"
                             : finished
-                              ? "Ready for another match"
+                              ? "Play again"
                               : "Ready up"}
                         {me.ready && !pending ? <Check size={17} /> : <ArrowRight size={17} />}
                       </button>

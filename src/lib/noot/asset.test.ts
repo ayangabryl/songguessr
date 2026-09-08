@@ -328,3 +328,49 @@ test('crowd detail removes tiny paw draws and restores them without changing ana
  model.setCompact(true);assert(before-visible()>=16);assert(arm.visible&&foot.visible)
  model.setCompact(false);assert.equal(visible(),before);model.dispose()
 })
+
+// Check the skinned arm vertices against the actual convex cup surfaces, not
+// the runtime's simpler safety volumes, so this catches bad proxy assumptions.
+test('raised arms clear earcup surfaces through gestures and interruptions', () => {
+  const reference = createNootFromAsset(gltf, 'cup-reference')
+  reference.root.updateMatrixWorld(true)
+  const head = reference.root.getObjectByName('head')!
+  const point = new THREE.Vector3()
+  const volumes = ['L', 'R'].flatMap(side => ['Cushion', 'Shell', 'SilverRim', 'Plate'].map(part => {
+    const mesh = reference.root.getObjectByName(`Noot_${part}_${side}`) as THREE.SkinnedMesh
+    mesh.skeleton.update()
+    const vertices = Array.from({ length: mesh.geometry.attributes.position.count }, (_, i) => {
+      mesh.getVertexPosition(i, point).applyMatrix4(mesh.matrixWorld)
+      return head.worldToLocal(point).clone()
+    })
+    const box = new THREE.Box3().setFromPoints(vertices), center = box.getCenter(new THREE.Vector3())
+    const planes: THREE.Plane[] = [], indices = mesh.geometry.index!
+    for (let i = 0; i < indices.count; i += 3) {
+      const plane = new THREE.Plane().setFromCoplanarPoints(vertices[indices.getX(i)], vertices[indices.getX(i+1)], vertices[indices.getX(i+2)])
+      if (plane.normal.lengthSq() < .5) continue
+      if (plane.distanceToPoint(center) > 0) plane.negate()
+      planes.push(plane)
+    }
+    return { box, planes, name: mesh.name }
+  }))
+  reference.dispose()
+  const poses = ['idle', 'high-five', 'hover', 'wave-small', 'stretch', 'cheer', 'win', 'listen-close'] as const
+  for (const headgear of ['headphones', 'cat-earphones'] as const) {
+    const model = createNootFromAsset(gltf, 'cup-contact-'+headgear)
+    const head = model.root.getObjectByName('head')!
+    const arms = ['L','R'].map(side => model.root.getObjectByName('Noot_Arm_'+side) as THREE.SkinnedMesh)
+    for (let frame = 0; frame < poses.length * 90; frame++) {
+      const pose = poses[Math.floor(frame / 90)]
+      model.update(frame/30, 1/30, { ...state, pose, headgear, directed:true }, pointer, false)
+      model.root.updateMatrixWorld(true); arms[0].skeleton.update()
+      for (const arm of arms) for (let i = 0; i < arm.geometry.attributes.position.count; i += 2) {
+        arm.getVertexPosition(i, point).applyMatrix4(arm.matrixWorld); head.worldToLocal(point)
+        for (const volume of volumes) {
+          if (!volume.box.containsPoint(point)) continue
+          assert(!volume.planes.every(plane => plane.distanceToPoint(point) < -.003), `${headgear} ${pose} frame ${frame}: arm inside ${volume.name}`)
+        }
+      }
+    }
+    model.dispose()
+  }
+})

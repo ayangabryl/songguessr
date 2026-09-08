@@ -9,7 +9,8 @@ export function ScoreNumber({ value, prefix = '' }: { value: number; prefix?: st
     const start = performance.now(), from = current.current
     const settle = () => { cancelAnimationFrame(frame); current.current = value; setShown(value) }
     function tick(time: number) {
-      const t = Math.min(1, (time - start) / 650)
+      // A queued frame timestamp can precede effect setup on a busy frame.
+      const t = Math.max(0, Math.min(1, (time - start) / 650))
       current.current = Math.round(from + (value - from) * (1 - (1 - t) ** 3))
       setShown(current.current)
       if (t < 1) frame = requestAnimationFrame(tick)

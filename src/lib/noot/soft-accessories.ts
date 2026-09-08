@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import { spring } from './motion.ts'
 import type { NootState } from './types.ts'
+import { createHeadphoneClearance } from './headphone-clearance.ts'
 
 /** Bounded secondary dynamics and body clearance, evaluated after authored posing. */
 export function createSoftAccessories(character: THREE.Object3D) {
+  const clearance = createHeadphoneClearance(character)
   const wardrobe: THREE.Mesh[] = [], foam: THREE.Mesh[] = []
   character.traverse(o => { if (o instanceof THREE.Mesh) { if (o.userData.wardrobe) wardrobe.push(o); if (o.name.startsWith('Noot_Cushion_')) { o.geometry.computeBoundingBox(); foam.push(o) } } })
   const hands = ['L','R'].map(s => character.getObjectByName('hand_'+s) as THREE.Bone)
@@ -56,6 +58,7 @@ export function createSoftAccessories(character: THREE.Object3D) {
         character.updateMatrixWorld(true)
       }
     }
+    const contacts = ['headphones', 'cat-earphones'].includes(state.headgear ?? 'headphones') ? clearance.update() : undefined
     foam.forEach((mesh,i) => {
       // The pad geometry uses character-space coordinates and a shared head bone.
       mesh.geometry.boundingBox!.getCenter(cup)
@@ -63,7 +66,8 @@ export function createSoftAccessories(character: THREE.Object3D) {
       mesh.localToWorld(cup)
       let proximity = 0
       for (const bone of hands) { bone.getWorldPosition(hand); proximity = Math.max(proximity,1-hand.distanceTo(cup)/.43) }
-      const pressure = reduced ? cushions[i].reset(0) : cushions[i].step(THREE.MathUtils.clamp(proximity*1.35,0,1),Math.min(dt,.1))
+      const contact = contacts?.[mesh.name.endsWith('_L') ? 0 : 1] ?? 0
+      const pressure = reduced ? cushions[i].reset(0) : cushions[i].step(THREE.MathUtils.clamp(Math.max(proximity*1.35, contact*.22),0,1),Math.min(dt,.1))
       const index = mesh.morphTargetDictionary?.Squish
       if (index !== undefined) mesh.morphTargetInfluences![index] = THREE.MathUtils.clamp(pressure,0,1)
     })
