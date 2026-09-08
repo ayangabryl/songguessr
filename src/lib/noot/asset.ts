@@ -1,3 +1,5 @@
+import { createFashion, loadFashionData } from "./fashion.ts"
+import { nootColorHex } from "../../../shared/noot-colors.ts"
 import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { clone } from 'three/addons/utils/SkeletonUtils.js'
@@ -16,7 +18,7 @@ let template: Promise<GLTF> | undefined
 
 /** One immutable download; every mounted Noot owns its skeleton, mixer and materials. */
 export function loadNootAsset() {
-  template ??= new GLTFLoader().loadAsync(NOOT_ASSET_URL).catch(error => {
+  template ??= Promise.all([new GLTFLoader().loadAsync(NOOT_ASSET_URL), loadFashionData()]).then(([gltf]) => gltf).catch(error => {
     template = undefined
     throw error
   })
@@ -50,6 +52,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
   const character = clone(gltf.scene)
   root.add(character)
   const materials = new Map<THREE.Material, THREE.Material>()
+  const hatMaterials = new Map<THREE.Material, THREE.Material>()
   const headphones: THREE.Object3D[] = []
   const pawDetails: THREE.Object3D[] = []
   const paintedCheeks: THREE.BufferGeometry[] = []
@@ -60,9 +63,10 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
     if (/^Noot_(HandBean|HandPalm|SoleBean|SolePalm)/.test(object.name)) pawDetails.push(object)
     if (object.userData.headgear === 'headphones') headphones.push(object)
     if (object instanceof THREE.Mesh) {
+      const owned = ['beanie', 'bucket'].includes(object.userData.wardrobe) ? hatMaterials : materials
       const copy = (m: THREE.Material) => {
-        if (!materials.has(m)) materials.set(m, m.clone())
-        return materials.get(m)!
+        if (!owned.has(m)) owned.set(m, m.clone())
+        return owned.get(m)!
       }
       object.material = Array.isArray(object.material) ? object.material.map(copy) : copy(object.material)
       if (object.userData.gaze_uv) {
@@ -108,6 +112,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
     if (!(child instanceof THREE.Mesh && child.geometry.type === 'ExtrudeGeometry')) child.visible = false
   }
   const wearables = createWearables(wardrobeAnchor, (x, y) => frontSurface(x, y) * .84 / .72)
+  const fashion = createFashion(character, sharedSkeleton!)
   const soft = createSoftAccessories(character)
   const mixer = new THREE.AnimationMixer(character)
   const clips = new Map(gltf.animations.map(clip => [clip.name, clip]))
@@ -130,7 +135,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
   let wardrobeStyle = ''
   let signature = '', started = 0, gazeX = 0, gazeY = 0
   const color = new THREE.Color()
-  const materialList = [...materials.values()] as THREE.MeshStandardMaterial[]
+  const materialList = [...materials.values(), ...hatMaterials.values()] as THREE.MeshStandardMaterial[]
   const fabrics = materialList.filter(m => /Noot_(Fabric|Knit)/.test(m.name)).map(material => ({material, pattern: styleFabric(material)}))
   const seams = materialList.filter(m => m.name.startsWith('Noot_Seam'))
   const paws = materialList.filter(m => m.name.startsWith('Noot_Paw'))
@@ -254,7 +259,7 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
     cheekColor.lerp(color.set(palette.cheek), colorBlend)
     cheeks.color.copy(cheekColor)
     const headgear = state.headgear ?? 'headphones'
-    const nextWardrobeStyle = `${headgear}:${state.accessoryColor}:${state.pattern}`
+    const nextWardrobeStyle = `${headgear}:${state.accessoryColor}:${state.headColor}:${state.pattern}`
     if (wardrobeStyle !== nextWardrobeStyle) {
     wardrobeStyle = nextWardrobeStyle
     headphones.forEach(object => { object.visible = headgear === 'headphones' || headgear === 'cat-earphones' })
@@ -264,20 +269,24 @@ export function createNootFromAsset(gltf: GLTF, identity = `noot-${++instance}`)
       }
     }
     gear.select(['headphones','beanie','bucket'].includes(headgear) ? 'none' : headgear)
-    const fabricColor = {blue:'#7893ab',rose:'#b87985',gold:'#c5a05c',mint:'#71a58e',lavender:'#9c88b6',coral:'#c77d65',navy:'#4e647c'}[state.accessoryColor ?? 'blue']
-    for (const {material,pattern} of fabrics) { material.color.set(fabricColor); pattern.value=['plain','stripes','dots','gingham','confetti'].indexOf(state.pattern ?? 'plain') }
-    seams.forEach(material => material.color.set(fabricColor).multiplyScalar(.78))
+    const fabricColor = nootColorHex(state.accessoryColor)
+    const hatColor = nootColorHex(state.headColor ?? state.accessoryColor)
+    for (const {material,pattern} of fabrics) { material.color.set([...hatMaterials.values()].includes(material) ? hatColor : fabricColor); pattern.value=[...hatMaterials.values()].includes(material) ? 0 : ['plain','stripes','dots','gingham','confetti'].indexOf(state.pattern ?? 'plain') }
+    seams.forEach(material => material.color.set([...hatMaterials.values()].includes(material) ? hatColor : fabricColor).multiplyScalar(.78))
     }
+    fashion.update(state, time, reduced)
     gear.update(dt, reduced ? 0 : Math.sin(time * 2) * .15, 0, reduced)
     wearables.update(dt, clothDrive, state.clothing === 'bandana' && soft.wardrobe.length ? {...state,clothing:'none'} : state, reduced)
   }
   function dispose() {
+    fashion.dispose()
     mixer.stopAllAction()
     mixer.uncacheRoot(character)
     const skeletons = new Set<THREE.Skeleton>()
     character.traverse(o => { if (o instanceof THREE.SkinnedMesh) skeletons.add(o.skeleton) })
     skeletons.forEach(s => s.dispose())
     materials.forEach(m => m.dispose())
+    hatMaterials.forEach(m => m.dispose())
     accessoryGeometry.forEach(g => g.dispose())
     accessoryMaterials.forEach(m => m.dispose())
     paintedCheeks.forEach(geometry => geometry.dispose())

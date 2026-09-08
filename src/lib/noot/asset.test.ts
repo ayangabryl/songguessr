@@ -5,6 +5,8 @@ import { createRequire } from 'node:module'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { createNootFromAsset, clipForState } from './asset.ts'
+import { loadFashionData } from './fashion.ts'
+await loadFashionData()
 import type { NootState } from './types.ts'
 
 const bytes = await readFile(new URL('../../../public/mascot/noot.glb', import.meta.url))
@@ -371,6 +373,118 @@ test('raised arms clear earcup surfaces through gestures and interruptions', () 
         }
       }
     }
+    model.dispose()
+  }
+})
+
+test('Blender fashion binds to the existing rig, shares immutable buffers, and keeps player colors independent', () => {
+  const a = createNootFromAsset(gltf, 'fashion-a'), b = createNootFromAsset(gltf, 'fashion-b')
+  const outfit = {...state,clothing:'varsity',footwear:'sneakers',accessoryColor:'forest',headgear:'bucket',headColor:'yellow',shoeColor:'ivory',paused:true} as NootState
+  a.update(0,0,outfit,pointer,false); b.update(0,0,{...outfit,accessoryColor:'rose'},pointer,false)
+  const mesh = a.root.getObjectByName('Noot_Fashion_varsity_base') as THREE.SkinnedMesh
+  const other = b.root.getObjectByName(mesh.name) as THREE.SkinnedMesh
+  assert.equal(mesh.geometry, other.geometry); assert.notEqual(mesh.skeleton,other.skeleton); assert.notEqual(mesh.material,other.material)
+  assert.notEqual((mesh.material as THREE.MeshStandardMaterial).color.getHex(),(other.material as THREE.MeshStandardMaterial).color.getHex())
+  const skeletons = new Set<THREE.Skeleton>()
+  let visibleTriangles = 0, visibleDraws = 0
+  a.root.updateMatrixWorld(true)
+  a.root.traverse(o => {
+    if (o instanceof THREE.SkinnedMesh) skeletons.add(o.skeleton)
+    if (!(o instanceof THREE.SkinnedMesh) || !o.userData.fashion) return
+    const weight = o.geometry.getAttribute('skinWeight'), indices=o.geometry.getAttribute('skinIndex')
+    for (let i=0;i<weight.count;i++) {
+      const total=weight.getX(i)+weight.getY(i)+weight.getZ(i)+weight.getW(i)
+      assert(Math.abs(total-1)<1e-5,`${o.name} has an unbound vertex`)
+      for(const k of [indices.getX(i),indices.getY(i),indices.getZ(i),indices.getW(i)]) assert(k<o.skeleton.bones.length)
+    }
+    if(o.visible){visibleTriangles+=o.geometry.index!.count/3;visibleDraws++}
+  })
+  assert.equal(skeletons.size,1); assert(visibleDraws<=5); assert(visibleTriangles<15000)
+  const shoes=a.root.getObjectByName('Noot_Fashion_sneakers_base') as THREE.SkinnedMesh
+  assert(shoes.visible); assert.equal((shoes.material as THREE.MeshStandardMaterial).color.getHexString(),'e9dfc9')
+  a.dispose()
+  b.update(.1,.1,{...outfit,clothing:'overalls',footwear:'boots'},pointer,false)
+  assert(b.root.getObjectByName('Noot_Fashion_overalls_base')!.visible)
+  assert(!b.root.getObjectByName('Noot_Fashion_varsity_base')!.visible)
+  b.dispose()
+})
+
+test('fashion follows animated feet and arms without rewriting shared geometry', () => {
+  const model = createNootFromAsset(gltf, 'fashion-motion')
+  const s: NootState = {...state,clothing:'cardigan',footwear:'boots'}
+  model.update(0,0,s,pointer,false)
+  const mesh=model.root.getObjectByName('Noot_Fashion_cardigan_base') as THREE.SkinnedMesh
+  const positions=mesh.geometry.getAttribute('position'), revision=positions.version
+  const shoe=model.root.getObjectByName('Noot_Fashion_boots_base') as THREE.SkinnedMesh
+  const foot=model.root.getObjectByName('foot_L') as THREE.Bone
+  model.root.updateMatrixWorld(true); shoe.skeleton.update()
+  const before=new THREE.Vector3().fromBufferAttribute(shoe.geometry.getAttribute('position'),0)
+  const after=before.clone(); shoe.applyBoneTransform(0,before)
+  foot.position.y+=.4; model.root.updateMatrixWorld(true); shoe.skeleton.update();shoe.applyBoneTransform(0,after)
+  assert(Math.abs(after.y-before.y-.4)<1e-5,'shoe follows its foot, not the head or chest')
+  for(const pose of ['walk','high-five','groove','jump'] as const) {
+    for(let i=0;i<30;i++) model.update(i/30,1/30,{...s,pose,eventId:3,directed:true},pointer,false)
+    model.root.updateMatrixWorld(true);mesh.skeleton.update()
+    for(let i=0;i<positions.count;i+=31) {
+      const vertex=new THREE.Vector3().fromBufferAttribute(positions,i);mesh.applyBoneTransform(i,vertex)
+      assert([...vertex].every(Number.isFinite));assert(vertex.length()<6)
+    }
+  }
+  assert.equal(positions.version,revision,'no recurring CPU vertex upload')
+  model.dispose()
+})
+
+test('every expanded outfit stays within the crowd budget and replaces the previous look', () => {
+  const model=createNootFromAsset(gltf,'expanded-fashion')
+  for(const clothing of ['dress','ballet','suit','hoodie','tracksuit','raincoat'] as const) {
+    model.update(0,0,{...state,clothing,footwear:'high-tops',trimColor:'#123456'},pointer,false)
+    let draws=0,triangles=0
+    model.root.traverse(o=>{
+      if(!(o instanceof THREE.SkinnedMesh)||!o.userData.fashion||!o.visible)return
+      assert([clothing,'high-tops'].includes(o.userData.fashion),'previous outfit remains visible')
+      draws++;triangles+=o.geometry.index!.count/3
+      const weights=o.geometry.getAttribute('skinWeight')
+      for(let i=0;i<weights.count;i++)assert(Math.abs(weights.getX(i)+weights.getY(i)+weights.getZ(i)+weights.getW(i)-1)<1e-5)
+    })
+    assert(draws>0&&draws<=7,`${clothing}: ${draws} draws`)
+    assert(triangles<=16000,`${clothing}: ${triangles} triangles`)
+  }
+  model.dispose()
+})
+
+test('clothing details change independently of fabric, soles and other players',()=>{
+  const a=createNootFromAsset(gltf,'trim-a'),b=createNootFromAsset(gltf,'trim-b')
+  const input: NootState={...state,clothing:'suit',footwear:'mary-janes',accessoryColor:'navy',trimColor:'#112233',shoeColor:'rose'}
+  a.update(0,0,input,pointer,false);b.update(0,0,input,pointer,false)
+  const color=(model:typeof a,name:string)=>((model.root.getObjectByName(name) as THREE.Mesh).material as THREE.MeshStandardMaterial).color.getHexString()
+  const fabric=color(a,'Noot_Fashion_suit_base'),sole=color(a,'Noot_Fashion_mary-janes_trim')
+  a.update(1,0,{...input,trimColor:'#fedcba'},pointer,false)
+  assert.equal(color(a,'Noot_Fashion_suit_trim'),'fedcba')
+  assert.equal(color(b,'Noot_Fashion_suit_trim'),'112233')
+  assert.equal(color(a,'Noot_Fashion_suit_base'),fabric)
+  assert.equal(color(a,'Noot_Fashion_mary-janes_trim'),sole)
+  a.dispose();b.dispose()
+})
+
+test('dress hems sway below the waist, freeze on pause and use immutable GPU buffers',()=>{
+  for(const clothing of ['dress','ballet'] as const){
+    const model=createNootFromAsset(gltf,'hem-'+clothing)
+    const input: NootState={...state,clothing,pose:'groove',directed:true}
+    model.update(.5,.016,input,pointer,false)
+    const mesh=model.root.getObjectByName(`Noot_Fashion_${clothing}_base`) as THREE.SkinnedMesh
+    const positions=mesh.geometry.getAttribute('position'),morph=mesh.geometry.morphAttributes.position[0]
+    const version=positions.version,morphVersion=morph.version
+    for(let i=0;i<positions.count;i++){
+      if(positions.getY(i)>=1.10) assert.equal(Math.abs(morph.getX(i))+Math.abs(morph.getY(i))+Math.abs(morph.getZ(i)),0)
+      assert(positions.getY(i)-Math.abs(morph.getY(i))>.3,'hem must clear the resting feet')
+      assert(Math.abs(morph.getX(i))<.05,'bounded cloth motion')
+    }
+    const before=mesh.morphTargetInfluences![0];assert(Math.abs(before)>.1)
+    model.update(2,0,{...input,paused:true},pointer,false)
+    assert.equal(mesh.morphTargetInfluences![0],before)
+    model.update(3,.016,input,pointer,true);assert.equal(mesh.morphTargetInfluences![0],0)
+    for(let i=0;i<90;i++)model.update(i/30,1/30,input,pointer,false)
+    assert.equal(positions.version,version);assert.equal(morph.version,morphVersion)
     model.dispose()
   }
 })

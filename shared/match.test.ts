@@ -186,6 +186,8 @@ test('shared Mix filters include artists and exclusions with strict validation',
 test('seat labels stay the same on the stage and the board', () => {
   assert.equal(matchSeatLabel({ status: 'playing', ready: false, lastAction: 'ready', stage: 0 }, false), 'Listening')
   assert.equal(matchSeatLabel({ status: 'playing', ready: false, lastAction: 'skip', stage: 1 }, false), 'Skipped to 0.5s')
+  assert.equal(matchSeatLabel({ status: 'out', ready: false, lastAction: 'skip', stage: 4 }, false), 'Song passed')
+  assert.equal(matchSeatLabel({ status: 'out', ready: false, lastAction: 'miss', stage: 4 }, false), 'Song passed')
   assert.equal(matchSeatLabel({ status: 'out', ready: false, lastAction: 'timeout', stage: 2 }, true), '')
   assert.equal(matchSeatLabel({ status: 'out', ready: true, lastAction: 'timeout', stage: 2 }, true), 'Ready')
   assert.equal(matchSeatLabel({ status: 'solved', ready: false, lastAction: 'solved', stage: 1 }, true), 'Named it')

@@ -1,30 +1,26 @@
-import {parseAppearance, type NootAppearance} from '../../../shared/noot-profile'
 import { useMemo, useSyncExternalStore } from 'react'
-import type { NootMood } from './types'
+import { createPreferenceStore, parsePreferences, type NootPreferences } from './preference-store'
 
-interface Preferences extends NootAppearance { mood: NootMood }
 const KEY = 'songguessr-noot', EVENT = 'noot-preferences'
-let memory = ''
-function snapshot() { try { return localStorage.getItem(KEY) ?? memory } catch { return memory } }
+const store = createPreferenceStore(() => localStorage.getItem(KEY), raw => localStorage.setItem(KEY, raw))
+// Include persistence in the stable snapshot so a successful retry of the same
+// outfit also refreshes the save indicator.
+const snapshot = () => { const raw = store.snapshot(); return `${store.persisted ? '1' : '0'}${raw}` }
 function subscribe(callback: () => void) {
-  window.addEventListener('storage', callback); window.addEventListener(EVENT, callback)
-  return () => { window.removeEventListener('storage', callback); window.removeEventListener(EVENT, callback) }
-}
-function parse(raw: string): Preferences {
-  let value: Partial<Preferences> = {}
-  try { value = JSON.parse(raw) ?? {} } catch { /* First visit. */ }
-  return {
-    ...parseAppearance(value),
-    mood: ['chill','happy','sad','dance'].includes(value.mood ?? '') ? value.mood! : 'chill',
+  const storage = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== KEY) return
+    store.received(event.newValue); callback()
   }
+  window.addEventListener('storage', storage); window.addEventListener(EVENT, callback)
+  return () => { window.removeEventListener('storage', storage); window.removeEventListener(EVENT, callback) }
 }
 export function useNootPreferences() {
   const raw = useSyncExternalStore(subscribe, snapshot, () => '')
-  const preferences = useMemo(() => parse(raw), [raw])
-  function update(change: Partial<Preferences>) {
-    memory = JSON.stringify({ ...parse(snapshot()), ...change })
-    try { localStorage.setItem(KEY, memory) } catch { /* Keep the session choice when storage is unavailable. */ }
+  const preferences = useMemo(() => parsePreferences(raw.slice(1)), [raw])
+  const persisted = raw[0] !== '0'
+  function update(change: Partial<NootPreferences>) {
+    store.update(change)
     window.dispatchEvent(new Event(EVENT))
   }
-  return [preferences, update] as const
+  return [preferences, update, persisted] as const
 }

@@ -29,6 +29,8 @@ interface RulerProps {
   isPlaying?: boolean;
   size?: "full" | "signature";
   children?: ReactNode;
+  /** A server-owned outcome can end a round before all attempts are spent. */
+  description?: string;
 }
 
 /** Percent along the ruler for the stop that ends `stage`. */
@@ -42,7 +44,8 @@ export function describeRuler(props: RulerProps): string {
   const { stages, stageIndex, marks, status, solvedStage } = props;
   const tries = stages.length;
   if (status === "won" && solvedStage != null) {
-    return `Named at ${formatStageValue(solvedStage)} seconds after ${marks.length} ${marks.length === 1 ? "try" : "tries"}.`;
+    const attempts = marks.length + 1;
+    return `Named at ${formatStageValue(solvedStage)} seconds after ${attempts} ${attempts === 1 ? "try" : "tries"}.`;
   }
   if (status === "lost") {
     return `Not named in ${tries} tries.`;
@@ -86,7 +89,7 @@ export function Ruler(props: RulerProps) {
       <div
         className="ruler-draw"
         role="img"
-        aria-label={describeRuler(props)}
+        aria-label={props.description ?? describeRuler(props)}
         data-slop-ok="3: each mark is a spent try at a stop, not ornament; the whole ruler is one labelled image, so the marks are aria-hidden on purpose"
       >
         <div className="ruler-line" aria-hidden="true" />

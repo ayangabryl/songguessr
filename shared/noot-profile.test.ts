@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseAppearance } from "./noot-profile.ts";
+test('dress, formal and street outfits retain custom detailing on multiplayer round trips', () => {
+  for (const clothing of ['dress','ballet','suit','hoodie','tracksuit','raincoat']) for (const footwear of ['high-tops','mary-janes']) {
+    const saved = parseAppearance({clothing,footwear,trimColor:'#Ab9234',accessoryColor:'pink',shoeColor:'black'})
+    assert.equal(saved.clothing,clothing); assert.equal(saved.footwear,footwear)
+    assert.equal(saved.trimColor,'#ab9234')
+    assert.deepEqual(parseAppearance(JSON.parse(JSON.stringify(saved))),saved)
+  }
+  assert.equal(parseAppearance({}).trimColor,undefined)
+  assert.equal(parseAppearance({trimColor:'url(bad)'}).trimColor,'blue')
+})
 test("appearance accepts only supported wearables and ignores injected fields", () => {
   const p = parseAppearance({
     headgear: "daisy",
@@ -38,3 +48,18 @@ test("fabric patterns and extended colors survive profile validation", () => {
   assert.equal(parseAppearance({ pattern: "invalid" }).pattern, "plain");
   assert.equal(parseAppearance({}).pattern, "plain");
 });
+
+test('Blender fashion and separate custom colors survive multiplayer validation', () => {
+  const input = { headgear: 'bucket', clothing: 'varsity', footwear: 'sneakers', accessoryColor: '#ABC123', headColor: 'ivory', shoeColor: '#334455' }
+  const first = parseAppearance(input), rejoined = parseAppearance(JSON.parse(JSON.stringify(first)))
+  assert.deepEqual(first, rejoined)
+  assert.equal(first.clothing, 'varsity'); assert.equal(first.footwear, 'sneakers')
+  assert.equal(first.accessoryColor, '#abc123'); assert.equal(first.headColor, 'ivory'); assert.equal(first.shoeColor, '#334455')
+  for (const clothing of ['cardigan','overalls']) assert.equal(parseAppearance({clothing}).clothing, clothing)
+  for (const bad of ['#fff','#abcdefgh','url(https://example.com)',[],{},'__proto__']) {
+    assert.equal(parseAppearance({accessoryColor:bad,headColor:bad,shoeColor:bad}).accessoryColor, 'blue')
+    assert.equal(parseAppearance({headColor:bad}).headColor, 'blue')
+  }
+  assert.equal(parseAppearance({footwear:'flying-shoes'}).footwear, 'none')
+  assert.equal(parseAppearance({}).headColor, undefined, 'old outfits retain linked hat color until edited')
+})

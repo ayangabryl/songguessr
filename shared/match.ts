@@ -287,6 +287,7 @@ export function matchSeatLabel(
   if (entry.status === 'solved') return 'Named it'
   if (entry.ready) return 'Ready'
   if (revealed) return ''
+  if (entry.status === 'out' && entry.lastAction !== 'timeout') return 'Song passed'
   switch (entry.lastAction) {
     case 'skip':
       return `Skipped to ${MATCH_STAGES[entry.stage]}s`

@@ -213,11 +213,12 @@ function createRoundState(): RoundState {
   }
 }
 
-export function Game() {
+export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const timerRef = useRef<number | null>(null)
   const rafRef = useRef<number | null>(null)
   const playSessionRef = useRef(0)
+  const skippingRef = useRef(false)
   const deadAudioSkipsRef = useRef(0)
   const usingSpotifyRef = useRef(false)
   const spotifyTimelineRef = useRef(0)
@@ -891,11 +892,11 @@ export function Game() {
     return timelineSeconds
   }
 
-  async function playClip() {
+  async function playClip(continuation?: { start: number; end: number }) {
     const round = activeState.round
     if (!round || !hasPlayableAudio(round) || shellStatus !== 'playing') return
 
-    if (isPlaying || isLoadingClip) {
+    if (!continuation && (isPlaying || isLoadingClip)) {
       const timelineSeconds = await syncPlaybackPosition()
       const preservedSeconds = Math.min(timelineSeconds, currentStageEndpoint)
       await stopClip({ preserveProgress: true })
@@ -907,9 +908,9 @@ export function Game() {
       return
     }
 
-    const stageEndpoint = currentStageEndpoint
+    const stageEndpoint = continuation?.end ?? currentStageEndpoint
     const startTimeline =
-      activeState.unlockedSeconds >= stageEndpoint ? 0 : activeState.unlockedSeconds
+      continuation?.start ?? (activeState.unlockedSeconds >= stageEndpoint ? 0 : activeState.unlockedSeconds)
     const session = playSessionRef.current + 1
     playSessionRef.current = session
     playbackModeRef.current = 'clip'
@@ -1391,6 +1392,8 @@ export function Game() {
   }
 
   function handleSkip() {
+    if (skippingRef.current || shellStatus !== 'playing' || !activeState.round) return
+    skippingRef.current = true
     void activateSpotifyElement()
 
     const nextIndex = roundsRef.current[difficulty].stageIndex + 1
@@ -1408,9 +1411,18 @@ export function Game() {
       mascotSkipTimeoutRef.current = null
     }, MASCOT_DURATION_MS.skip)
 
-    void stopClip({ preserveProgress: true }).then(() => {
+    const skippedRound = activeState.round
+    const skippedStage = activeState.stageIndex
+    const stopped = stopClip({ preserveProgress: true })
+    const session = playSessionRef.current
+    void stopped.then(() => {
+      // A level switch, new round or newer playback request cancels this skip.
+      if (session !== playSessionRef.current || difficultyRef.current !== difficulty ||
+          roundsRef.current[difficulty].round !== skippedRound ||
+          roundsRef.current[difficulty].stageIndex !== skippedStage) return
       advanceStageAfterSkip()
-    })
+      if (!isLastStage) void playClip({ start: currentStageEndpoint, end: activeStages[nextIndex] })
+    }).finally(() => { skippingRef.current = false })
   }
 
   function handleGuessSubmit(event: FormEvent) {
@@ -1840,7 +1852,7 @@ export function Game() {
                   className="play-control"
                   onClick={() => void playClip()}
                   disabled={!roundHasAudio && !isPlaying && !isLoadingClip}
-                  aria-label={isLoadingClip ? 'Cancel loading clip' : `Play ${currentStageEndpoint} second clip`}
+                  aria-label={isLoadingClip ? 'Cancel loading clip' : isPlaying ? 'Pause clip' : `Play ${currentStageEndpoint} second clip`}
                 >
                   <PlayControlIcon state={isLoadingClip ? 'loading' : isPlaying ? 'pause' : 'play'} />
                 </button>
@@ -1999,7 +2011,7 @@ export function Game() {
       </div>
 
       <SittingSheet
-        open={sitOpen}
+        open={sitOpen && !profileOpen}
         onClose={() => setSitOpen(false)}
         invited={Boolean(sitting.inviteCode && !sitting.code)}
         name={sitting.name}

@@ -869,7 +869,7 @@
   }
 }
 
-/* The SVG fills loading and failure states; only one character is visible. */
+/* Keep the 3D canvas measurable while its first frame is prepared. */
 .noot-canvas {
   position: absolute;
   inset: 0;

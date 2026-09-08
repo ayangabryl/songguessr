@@ -1,164 +1,44 @@
 import { foldSearchText } from '../shared/search-text.ts'
-import { canonicalSongTitle, primaryArtistName } from './track-dedupe.ts'
+import { canonicalSongTitle, primaryArtistName, isSameSong } from './track-dedupe.ts'
 
-const STOP_WORDS = new Set([
-  'the',
-  'a',
-  'an',
-  'ft',
-  'feat',
-  'featuring',
-  'and',
-  'ng',
-  'sa',
-  'ang',
-  'ni',
-  'at',
-])
-
-function stripParentheticals(value: string): string {
-  return value.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ')
-}
-
-export function normalizeGuess(value: string): string {
-  return foldSearchText(stripParentheticals(value))
-}
-
-function tokenize(value: string): string[] {
-  return normalizeGuess(value)
-    .split(' ')
-    .filter((token) => token.length > 0 && !STOP_WORDS.has(token))
-}
+export const normalizeGuess = foldSearchText
 
 function levenshtein(a: string, b: string): number {
-  const matrix = Array.from({ length: a.length + 1 }, () =>
-    Array<number>(b.length + 1).fill(0),
-  )
-
-  for (let i = 0; i <= a.length; i += 1) matrix[i][0] = i
-  for (let j = 0; j <= b.length; j += 1) matrix[0][j] = j
-
-  for (let i = 1; i <= a.length; i += 1) {
-    for (let j = 1; j <= b.length; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost,
-      )
-    }
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i)
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i]
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(next[j - 1] + 1, row[j] + 1, row[j - 1] + Number(a[i - 1] !== b[j - 1]))
+    row = next
   }
-
-  return matrix[a.length][b.length]
+  return row[b.length]
 }
 
-function fuzzyIncludes(guess: string, target: string): boolean {
-  if (!guess || !target) return false
-  if (target.includes(guess) || guess.includes(target)) return true
-  if (guess.length < 4) return false
-  return levenshtein(guess, target) <= Math.max(1, Math.floor(target.length * 0.2))
-}
-
-/**
- * Drop a trailing " - Artist" so a suggestion label canonicalizes as a title.
- *
- * The autocomplete fills the box with `${title} - ${artist}`, which would
- * otherwise look like a version qualifier chunk to the canonicalizer.
- */
-function withoutTrailingArtist(guess: string, artist: string): string | null {
+function withoutTrailingArtist(guess: string, artist: string): string {
   const match = /^(.*\S)\s+[-\u2013\u2014]\s+(\S.*)$/.exec(guess.trim())
-  if (!match) return null
-  const tail = normalizeGuess(match[2] ?? '')
-  if (!tail) return null
-  if (tail !== normalizeGuess(artist) && tail !== normalizeGuess(primaryArtistName(artist))) {
-    return null
-  }
-  return (match[1] ?? '').trim()
+  if (!match) return guess
+  const tail = foldSearchText(match[2])
+  return tail && (tail === foldSearchText(artist) || tail === primaryArtistName(artist)) ? match[1].trim() : guess
 }
 
-/** Every canonical title a player could reasonably have typed for this song. */
-function canonicalGuessForms(guess: string, artist: string): string[] {
-  const forms = new Set<string>()
-  const withoutArtist = withoutTrailingArtist(guess, artist)
-  for (const candidate of [guess, withoutArtist]) {
-    if (!candidate) continue
-    const canonical = normalizeGuess(canonicalSongTitle(candidate))
-    if (canonical) forms.add(canonical)
-  }
-  return [...forms]
-}
-
-export function checkGuess(
-  guess: string,
-  title: string,
-  artist: string,
-): { correct: boolean; matched: 'title' | 'artist' | 'both' | null } {
-  const normalizedGuess = normalizeGuess(guess)
-  if (!normalizedGuess) return { correct: false, matched: null }
-
-  const titleNorm = normalizeGuess(title)
-  const artistNorm = normalizeGuess(artist)
-  const combined = `${titleNorm} ${artistNorm}`.trim()
-
-  if (
-    normalizedGuess === titleNorm ||
-    normalizedGuess === artistNorm ||
-    normalizedGuess === combined
-  ) {
-    return {
-      correct: true,
-      matched: normalizedGuess === combined ? 'both' : normalizedGuess === titleNorm ? 'title' : 'artist',
-    }
-  }
-
-  // Any recording of the right song counts. "MAPA" and "MAPA - From THE FIRST
-  // TAKE" collapse to the same canonical title, so naming either one scores.
-  const canonicalTitle = normalizeGuess(canonicalSongTitle(title))
-  const canonicalForms = canonicalGuessForms(guess, artist)
-  if (canonicalTitle && canonicalForms.includes(canonicalTitle)) {
-    return { correct: true, matched: 'title' }
-  }
-  const canonicalCombined = `${canonicalTitle} ${artistNorm}`.trim()
-  if (canonicalCombined && canonicalForms.includes(canonicalCombined)) {
-    return { correct: true, matched: 'both' }
-  }
-
-  const guessTokens = tokenize(normalizedGuess)
-  const titleTokens = tokenize(titleNorm)
-  const canonicalTitleTokens = tokenize(canonicalTitle)
-  const artistTokens = tokenize(artistNorm)
-
-  const matchesTitleTokens = (tokens: string[], targets: string[]) =>
-    tokens.length > 0 && tokens.every((token) => targets.some((target) => fuzzyIncludes(token, target)))
-
-  const titleMatch =
-    fuzzyIncludes(normalizedGuess, titleNorm) ||
-    matchesTitleTokens(guessTokens, titleTokens) ||
-    canonicalForms.some(
-      (form) =>
-        fuzzyIncludes(form, canonicalTitle) ||
-        matchesTitleTokens(tokenize(form), canonicalTitleTokens),
-    )
-
-  const artistMatch =
-    fuzzyIncludes(normalizedGuess, artistNorm) ||
-    matchesTitleTokens(guessTokens, artistTokens)
-
-  if (titleMatch && artistMatch) return { correct: true, matched: 'both' }
-  if (titleMatch) return { correct: true, matched: 'title' }
-  if (artistMatch) return { correct: true, matched: 'artist' }
-
-  return { correct: false, matched: null }
-}
-
-/** Competitive mode requires a complete title, never an artist or substring. */
+/** A complete song title is required. Search fragments and artist names are not answers. */
 export function checkMatchGuess(guess: string, title: string, artist: string): boolean {
-  const normalize = (value: string) => foldSearchText(value)
-  const candidate = withoutTrailingArtist(guess, artist) ?? guess
-  const target = normalize(canonicalSongTitle(title) || title)
-  const input = normalize(canonicalSongTitle(candidate) || candidate)
-  if (!input || !target) return false
-  if (input === target) return true
-  // At most one typo in a substantial title; short titles require an exact match.
-  return target.length >= 8 && input.length >= 8 && levenshtein(input, target) <= 1
+  const candidate = withoutTrailingArtist(guess, artist)
+  const target = canonicalSongTitle(title)
+  const forms = [canonicalSongTitle(candidate)]
+  // A familiar session label is often typed without its catalogue punctuation.
+  forms.push(canonicalSongTitle(candidate.replace(/\s+(?:from\s+)?(?:the\s+)?first\s+take$/i, '')))
+  if (!target) return false
+  return forms.some(input => input && (input === target || target.length >= 8 && input.length >= 8 && levenshtein(input, target) <= 1))
+}
+
+export function checkGuess(guess: string, title: string, artist: string): { correct: boolean; matched: 'title' | 'artist' | 'both' | null } {
+  const correct = checkMatchGuess(guess, title, artist)
+  return { correct, matched: correct ? 'title' : null }
+}
+
+type Song = { id: string; title: string; artist: string }
+/** A selected catalogue ID is authoritative: never rescue a rejected selection with its label. */
+export function checkSubmittedSong(target: Song, guess: string, selectedId?: string, selected?: Song): boolean {
+  if (selectedId) return selectedId === target.id || Boolean(selected && selected.id === selectedId && isSameSong(selected, target))
+  return checkMatchGuess(guess, target.title, target.artist)
 }

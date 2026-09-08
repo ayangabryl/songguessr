@@ -9,7 +9,10 @@ export function mountNoot(
   canvas: HTMLCanvasElement,
   readState: () => NootState,
   onReady: (ready: boolean) => void,
+  onError?: () => void,
 ) {
+  const mountedAt = performance.now();
+  const assetPromise = loadNootAsset();
   const renderer = new THREE.WebGLRenderer({
     canvas,
     alpha: true,
@@ -97,7 +100,7 @@ export function mountNoot(
     const state = readState();
     const animationDt = dt * (state.speed ?? 1);
     if (!state.paused) elapsed += animationDt;
-    const nextSignature = `${state.pose}:${state.eventId}:${state.headgear}:${state.clothing}:${state.pattern}:${state.eyewear}:${state.accessoryColor}:${state.mood}:${state.theme}:${state.paused}:${state.viewYaw}:${state.comparison}:${media.matches}`;
+    const nextSignature = `${state.pose}:${state.eventId}:${state.headgear}:${state.clothing}:${state.pattern}:${state.eyewear}:${state.accessoryColor}:${state.headColor}:${state.shoeColor}:${state.trimColor}:${state.footwear}:${state.mood}:${state.theme}:${state.paused}:${state.viewYaw}:${state.comparison}:${media.matches}`;
     if (nextSignature !== signature) {
       signature = nextSignature;
       settleUntil = timestamp + 1800;
@@ -162,6 +165,7 @@ export function mountNoot(
     renderer.render(scene, camera);
     if (!ready) {
       ready = true;
+      if (import.meta.env.DEV) canvas.dataset.nootReadyMs = String(Math.round(performance.now() - mountedAt));
       onReady(true);
     }
     // Reduced motion stops drawing once the static expression/colour has settled.
@@ -222,7 +226,6 @@ export function mountNoot(
   }
   function contextRestored() {
     lost = false;
-    if (noot) onReady(true);
     wake();
   }
   canvas.addEventListener("pointermove", move);
@@ -231,18 +234,17 @@ export function mountNoot(
   canvas.addEventListener("webglcontextrestored", contextRestored);
   document.addEventListener("visibilitychange", wake);
   media.addEventListener("change", wake);
-  loadNootAsset().then(asset => {
+  assetPromise.then(asset => {
     if (disposed) return;
     noot = createNootFromAsset(asset);
     turntable.add(noot.root);
-    // Unhide the canvas before ResizeObserver measures its first visible frame.
-    onReady(true);
     resize();
     wake();
   }).catch(error => {
     if (disposed) return;
-    console.warn('Noot Blender asset unavailable; using vector fallback.', error);
+    console.warn('Noot Blender asset unavailable.', error);
     onReady(false);
+    onError?.();
   });
   resize();
   return {

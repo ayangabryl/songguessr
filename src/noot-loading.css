@@ -1,0 +1,5 @@
+.noot-load-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-2, #73786a); font: inherit; pointer-events: none; }
+.noot-load-state button { pointer-events: auto; border: 1px solid var(--line, #d7dccc); border-radius: 999px; padding: 10px 16px; background: var(--surface, #fafbf5); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.noot-load-state button:focus-visible { outline: 2px solid var(--accent, #728745); outline-offset: 3px; }
+.noot-load-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .35; box-shadow: -12px 0 currentColor, 12px 0 currentColor; }
+.noot-load-error { font-size: 10px; text-align: center; }

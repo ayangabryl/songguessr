@@ -24,7 +24,7 @@ function App() {
   if (NootStudio && new URLSearchParams(window.location.search).has('noot-studio')) {
     return <Suspense fallback={null}><NootStudio /></Suspense>
   }
-  return <><Game />{profile&&<NootProfile onClose={closeProfile} welcome={welcome}/>}</>
+  return <><Game profileOpen={profile} />{profile&&<NootProfile onClose={closeProfile} welcome={welcome}/>}</>
 }
 
 export default App

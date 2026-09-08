@@ -26,7 +26,7 @@ import {
   parseGenreFilters,
 } from './filters'
 import { mapRequestedPoolTier } from './difficulty'
-import { checkGuess } from './guess'
+import { checkSubmittedSong } from './guess'
 import { handleScheduled } from './scheduled'
 import { createAdminApp, handleAdminRequest } from './admin'
 import {
@@ -515,10 +515,9 @@ async function resolveRoundTrack(
   filters: CatalogFilters,
 ): Promise<Awaited<ReturnType<typeof findTrackById>>> {
   if (trackId) {
-    const placement = await findTrackPoolPlacement(env, trackId, filters)
-    if (placement && placement.tier === mapRequestedPoolTier(difficulty, placement.poolN)) {
-      return placement.track
-    }
+    // Validate the recording that was actually sent to the player. Catalogue
+    // growth may change its tier; it must never substitute another song here.
+    return findTrackById(env, trackId)
   }
 
   return (await pickRandomTrack(env, difficulty, seed ?? '', filters)) ?? undefined
@@ -552,24 +551,9 @@ app.post('/api/guess', async (c) => {
       return c.json({ error: 'Track not found' }, 404)
     }
 
-    let correct = false
-
-    if (body.guessedTrackId) {
-      // Picking a different recording of the right song still counts: the
-      // studio cut and the live/First Take cut share one identity key.
-      if (body.guessedTrackId === track.id) {
-        correct = true
-      } else {
-        const guessed = await findTrackById(c.env, body.guessedTrackId)
-        correct = guessed !== undefined && songIdentityKey(guessed) === songIdentityKey(track)
-      }
-    }
-    if (!correct) {
-      const guess = body.guess?.trim() ?? ''
-      if (guess) {
-        correct = checkGuess(guess, track.title, track.artist).correct
-      }
-    }
+    const guessed = body.guessedTrackId && body.guessedTrackId !== track.id
+      ? await findTrackById(c.env, body.guessedTrackId) : undefined
+    const correct = checkSubmittedSong(track, body.guess?.trim() ?? '', body.guessedTrackId, guessed)
 
     const shouldReveal = reveal || correct
 

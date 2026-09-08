@@ -1,7 +1,7 @@
 import {useNootPreferences} from '../lib/noot/preferences'
 import { useEffect, useRef, useState } from 'react'
 import { mountNoot, type NootState } from '../lib/noot/scene'
-import { NootRig } from './NootRig'
+import '../noot-loading.css'
 
 export function Noot3D(props: NootState) {
   const [appearance]=useNootPreferences()
@@ -10,6 +10,7 @@ export function Noot3D(props: NootState) {
   const state = useRef(resolvedProps)
   const scene = useRef<{ wake(): void; dispose(): void } | null>(null)
   const [fallback, setFallback] = useState(true)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     state.current = resolvedProps
     scene.current?.wake()
@@ -20,10 +21,10 @@ export function Noot3D(props: NootState) {
     try {
       scene.current = mountNoot(canvas, () => state.current, (ready) => {
         setFallback(!ready)
-      })
+      }, () => setFailed(true))
     } catch (error) {
-      console.warn('Noot 3D unavailable; using vector fallback.', error)
-      // The initial vector remains visible if WebGL creation fails.
+      setFailed(true)
+      console.warn('Noot 3D unavailable.', error)
     }
     return () => {
       scene.current?.dispose()
@@ -32,8 +33,8 @@ export function Noot3D(props: NootState) {
   }, [])
   return (
     <>
-      {fallback ? <NootRig /> : null}
-      <canvas ref={canvasRef} className="noot-canvas" hidden={fallback} aria-hidden="true" />
+      {fallback && <span className="noot-load-state" role="status">{failed ? <span className="noot-load-error">3D unavailable</span> : <><span className="noot-load-dot" aria-hidden="true" /><span className="sr-only">Loading 3D Noot</span></>}</span>}
+      <canvas ref={canvasRef} className="noot-canvas" style={{ opacity: fallback ? 0 : 1 }} aria-hidden="true" />
     </>
   )
 }

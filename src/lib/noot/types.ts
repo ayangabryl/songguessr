@@ -1,3 +1,4 @@
+import type { NootAppearance } from "../../../shared/noot-profile.ts";
 import type { Difficulty } from "../api";
 import type { MascotPose } from "../mascot";
 
@@ -17,16 +18,10 @@ export type NootAction =
   | "boop" | "laugh" | "angry" | "startled" | "tumble" | "sit" | "get-up" | "catch" | "samba" | "outfit" | "jump";
 export type NootHeadgear = "headphones" | "cat-earphones" | "daisy" | "beanie" | "bucket" | "none";
 export type NootMood = "chill" | "happy" | "sad" | "dance";
-export interface NootState {
+export interface NootState extends Partial<NootAppearance> {
   pose: NootAction;
   difficulty: Difficulty;
   variant?: string;
-  headgear?: NootHeadgear;
-  clothing?: "none" | "scarf" | "bow" | "bandana" | "shirt";
-  eyewear?: "none" | "round" | "sunny";
-  pattern?: "plain" | "stripes" | "dots" | "gingham" | "confetti";
-  accessoryColor?:
-    "blue" | "rose" | "gold" | "mint" | "lavender" | "coral" | "navy";
   mood?: NootMood;
   theme?: "light" | "dark";
   viewYaw?: number;

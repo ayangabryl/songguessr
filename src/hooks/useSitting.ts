@@ -1,4 +1,6 @@
 import {useNootPreferences} from '../lib/noot/preferences'
+import { loadNootAsset } from '../lib/noot/asset'
+import { parseAppearance } from '../../shared/noot-profile'
 import type { MatchView, MatchCommand } from '../../shared/match'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -65,6 +67,8 @@ export function useSitting() {
   const [error, setError] = useState<SittingError | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [appearance]=useNootPreferences()
+  const appearanceRef = useRef(appearance)
+  appearanceRef.current = appearance
   const [name, setName] = useState(loadDisplayName)
   const [query, setQuery] = useState('')
   const [joinCode, setJoinCode] = useState(() => inviteCodeFromUrl() ?? '')
@@ -73,6 +77,7 @@ export function useSitting() {
   const [pending, setPending] = useState<SittingPending>(null)
 
   const socketRef = useRef<WebSocket | null>(null)
+  const sentProfileRef = useRef('')
   const leaveRef = useRef(false)
   const retryRef = useRef(0)
   const connectRef = useRef<(nextCode: string, openingPoints: number) => void>(() => {})
@@ -138,8 +143,17 @@ export function useSitting() {
       setStatus('connecting')
       setSlow(false)
       disconnectSocket()
+      // Share the already-decoded model with the lobby before the roster arrives.
+      void loadNootAsset().catch(() => { /* The stage owns loading errors and retry. */ })
       const socket = new WebSocket(sittingSocketUrl(nextCode, playerId, parsedName.name, openingPoints))
       socketRef.current = socket
+      sentProfileRef.current = ''
+      socket.onopen = () => {
+        if (socketRef.current === socket) {
+          const profile = JSON.stringify({ type: 'pet-profile', appearance: parseAppearance(appearanceRef.current), name: parsedName.name })
+          socket.send(profile); sentProfileRef.current = profile
+        }
+      }
       const slowTimer = window.setTimeout(() => setSlow(true), 1000)
       const timeout = window.setTimeout(() => {
         if (socketRef.current === socket && statusRef.current === 'connecting') {
@@ -205,6 +219,7 @@ export function useSitting() {
       setStatus('connecting')
       setSlow(false)
       setPending('host')
+      void loadNootAsset().catch(() => {})
       try {
         const created = await createSitting()
         connect(created.code, openingPoints)
@@ -242,6 +257,7 @@ export function useSitting() {
       setJoinCode(normalized)
       setStatus('connecting')
       setPending('join')
+      void loadNootAsset().catch(() => {})
       try {
         const peek = await peekSitting(normalized, playerId)
         if (peek.full) {
@@ -284,9 +300,20 @@ export function useSitting() {
     setPending(null)
   }, [disconnectSocket])
 
-  useEffect(()=>{if(status==='live')socketRef.current?.send(JSON.stringify({type:'pet-profile',appearance,name}))},[appearance,status,name])
+  useEffect(() => {
+    if (status !== 'live' || socketRef.current?.readyState !== WebSocket.OPEN) return
+    // Keep local fitting instant while coalescing custom-color picker scrubbing.
+    const socket = socketRef.current
+    const timer = window.setTimeout(() => {
+      const profile = JSON.stringify({ type: 'pet-profile', appearance: parseAppearance(appearanceRef.current), name })
+      if (socketRef.current === socket && socket.readyState === WebSocket.OPEN && profile !== sentProfileRef.current) {
+        socket.send(profile); sentProfileRef.current = profile
+      }
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [appearance, status, name])
   useEffect(()=>{const update=()=>setName(loadDisplayName());window.addEventListener('songguessr-profile',update);return()=>window.removeEventListener('songguessr-profile',update)},[])
-  const greet=useCallback((target:string)=>{socketRef.current?.send(JSON.stringify({type:'pet-greet',target}))},[])
+  const greet=useCallback((target:string)=>{if(socketRef.current?.readyState===WebSocket.OPEN)socketRef.current.send(JSON.stringify({type:'pet-greet',target}))},[])
   const sendMatch = useCallback((command:MatchCommand) => {
     if(socketRef.current?.readyState!==WebSocket.OPEN) {setMatchError('Reconnecting. Your progress is saved.');return}
     setMatchError(null);socketRef.current.send(JSON.stringify(command))

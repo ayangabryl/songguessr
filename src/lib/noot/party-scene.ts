@@ -6,7 +6,9 @@ import { createSocialWorld, type NootParticipant, type PlayKind, type GroupKind 
 export interface PartyOptions { participants: NootParticipant[]; theme: 'light' | 'dark'; paused?: boolean; speed?: number }
 
 /** A single floor, camera and physics world lets the characters meet each other. */
-export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptions, onReady: (ready: boolean) => void, choose: (id: string) => void, placeLabel?: (id: string, x: number, y: number) => void) {
+export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptions, onReady: (ready: boolean) => void, choose: (id: string) => void, placeLabel?: (id: string, x: number, y: number) => boolean | void, onError?: () => void) {
+  const mountedAt = performance.now();
+  const assetPromise = loadNootAsset();
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'low-power' })
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setClearColor(0, 0)
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.NeutralToneMapping
@@ -30,7 +32,7 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
   const point = new THREE.Vector3(), offset = new THREE.Vector2()
   const media = matchMedia('(prefers-reduced-motion: reduce)')
   let asset: Awaited<ReturnType<typeof loadNootAsset>> | undefined
-  let disposed = false, visible = true, lost = false, frame = 0, last = 0, selected = '', hovered = ''
+  let disposed = false, visible = true, lost = false, ready = false, frame = 0, last = 0, selected = '', hovered = ''
   let down: { id: string; x: number; y: number; moved: boolean; pointerId: number } | undefined
   let canvasWidth = 1, canvasHeight = 1
   const labelCache = new Map<string, string>()
@@ -87,11 +89,12 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
       const labelX = Math.round((labelPosition.x + 1) * canvasWidth * 50) / 100
       const labelY = Math.round((1 - labelPosition.y) * canvasHeight * 50) / 100
       const labelKey = `${labelX}:${labelY}`
-      if (labelCache.get(a.id) !== labelKey) { placeLabel?.(a.id, labelX, labelY); labelCache.set(a.id, labelKey) }
+      if (labelCache.get(a.id) !== labelKey && placeLabel?.(a.id, labelX, labelY) !== false) labelCache.set(a.id, labelKey)
     }
     const dark = options.theme === 'dark'
     renderer.toneMappingExposure = dark ? .86 : .97; fill.intensity = dark ? .58 : .8; key.intensity = dark ? 1.1 : 1.65
     renderer.render(scene, camera)
+    if (!ready) { ready = true; if (import.meta.env.DEV) canvas.dataset.nootReadyMs = String(Math.round(performance.now() - mountedAt)); onReady(true) }
     if (import.meta.env.DEV) {
       cpuTimes.push(performance.now() - cpuStart)
       if (frameTimes.length >= 120) {
@@ -160,14 +163,14 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
     canvas.setAttribute('aria-label', `${a.source.name} selected. Arrows choose a friend; Space jumps; Enter waves.`)
     wake()
   }
-  function contextLost(event: Event) { event.preventDefault(); releaseAll(); lost = true; cancelAnimationFrame(frame); frame = 0; onReady(false) }
-  function contextRestored() { lost = false; onReady(Boolean(asset)); wake() }
+  function contextLost(event: Event) { event.preventDefault(); releaseAll(); lost = true; ready = false; cancelAnimationFrame(frame); frame = 0; onReady(false) }
+  function contextRestored() { lost = false; wake() }
   const resizeObserver = new ResizeObserver(() => resize()); resizeObserver.observe(canvas)
   const intersection = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; wake() }); intersection.observe(canvas)
   const handlers = { pointerdown: pointerDown, pointermove: pointerMove, pointerup: release, pointercancel: release, lostpointercapture: release, pointerleave: leave, keydown: keyboard, webglcontextlost: contextLost, webglcontextrestored: contextRestored }
   for (const [name, handler] of Object.entries(handlers)) canvas.addEventListener(name, handler as EventListener)
   document.addEventListener('visibilitychange', visibilityChanged); window.addEventListener('blur', releaseAll); media.addEventListener('change', wake)
-  loadNootAsset().then(result => { if (disposed) return; asset = result; onReady(true); resize(); wake() }).catch(error => { console.warn('Noot party unavailable', error); onReady(false) })
+  assetPromise.then(result => { if (disposed) return; asset = result; resize(); wake() }).catch(error => { if (disposed) return; console.warn('Noot party unavailable', error); onReady(false); onError?.() })
   return {
     wake,
     interact(a: string, b: string, kind: PlayKind) { world.step(0, read().participants); world.interact(a, b, kind); wake() },

@@ -1,10 +1,15 @@
+import { parseNootColor, type NootColor } from "./noot-colors.ts";
+export const NOOT_TAILORED = ["cardigan", "varsity", "overalls", "dress", "ballet", "suit", "hoodie", "tracksuit", "raincoat"] as const;
 export interface NootAppearance {
   headgear: "headphones" | "cat-earphones" | "daisy" | "beanie" | "bucket" | "none";
-  clothing: "none" | "scarf" | "bow" | "bandana" | "shirt";
+  clothing: "none" | "scarf" | "bow" | "bandana" | "shirt" | (typeof NOOT_TAILORED)[number];
   eyewear: "none" | "round" | "sunny";
   pattern: "plain" | "stripes" | "dots" | "gingham" | "confetti";
-  accessoryColor:
-    "blue" | "rose" | "gold" | "mint" | "lavender" | "coral" | "navy";
+  accessoryColor: NootColor;
+  headColor?: NootColor;
+  shoeColor?: NootColor;
+  trimColor?: NootColor;
+  footwear?: "none" | "sneakers" | "boots" | "high-tops" | "mary-janes";
 }
 export function parseAppearance(value: unknown): NootAppearance {
   const v = (value && typeof value === "object" ? value : {}) as Record<
@@ -27,12 +32,12 @@ export function parseAppearance(value: unknown): NootAppearance {
       ["headphones", "cat-earphones", "daisy", "beanie", "bucket", "none"],
       "headphones",
     ),
-    clothing: pick("clothing", ["none", "scarf", "bow", "bandana", "shirt"], "none"),
+    clothing: pick("clothing", ["none", "scarf", "bow", "bandana", "shirt", ...NOOT_TAILORED], "none"),
     eyewear: pick("eyewear", ["none", "round", "sunny"], "none"),
-    accessoryColor: pick(
-      "accessoryColor",
-      ["blue", "rose", "gold", "mint", "lavender", "coral", "navy"],
-      "blue",
-    ),
+    accessoryColor: parseNootColor(v.accessoryColor),
+    ...(v.headColor !== undefined ? { headColor: parseNootColor(v.headColor) } : {}),
+    ...(v.trimColor !== undefined ? { trimColor: parseNootColor(v.trimColor) } : {}),
+    ...(v.shoeColor !== undefined ? { shoeColor: parseNootColor(v.shoeColor) } : {}),
+    ...(v.footwear !== undefined ? { footwear: pick<NonNullable<NootAppearance["footwear"]>>("footwear", ["none", "sneakers", "boots", "high-tops", "mary-janes"] as const, "none") } : {}),
   };
 }

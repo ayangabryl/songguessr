@@ -1,26 +1,32 @@
+import { nootColorHex } from "../../../shared/noot-colors.ts";
 import * as THREE from "three";
 import { HEAD_Y, frontSurface } from "./geometry.ts";
 import type { NootState } from "./types.ts";
 import { spring } from "./motion.ts";
+import { createScarf } from './scarf.ts';
+import { createSunglasses } from './sunglasses.ts';
 /** Accessories follow the head anchor; fabric has bounded secondary motion. */
 export function createWearables(head: THREE.Bone, surface = frontSurface) {
   const mount = new THREE.Group();
   mount.position.y = -HEAD_Y;
   head.add(mount);
-  const fabric = new THREE.MeshStandardMaterial({
+  const fabric = new THREE.MeshPhysicalMaterial({
     color: "#698da4",
     roughness: 0.95,
+    sheen: 0.25,
+    sheenRoughness: 0.8,
   });
   const patternUniform = styleFabric(fabric);
   const frame = new THREE.MeshStandardMaterial({
     color: "#454b48",
     roughness: 0.6,
   });
+  const sunglasses = createSunglasses();
   const scarf = new THREE.Group(),
     bow = new THREE.Group(),
     bandana = new THREE.Group(),
     glasses = new THREE.Group(),
-    sunny = new THREE.Group();
+    sunny = sunglasses.root;
   scarf.name = "scarf";
   bow.name = "bow";
   bandana.name = "bandana";
@@ -43,31 +49,12 @@ export function createWearables(head: THREE.Bone, surface = frontSurface) {
     parent.add(m);
     return m;
   }
-  const collar = new THREE.CatmullRomCurve3(
-    Array.from({ length: 33 }, (_, i) => {
-      const x = -0.69 + (i / 32) * 1.38;
-      return new THREE.Vector3(x, 1.57, surface(x, 1.57) + 0.025);
-    }),
-  );
-  scarf.add(
-    new THREE.Mesh(
-      new THREE.TubeGeometry(collar, 32, 0.065, 12, false),
-      fabric,
-    ),
-  );
-  const tail = oval(
-    scarf,
-    0.29,
-    1.4,
-    surface(0.29, 1.4) + 0.06,
-    0.09,
-    0.22,
-    0.035,
-  );
+  const drape = createScarf(fabric);
+  scarf.add(drape);
   oval(bow, -0.12, 1.57, surface(-0.12, 1.57) + 0.06, 0.14, 0.09, 0.045);
   oval(bow, 0.12, 1.57, surface(0.12, 1.57) + 0.06, 0.14, 0.09, 0.045);
   oval(bow, 0, 1.57, surface(0, 1.57) + 0.09, 0.055, 0.065, 0.05);
-  for (const group of [glasses, sunny]) {
+  for (const group of [glasses]) {
     for (const side of [-1, 1]) {
       const curve = new THREE.CatmullRomCurve3(
         Array.from({ length: 65 }, (_, i) => {
@@ -83,24 +70,6 @@ export function createWearables(head: THREE.Bone, surface = frontSurface) {
           frame,
         ),
       );
-      if (group === sunny) {
-        const lens = new THREE.Mesh(
-          new THREE.SphereGeometry(1, 32, 24),
-          new THREE.MeshStandardMaterial({
-            color: "#4a6a60",
-            transparent: true,
-            opacity: 0.6,
-            roughness: 0.3,
-          }),
-        );
-        lens.position.set(
-          side * 0.42,
-          2.015,
-          surface(side * 0.42, 2.015) + 0.06,
-        );
-        lens.scale.set(0.22, 0.25, 0.024);
-        group.add(lens);
-      }
     }
     const bridge = new THREE.CatmullRomCurve3([
       new THREE.Vector3(-0.17, 2.06, surface(-0.17, 2.06) + 0.065),
@@ -152,19 +121,10 @@ export function createWearables(head: THREE.Bone, surface = frontSurface) {
       bandana.visible = state.clothing === "bandana";
       glasses.visible = state.eyewear === "round";
       sunny.visible = state.eyewear === "sunny";
-      fabric.color.set(
-        {
-          blue: "#698da4",
-          rose: "#b87985",
-          gold: "#c5a05c",
-          mint: "#71a58e",
-          lavender: "#9c88b6",
-          coral: "#c77d65",
-          navy: "#4e647c",
-        }[state.accessoryColor ?? "blue"],
-      );
-      tail.rotation.z = reduced ? flutter.reset(0) : flutter.step(
-        THREE.MathUtils.clamp(drive * 0.12, -0.13, 0.13), dt,
+      sunglasses.fit(state.headgear ?? 'headphones');
+      fabric.color.set(nootColorHex(state.accessoryColor));
+      drape.morphTargetInfluences![0] = reduced ? flutter.reset(0) : flutter.step(
+        THREE.MathUtils.clamp(drive * 0.7, -0.8, 0.8), dt,
       );
     },
   };

@@ -1,22 +1,25 @@
 import { useSongSearch } from '../hooks/useSongSearch'
 import { SongSuggestions } from './SongSuggestions'
 import { scrollSongOption } from '../lib/song-search-scroll'
+import { Ruler } from './Ruler'
+import { PlayControlIcon, SkipIcon } from './Icons'
+import { progressAtElapsedSeconds } from '../lib/stage-progress'
+import type { SearchResult } from '../lib/api'
+import type { RoundMark } from './Game'
 import { SongIdentity } from './SongIdentity'
 import { HostMix } from './HostMix'
 import { activeFilterCount, type CatalogFilters } from '../lib/filters'
 import { audioSrcMatches } from '../lib/audio-playback'
+import { createMatchAudioPlayer, type MatchAudioState } from '../lib/match-audio'
 import { buttonSoundsEnabled, setButtonSounds } from "../lib/ui-audio";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type CSSProperties } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
   Copy,
   Headphones,
-  Pause,
   Play,
-  SkipForward,
-  Trophy,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -30,11 +33,12 @@ import {
 import { MAX_SITTING_PLAYERS } from "../../shared/sitting";
 import type { useSitting } from "../hooks/useSitting";
 import { ScoreNumber } from "./ScoreNumber";
-import { MatchStandings } from "./MatchStandings";
+import { MatchScoreboard } from "./MatchScoreboard";
 import { NootParty } from "./NootParty";
 import type { NootParticipant } from "../lib/noot/social-world";
 import "../match.css";
 import { loadVolume } from "../lib/game-state";
+import { useNootPreferences } from '../lib/noot/preferences';
 
 type Table = ReturnType<typeof useSitting>;
 const EMPTY_FILTERS: CatalogFilters = {
@@ -54,6 +58,7 @@ export function MatchArena({
   initialFilters?: CatalogFilters;
 }) {
   const { match, players, playerId, hostId, sendMatch } = table;
+  const [appearance] = useNootPreferences();
   const [sounds, setSounds] = useState(buttonSoundsEnabled);
   const [difficulty, setDifficulty] = useState<MatchDifficulty | "mixed">(
     "mixed",
@@ -65,22 +70,28 @@ export function MatchArena({
 
   const [now, setNow] = useState(() => Date.now());
   const [query, setQuery] = useState("");
+  const [selectedTrack, setSelectedTrack] = useState<SearchResult | null>(null);
+  const [marks, setMarks] = useState<RoundMark[]>([]);
+  const playhead = useRef<HTMLDivElement>(null);
+  const rulerState = useRef({ stage: 0, offset: 0 });
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const [heardClip, setHeardClip] = useState(false);
   const [hearReveal, setHearReveal] = useState(false);
-  const [playing, setPlaying] = useState(false),
+  const [audioState, setAudioState] = useState<MatchAudioState>('idle'),
     [audioError, setAudioError] = useState(""),
     [pending, setPending] = useState(false),
     [copied, setCopied] = useState(false);
-  const playbackToken = useRef(0);
-  const audio = useRef<HTMLAudioElement | null>(null),
-    stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const audioUnlocked = useRef(false);
+  const playing = audioState === 'playing';
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const player = useRef<ReturnType<typeof createMatchAudioPlayer> | null>(null);
+  const revealedRef = useRef(false);
   const autoClipRound = useRef<string | null>(null);
+  const resumeAt = useRef<number | null>(null);
+  const skipContinuation = useRef<{ roundId: string; stage: number } | null>(null);
   const suggestionsRef = useRef<HTMLDivElement | null>(null);
   const me = match?.entries.find((p) => p.id === playerId);
   const stage = me?.stage ?? 0;
+  rulerState.current = { stage, offset: match?.offset ?? 0 };
   const isHost = hostId === playerId,
     connected = table.status === "live";
   const revealed = Boolean(match && match.phase !== "playing"),
@@ -99,12 +110,8 @@ export function MatchArena({
     remaining > 0;
   const songSearch = useSongSearch(query, canPlay);
   const results = songSearch.results;
-  const stop = () => {
-    playbackToken.current++;
-    audio.current?.pause();
-    if (stopTimer.current) clearTimeout(stopTimer.current);
-    setPlaying(false);
-  };
+  revealedRef.current = revealed;
+  const stop = () => { resumeAt.current = null; player.current?.stop(); };
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
@@ -112,42 +119,54 @@ export function MatchArena({
   useEffect(() => {
     setPending(false);
     setQuery("");
+    setSelectedTrack(null);
+    setSearchOpen(false);
     setHighlight(0);
     if (match?.phase === "playing") stop();
   }, [match?.roundId, stage, me?.status]);
   useEffect(() => {
-    setHeardClip(false);
     setHearReveal(false);
     autoClipRound.current = null;
+    setMarks([]);
   }, [match?.roundId]);
   useEffect(() => {
-    if (table.matchError) setPending(false);
+    if (!me || !['miss', 'skip'].includes(me.lastAction) || (stage === 0 && me.status !== 'out')) return;
+    const mark: RoundMark = { kind: me.lastAction === 'miss' ? 'miss' : 'skip', stage: MATCH_STAGES[me.status === 'out' ? stage : stage - 1] };
+    setMarks(old => old.some(m => m.stage === mark.stage) ? old : [...old, mark]);
+  }, [stage, me?.lastAction, me?.status]);
+  useEffect(() => {
+    if (table.matchError) { setPending(false); skipContinuation.current = null; }
   }, [table.matchError]);
   useEffect(() => {
     if (me?.ready) setPending(false);
   }, [me?.ready]);
   useEffect(() => {
     if (!pending) return;
-    const timer = setTimeout(() => setPending(false), 4000);
+    const timer = setTimeout(() => { setPending(false); skipContinuation.current = null; }, 4000);
     return () => clearTimeout(timer);
   }, [pending]);
   useEffect(() => {
-    const el = audio.current ?? new Audio();
-    audio.current = el;
-    el.preload = "auto";
-    el.onended = () => setPlaying(false);
-    el.onerror = () => {
-      setPlaying(false);
-      setAudioError("The audio couldn’t load. Tap play to retry.");
-    };
+    const el = audio.current!;
+    const controller = createMatchAudioPlayer(el, {
+      state: setAudioState,
+      tick: seconds => {
+        const { stage, offset } = rulerState.current;
+        if (playhead.current) playhead.current.style.width = `${progressAtElapsedSeconds(MATCH_STAGES, stage, seconds - offset)}%`;
+      },
+      heard: () => setHearReveal(false),
+      error: error => {
+        if (error instanceof DOMException && error.name === 'NotAllowedError') {
+          if (revealedRef.current) setHearReveal(true);
+          else setAudioError('Press play to hear the clip.');
+        } else setAudioError('The audio couldn’t load. Tap play to retry.');
+      },
+    });
+    player.current = controller;
     return () => {
-      el.onerror = null;
-      el.onended = null;
-      el.pause();
-      el.removeAttribute("src");
+      controller.dispose();
+      el.removeAttribute('src');
       el.load();
-      if (stopTimer.current) clearTimeout(stopTimer.current);
-      audio.current = null;
+      player.current = null;
     };
   }, []);
   useEffect(() => {
@@ -160,80 +179,56 @@ export function MatchArena({
     el.volume = loadVolume();
   }, [match?.audio, match?.roundId]);
   useEffect(() => {
-    const unlock = () => {
-      if (audioUnlocked.current) return;
-      const el = audio.current;
-      if (!el) return;
-      const wasMuted = el.muted;
-      el.muted = true;
-      void el
-        .play()
-        .then(() => {
-          el.pause();
-          el.muted = wasMuted;
-          audioUnlocked.current = true;
-        })
-        .catch(() => {
-          el.muted = wasMuted;
-        });
-    };
-    document.addEventListener("pointerdown", unlock);
-    return () => document.removeEventListener("pointerdown", unlock);
-  }, []);
-  useEffect(() => {
     if (!canPlay && !revealed) stop();
   }, [canPlay, revealed]);
   useEffect(() => {
-    if (!revealed || !match || !audio.current) return;
+    if (!revealed || !match?.audio || !audio.current) return;
     setHearReveal(false);
     void startPlayback();
     return () => stop();
-  }, [revealed, match?.roundId]);
+  }, [revealed, match?.roundId, match?.audio]);
   useEffect(() => {
-    if (!canPlay || !match || autoClipRound.current === match.roundId) return;
+    if (!canPlay || !match?.audio || autoClipRound.current === match.roundId) return;
     autoClipRound.current = match.roundId;
     void startPlayback();
-  }, [canPlay, match?.roundId]);
-  function play() {
-    if (playing) stop();
-    else void startPlayback();
-  }
-  async function startPlayback() {
-    const el = audio.current;
-    if (!el || !match) return;
-    setAudioError("");
-    const token = ++playbackToken.current;
-    try {
-      if (stopTimer.current) clearTimeout(stopTimer.current);
-      // A failed media element must reload before a user-triggered retry.
-      if (el.error) el.load();
-      el.volume = loadVolume();
-      el.currentTime = match.offset;
-      await el.play();
-      if (token !== playbackToken.current) {
-        el.pause();
-        return;
-      }
-      setPlaying(true);
-      if (revealed) setHearReveal(false);
-      else setHeardClip(true);
-      stopTimer.current = setTimeout(
-        stop,
-        (revealed ? 15 : MATCH_STAGES[stage]) * 1000,
-      );
-    } catch (error) {
-      if (token !== playbackToken.current) return
-      setPlaying(false)
-      if (error instanceof DOMException && error.name === "NotAllowedError") {
-        if (revealed) setHearReveal(true)
-        else setAudioError("Press play to hear the clip.")
-        return
-      }
-      setAudioError("Couldn’t play the audio. Tap play to retry.")
+  }, [canPlay, match?.roundId, match?.audio]);
+  useEffect(() => {
+    const skipped = skipContinuation.current;
+    if (!skipped) return;
+    if (!match || match.roundId !== skipped.roundId || revealed || me?.status !== 'playing' || !connected) {
+      skipContinuation.current = null;
+      return;
     }
+    if (stage <= skipped.stage || !canPlay) return;
+    skipContinuation.current = null;
+    // Only the acknowledged skip unlocks more audio; roster updates never replay it.
+    void startPlayback(MATCH_STAGES[skipped.stage]);
+  }, [stage, canPlay, connected, revealed, match?.roundId, me?.status]);
+  function play() {
+    skipContinuation.current = null;
+    if (audioState === 'loading') { stop(); return; }
+    if (playing) {
+      const elapsed = Math.max(0, (audio.current?.currentTime ?? 0) - (match?.offset ?? 0));
+      player.current?.stop();
+      resumeAt.current = elapsed < (revealed ? 15 : MATCH_STAGES[stage]) - .01 ? elapsed : null;
+      return;
+    }
+    const start = resumeAt.current ?? 0;
+    resumeAt.current = null;
+    void startPlayback(start);
+  }
+  async function startPlayback(start = 0) {
+    if (!match || !player.current) return;
+    setAudioError('');
+    await player.current.play({
+      start: match.offset + start,
+      duration: (revealed ? 15 : MATCH_STAGES[stage]) - start,
+      volume: loadVolume(),
+    });
   }
   function guess(value: string, trackId?: string) {
     if (!canPlay || pending || !value.trim() || !match) return;
+    skipContinuation.current = null;
     stop();
     setPending(true);
     sendMatch({
@@ -246,6 +241,7 @@ export function MatchArena({
   }
   function skip() {
     if (!canPlay || pending || !match) return;
+    skipContinuation.current = { roundId: match.roundId, stage };
     stop();
     setPending(true);
     sendMatch({ type: "match-skip", roundId: match.roundId, stage });
@@ -253,7 +249,6 @@ export function MatchArena({
   const entries = match
     ? [...match.entries].sort((a, b) => b.points - a.points)
     : [];
-  const ahead = entries.filter((p) => me && p.points > me.points).at(-1);
   const place = matchRank(entries, playerId);
   const myRank = place.rank;
   const points = matchPoints(match ?? undefined);
@@ -265,14 +260,6 @@ export function MatchArena({
       solved.length === 0 &&
       match?.entries.some((p) => p.lastAction === "timeout"),
   );
-  const tiedOnZero = Boolean(me && entries.every((p) => p.points === 0));
-  const boardTarget = ahead
-    ? `${ahead.points - me!.points} to catch ${ahead.name}`
-    : me && !tiedOnZero
-      ? entries.filter((p) => p.points === me.points).length > 1
-        ? "Tied."
-        : "You’re leading."
-      : "";
   const waitingNames = match
     ? match.entries
         .filter(
@@ -298,7 +285,7 @@ export function MatchArena({
       ? {id:p.greeting.at, type:'greeting' as const, from:p.greeting.from}
       : entry?.solvedAt ? {id:entry.solvedAt,type:'success' as const}
       : entry?.lastAction === 'miss' ? {id:`${match?.roundId}:${entry.stage}`,type:'frustration' as const} : undefined;
-    return {id:p.id,name:p.name,state:{...(p.appearance ?? {}),
+    return {id:p.id,name:p.name,state:{...(p.id === playerId ? appearance : p.appearance ?? {}),
       pose:entry?.status === 'solved' ? 'idle' : p.id === playerId && playing ? 'play' : 'idle',
       eventId:entry?.solvedAt ?? p.joinedAt,difficulty:match?.difficulty ?? (difficulty === 'mixed' ? 'easy' : difficulty),theme},event};
   });
@@ -306,12 +293,8 @@ export function MatchArena({
     if (id === playerId) window.dispatchEvent(new Event('open-noot-profile'));
     else { table.greet(id); }
   };
-  const companion = <div className="match-noot-world">
-    <NootParty participants={partyParticipants} theme={theme} onChoose={chooseNoot}/>
-    <div className="match-friend-actions">{party.map(p=><button key={p.id} onClick={()=>chooseNoot(p.id)}>
-      {p.id === playerId ? 'Your outfit' : `Wave to ${p.name}`}
-    </button>)}</div>
-  </div>;
+  const companion = <NootParty participants={partyParticipants} theme={theme} onChoose={chooseNoot}
+    labelAction={id => id === playerId ? 'Your outfit' : `Wave to ${party.find(p => p.id === id)?.name ?? 'your friend'}`}/>;
   const onlineCount = players.filter((p) => p.connected).length;
   async function copy() {
     try {
@@ -321,560 +304,133 @@ export function MatchArena({
       setCopied(false);
     }
   }
+  function selectTrack(result: SearchResult) {
+    setSelectedTrack(result); setQuery(`${result.title} — ${result.artist}`); setSearchOpen(false);
+  }
+  function searchKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'Escape') { setSearchOpen(false); return; }
+    if (event.key === 'Enter' && searchOpen && results.length) {
+      event.preventDefault(); selectTrack(results[highlight] ?? results[0]); return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    if (!query.trim() || selectedTrack) return;
+    if (!searchOpen) { setSearchOpen(true); setHighlight(0); return; }
+    const next = event.key === 'ArrowDown' ? Math.min(highlight + 1, results.length - 1) : Math.max(highlight - 1, 0);
+    setHighlight(Math.max(0, next)); scrollSongOption(suggestionsRef.current, Math.max(0, next));
+    if (next === results.length - 1) void songSearch.loadMore();
+  }
+  const roundLabel = !match ? 'Your table' : finished ? 'Match complete' : `Song ${match.number} of ${match.length ?? MATCH_LENGTH}`;
   return (
-    <main
-      className="app-shell match-room"
-      data-theme={theme}
-      data-difficulty={match?.difficulty ?? (difficulty === "mixed" ? "easy" : difficulty)}
-      data-sound-playing={playing}
-    >
-      {mixOpen && <HostMix value={filters} difficulty={difficulty === "mixed" ? "easy" : difficulty} onClose={()=>setMixOpen(false)} onApply={value=>{setFilters(value);setMixOpen(false)}}/>}
+    <main className="app-shell match-room" data-theme={theme}
+      data-difficulty={match?.difficulty ?? (difficulty === 'mixed' ? 'easy' : difficulty)}
+      data-sound-playing={audioState !== 'idle'} data-audio-state={audioState}>
+      <audio ref={audio} preload="auto" hidden aria-hidden="true" />
+      {mixOpen && <HostMix value={filters} difficulty={difficulty === 'mixed' ? 'easy' : difficulty}
+        onClose={() => setMixOpen(false)} onApply={value => { setFilters(value); setMixOpen(false); }}/>}
       <header className="match-header">
-        <a href="/" className="match-brand">
-          <img className="wordmark-mark" src="/app-icons/noot-app-icon.png" alt="" />
-          <span className="wordmark-name">SongGuessr</span>
-        </a>
-        <button
-          className="match-icon-btn"
-          aria-pressed={sounds}
-          aria-label={sounds ? "Sounds on" : "Sounds off"}
-          title={sounds ? "Sounds on" : "Sounds off"}
-          onClick={() => {setSounds(!sounds);setButtonSounds(!sounds);}}
-        >
-          {sounds ? <Volume2 size={18} /> : <VolumeX size={18} />}
+        <a href="/" className="match-brand"><img className="wordmark-mark" src="/app-icons/noot-app-icon.png" alt=""/><span className="wordmark-name">SongGuessr</span></a>
+        <button className="match-code" onClick={() => void copy()} aria-label={`Share table code ${table.code ?? ''}`}>
+          <span className="match-code-label">Table</span> {table.code}<Copy size={14}/>{copied && <small role="status">Copied</small>}
         </button>
-        <button
-          className="match-back"
-          onClick={() => {
-            stop();
-            table.leave();
-          }}
-        >
-          <ArrowLeft size={16} /> Leave table
-        </button>
-        <button
-          className="profile-edit"
-          onClick={() => window.dispatchEvent(new Event("open-noot-profile"))}
-        >
-          Your Noot
-        </button>
-        <button
-          className="match-code"
-          onClick={() => void copy()}
-          aria-label={`Share table code ${table.code ?? ""}`}
-        >
-          <span className="match-code-label">Table</span>
-          {table.code}
-          <Copy size={14} />
-          {copied && <small>Copied</small>}
-        </button>
-      </header>
-      {!connected && (
-        <p className="match-notice" role="status">
-          Reconnecting to your table. Scores and stages are saved.{" "}
-          <button onClick={table.reconnect}>Reconnect</button>
-        </p>
-      )}
-      {table.matchError && (
-        <p className="match-notice" role="alert">
-          {table.matchError}
-        </p>
-      )}
-      {!match ? (
-        <div className="match-lobby">
-          <section className="match-lobby-copy">
-            <span className="match-kicker">Your table</span>
-            <h1>Play together.</h1>
-            <p>
-              One song for everyone. Skip at your own pace, then move on when
-              everyone is ready.
-            </p>
-            <div className="match-rules">
-              <span>
-                <Headphones size={18} /> Same song for everyone
-              </span>
-              <span>
-                <SkipForward size={18} /> Skip at your own pace
-              </span>
-              <span>
-                <Trophy size={18} /> Up to 5,000 points a song
-              </span>
-            </div>
-            {companion}
-          </section>
-          <section className="match-lobby-card">
-            <div className="match-section-heading">
-              <h2>Your listening party</h2>
-              <span>{onlineCount}/{MAX_SITTING_PLAYERS}</span>
-            </div>
-            <ul className="match-guests">
-              {players.map((p) => (
-                <li key={p.id}>
-                  <span className="match-avatar">
-                    {p.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <strong>
-                    <button
-                      className="friend-name"
-                      onClick={() => chooseNoot(p.id)}
-                    >
-                      {p.name}
-                    </button>
-                    {p.id === playerId && p.name.toLowerCase() !== 'you' && <small> you</small>}
-                  </strong>
-                  <span>
-                    {p.id === hostId ? "Host" : p.connected ? "Ready" : "Away"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <label className="match-difficulty">
-              {isHost ? "Song difficulty" : "The host chooses song difficulty"}
-              {isHost && (
-                <select
-                  value={difficulty}
-                  onChange={(e) =>
-                    setDifficulty(e.target.value as MatchDifficulty | "mixed")
-                  }
-                  disabled={!isHost}
-                >
-                  {[
-                    "mixed",
-                    "easy",
-                    "medium",
-                    "hard",
-                    "expert",
-                    "impossible",
-                  ].map((d) => (
-                    <option key={d} value={d}>
-                      {d === "mixed" ? "Auto · all difficulties" : d}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </label>
-            {isHost && (
-              <>
-                <button className="profile-edit" onClick={()=>setMixOpen(true)}>Mix · artists, genres & exclusions</button>
-                <label className="match-difficulty">
-                  Songs per match
-                  <select
-                    value={length}
-                    onChange={(e) => setLength(Number(e.target.value))}
-                  >
-                    {[5, 10, 15, 20].map((n) => (
-                      <option key={n} value={n}>
-                        {n} songs
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="match-difficulty">
-                  After each match
-                  <select
-                    value={String(carryScores)}
-                    onChange={(e) => setCarryScores(e.target.value === "true")}
-                  >
-                    <option value="false">Reset scores</option>
-                    <option value="true">Keep adding points</option>
-                  </select>
-                </label>
-              </>
-            )}
-            <p className="match-fine">
-              {isHost
-                ? `${activeFilterCount(filters) > 0 ? "Your Mix from solo" : "Global mix"} · same intro · 90 seconds per song`
-                : "The host sets the mix · same intro · 90 seconds per song"}
-              <br />
-              {isHost
-                ? `Share code ${table.code} or the invite link. Need two people to start.`
-                : "Waiting here until the host starts."}
-              <br />
-              {carryScores
-                ? "Points carry into the next match."
-                : "Each match starts at zero."}{" "}
-              Equal scores share a rank.
-            </p>
-            {isHost ? (
-              onlineCount < 2 ? (
-                <button className="match-primary" disabled={!connected} onClick={() => void copy()}>
-                  {copied ? "Invite copied — send it" : "Copy invite link"}
-                  <Copy size={18} />
-                </button>
-              ) : (
-              <button
-                className="match-primary"
-                disabled={pending || !connected}
-                onClick={() => {
-                  setPending(true);
-                  sendMatch({
-                    type: "match-start",
-                    difficulty,
-                    length,
-                    carryScores,
-                    filters,
-                  });
-                }}
-              >
-                {pending
-                  ? "Finding your first song…"
-                  : "Start the match"}
-                <ArrowRight size={18} />
-              </button>
-              )
-            ) : (
-              <p className="match-wait">Waiting for the host to start…</p>
-            )}
-            <button className="match-invite" onClick={() => void copy()}>
-              {copied ? "Copied" : `Share ${table.code ?? "this table"}`}
-              <Copy size={15} />
-            </button>
-          </section>
+        <div className="match-toolbar">
+          <button className="profile-edit" onClick={() => window.dispatchEvent(new Event('open-noot-profile'))}>Your Noot</button>
+          <button className="match-icon-btn" aria-pressed={sounds} aria-label={sounds ? 'Button sounds on' : 'Button sounds off'}
+            onClick={() => { setSounds(!sounds); setButtonSounds(!sounds); }}>{sounds ? <Volume2 size={18}/> : <VolumeX size={18}/>}</button>
+          <button className="match-back" onClick={() => { stop(); table.leave(); }}><ArrowLeft size={16}/><span>Leave table</span></button>
         </div>
-      ) : (
-        <>
-          <div className="match-layout">
-            <section className="match-stage">
-          <div className="match-progress">
-            <span>
-              {finished
-                ? "Match complete"
-                : `Song ${String(match.number).padStart(2, "0")} / ${match.length ?? MATCH_LENGTH} · ${match.difficulty}`}
-            </span>
-            <div
-              aria-label={`Song ${match.number} of ${match.length ?? MATCH_LENGTH}`}
-            >
-              {Array.from({ length: match.length ?? MATCH_LENGTH }, (_, i) => (
-                <i
-                  key={i}
-                  data-done={i < match.number - 1 || finished}
-                  data-current={i === match.number - 1}
-                />
-              ))}
-            </div>
+      </header>
+      {!connected && <p className="match-notice" role="status">Reconnecting. Your place is saved. <button onClick={table.reconnect}>Reconnect</button></p>}
+      {table.matchError && <p className="match-notice" role="alert">{table.matchError}</p>}
+      <div className="match-experience" data-phase={!match ? 'lobby' : finished ? 'finished' : revealed ? 'reveal' : 'playing'}>
+        <div className="match-intro">
+          <div className="match-progress"><span>{roundLabel}</span>{match && <span className="match-level">{match.difficulty}</span>}
+            {match && <span className="match-progress-track" role="img" aria-label={`${match.number} of ${match.length ?? MATCH_LENGTH} songs`}>
+              {Array.from({length: match.length ?? MATCH_LENGTH}, (_,i) => <i key={i} data-done={i < match.number - 1 || finished} data-current={i === match.number - 1}/>)}
+            </span>}
           </div>
-              {(!revealed || finished) && (
-              <div className="match-stage-title">
-                {!finished && <span className="match-kicker">
-                  {!me
-                      ? "You’re spectating"
-                      : me.status === "solved"
-                        ? "Locked in. Nice ears."
-                        : me.status === "out"
-                          ? "Let’s hear from the others"
-                          : countdown > 0
-                            ? "Everyone starts together"
-                            : heardClip
-                              ? "Name the track"
-                              : "Your turn to listen"}
-                </span>}
-                <h1 aria-label={!finished && countdown === 0 ? `${MATCH_STAGES[stage]} second clip` : undefined}>
-                  {finished
-                    ? entries.filter((p) => p.points === entries[0]?.points)
-                        .length > 1
-                      ? entries[0]?.points === 0 ? "An even match." : "A shared victory."
-                      : `${entries[0]?.name} takes it.`
-                    : countdown > 0
-                      ? `Starts in ${countdown}`
-                      : <>{MATCH_STAGES[stage]}<small>s</small></>}
-                </h1>
-                {finished && me && <p className="match-final-summary">
-                  <span>{place.tied ? 'Tied ' : ''}#{myRank}</span>
-                  <span aria-hidden="true">·</span>
-                  <strong><ScoreNumber value={me.points} /> <small>pts</small></strong>
-                </p>}
+          {!match ? <><h1>Good music.<br/>Better together.</h1><p className="match-lobby-description">Same song. Your own ears. Invite a friend, then press play.</p></>
+            : finished ? <><h1>{entries.filter(p => p.points === entries[0]?.points).length > 1 ? entries[0]?.points === 0 ? 'An even match.' : 'A shared victory.' : `${entries[0]?.name} takes it.`}</h1>
+              {me && <p className="match-final-summary"><span>{place.tied ? 'Tied ' : ''}#{myRank}</span><span aria-hidden="true">·</span><strong><ScoreNumber value={me.points}/> <small>pts</small></strong></p>}</>
+            : <div className="match-stage-head"><h1 className="match-numeral" aria-label={`${MATCH_STAGES[stage]} second clip`}>{MATCH_STAGES[stage]}<small>s</small></h1>
+              <span className="match-readout" role="status">{revealed ? me?.status === 'solved' ? 'That’s the track.' : 'One for your next listen.' : countdown > 0 ? `Starts in ${countdown}` : !me ? 'You’re spectating' : me.status === 'solved' ? 'Locked in. Nice ears.' : me.status === 'out' ? 'Waiting for the others' : playing ? 'Listening…' : ''}</span>
+            </div>}
+        </div>
+        <div className="match-noot-world" data-large-party={party.length > 6} style={{'--party-width': `${party.length * 64}px`} as CSSProperties}>{companion}</div>
+        <section className="match-content" aria-label={!match ? 'Table setup' : revealed ? 'Song result' : 'Listen and guess'}>
+          {!match ? <>
+            <div className="match-section-heading"><h2>Your listening party</h2><span>{onlineCount}/{MAX_SITTING_PLAYERS}</span></div>
+            <ul className="match-guests">{players.map(p => <li key={p.id}>
+              <span className="match-avatar">{p.name.slice(0,1).toUpperCase()}</span><button className="friend-name" onClick={() => chooseNoot(p.id)}>{p.name}{p.id === playerId && p.name.toLowerCase() !== 'you' && <small>you</small>}</button><span>{p.id === hostId ? 'Host' : p.connected ? 'Ready' : 'Away'}</span>
+            </li>)}</ul>
+            {isHost ? <div className="match-options">
+              <label className="match-difficulty">Difficulty<select value={difficulty} onChange={e => setDifficulty(e.target.value as MatchDifficulty | 'mixed')}>
+                {['mixed','easy','medium','hard','expert','impossible'].map(d => <option key={d} value={d}>{d === 'mixed' ? 'All difficulties' : d[0].toUpperCase() + d.slice(1)}</option>)}
+              </select></label>
+              <label className="match-difficulty">Songs<select value={length} onChange={e => setLength(Number(e.target.value))}>{[5,10,15,20].map(n => <option key={n} value={n}>{n} songs</option>)}</select></label>
+              <details className="match-more"><summary>Match options</summary>
+                <button className="match-mix" onClick={() => setMixOpen(true)}>Mix · artists, genres & exclusions{activeFilterCount(filters) > 0 ? ` (${activeFilterCount(filters)})` : ''}<ArrowRight size={16}/></button>
+                <label className="match-difficulty">After a match<select value={String(carryScores)} onChange={e => setCarryScores(e.target.value === 'true')}><option value="false">Reset scores</option><option value="true">Keep points</option></select></label>
+              </details>
+            </div> : <p className="match-fine">The host chooses the mix. You’ll hear the same song.</p>}
+            <p className="match-fine">90 seconds per song. Up to 5,000 points. No speed bonus.</p>
+            {isHost ? onlineCount < 2 ? <button className="match-primary" onClick={() => void copy()}>{copied ? 'Invite copied' : 'Invite a friend'}<Copy size={17}/></button>
+              : <button className="match-primary" disabled={pending || !connected} onClick={() => { setPending(true); sendMatch({type:'match-start',difficulty,length,carryScores,filters}); }}>{pending ? 'Finding your first song…' : 'Start the match'}<ArrowRight size={18}/></button>
+              : <p className="match-wait" role="status">Waiting for the host to start…</p>}
+          </> : <>
+            {me && <Ruler stages={MATCH_STAGES} stageIndex={stage} marks={marks} status={revealed || me?.status === 'out' ? me?.status === 'solved' ? 'won' : 'lost' : me?.status === 'solved' ? 'won' : 'playing'}
+              solvedStage={me.status === 'solved' ? MATCH_STAGES[stage] : null} playheadRef={playhead} isPlaying={playing}
+              description={me.lastAction === 'timeout' ? `Time ran out with ${MATCH_STAGES[stage]} seconds unlocked, on try ${stage + 1}.`
+                : me.status === 'solved' ? `Named at ${MATCH_STAGES[stage]} seconds after ${stage + 1} ${stage === 0 ? 'try' : 'tries'}.` : undefined}/>}
+            {!revealed ? <>
+              <div className={`match-dock transport-row${playing ? ' is-playing' : ''}`}>
+                <button className="play-control" onClick={play} disabled={!canPlay} aria-busy={audioState === 'loading'}
+                  aria-label={audioState === 'loading' ? 'Cancel loading clip' : playing ? 'Pause clip' : `Play ${MATCH_STAGES[stage]} second clip`}>
+                  <PlayControlIcon state={audioState === 'loading' ? 'loading' : playing ? 'pause' : 'play'}/>
+                </button>
+                <form className="guess-form" onSubmit={event => { event.preventDefault(); if (selectedTrack) guess(`${selectedTrack.title} - ${selectedTrack.artist}`, selectedTrack.id); else if (searchOpen && results.length) selectTrack(results[highlight] ?? results[0]); }}>
+                  <div className={`search-wrap${selectedTrack ? ' selected' : ''}`} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSearchOpen(false); }}>
+                    <span className="search-icon" aria-hidden="true"/>
+                    <input aria-label="Name the track" placeholder="Name the track" maxLength={200} value={query}
+                      onChange={event => { setSelectedTrack(null); setQuery(event.target.value); setSearchOpen(Boolean(event.target.value.trim())); setHighlight(0); }}
+                      onFocus={() => { if (!selectedTrack && query.trim()) setSearchOpen(true); }} onKeyDown={searchKey}
+                      autoComplete="off" spellCheck={false} role="combobox" aria-expanded={searchOpen && Boolean(query.trim())}
+                      aria-autocomplete="list" aria-controls="match-suggestions" aria-activedescendant={searchOpen && results[highlight] ? `match-suggestions-${results[highlight].id}` : undefined}
+                      disabled={!canPlay || pending}/>
+                    {query.trim() && searchOpen && <SongSuggestions id="match-suggestions" search={songSearch} highlight={highlight} onHighlight={setHighlight} scrollRef={suggestionsRef} onSelect={selectTrack}/>}
+                  </div>
+                  {selectedTrack ? <button type="submit" className="btn btn-primary guess-button" disabled={!canPlay || pending}>{pending ? 'Checking…' : 'Guess'}</button>
+                    : <button type="button" className="btn btn-quiet skip-button" onClick={skip} disabled={!canPlay || pending} title={stage === 4 ? 'Give up this song' : 'Hear a longer clip'}><SkipIcon/><span>{stage === 4 ? 'Pass' : 'Skip'}</span></button>}
+                </form>
               </div>
-              )}
-              {!revealed && (
-              <div className="match-theatre shared-stage">
-                {companion}
-                <div className="match-floor" />
+              <div className="match-round-meta"><span>{!me ? 'Watching this round' : me.status === 'out' ? 'Song passed' : me.status === 'solved' ? <><strong>+{me.delta.toLocaleString()}</strong> points secured</> : <><strong>{points[stage].toLocaleString()}</strong> points available</>}</span>
+                <span className="match-clock" data-urgent={remaining <= 15} aria-label={`${remaining} seconds left in this round`}>{Math.floor(remaining/60)}:{String(remaining%60).padStart(2,'0')} <small>left</small></span>
               </div>
-              )}
-              {!revealed ? (
-                <>
-                  <div className="match-stakes">
-                    <strong>
-                      {me?.status === "solved"
-                        ? `+${me.delta.toLocaleString()}`
-                        : canPlay
-                          ? points[stage].toLocaleString()
-                          : "—"}
-                      <small>
-                        {me?.status === "solved"
-                          ? "points secured"
-                          : "points available"}
-                      </small>
-                    </strong>
-                    <span
-                      className="match-clock"
-                      data-urgent={remaining <= 15}
-                      aria-label={`${remaining} seconds left in this round`}
-                    >
-                      {Math.floor(remaining / 60)}:
-                      {String(remaining % 60).padStart(2, "0")}
-                      <small>left in this round</small>
-                    </span>
-                  </div>
-                  <ol className="match-clips" aria-label="Clip scoring ladder">
-                    {MATCH_STAGES.map((seconds, i) => (
-                      <li
-                        key={seconds}
-                        data-active={i === stage}
-                        data-used={i < stage}
-                      >
-                        <strong>
-                          {seconds}
-                          <small>s</small>
-                        </strong>
-                        <span>{points[i]} pts</span>
-                      </li>
-                    ))}
-                  </ol>
-                  {canPlay ? (
-                    <div className="match-dock">
-                    <div className="match-controls">
-                      <button
-                        className="match-play"
-                        onClick={play}
-                        aria-label={
-                          playing
-                            ? "Stop clip"
-                            : `Play ${MATCH_STAGES[stage]} second clip`
-                        }
-                      >
-                        {playing ? <Pause /> : <Play />}
-                      </button>
-                      <form
-                        className="match-guess"
-                        onBlur={event => {
-                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSearchOpen(false);
-                        }}
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          const pick = searchOpen ? results[highlight] : undefined;
-                          if (pick) guess(`${pick.title} - ${pick.artist}`, pick.id);
-                          else guess(query);
-                        }}
-                      >
-                        <input
-                          aria-label="Name the track"
-                          placeholder="Name the track"
-                          maxLength={200}
-                          value={query}
-                          onFocus={() => setSearchOpen(Boolean(query.trim()))}
-                          onChange={(e) => {
-                            setQuery(e.target.value);
-                            setSearchOpen(Boolean(e.target.value.trim()));
-                            setHighlight(0);
-                          }}
-                          onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                            if (event.nativeEvent.isComposing) return;
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              setSearchOpen(false);
-                              return;
-                            }
-                            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-                            event.preventDefault();
-                            if (!searchOpen) { setSearchOpen(true); setHighlight(0); return; }
-                            const next = event.key === "ArrowDown" ? Math.min(highlight + 1, results.length - 1) : Math.max(highlight - 1, 0);
-                            setHighlight(next);
-                            scrollSongOption(suggestionsRef.current, next);
-                            if (next === results.length - 1) void songSearch.loadMore();
-                          }}
-                          autoComplete="off"
-                          spellCheck={false}
-                          role="combobox"
-                          aria-expanded={searchOpen && Boolean(query.trim())}
-                          aria-autocomplete="list"
-                          aria-controls="match-suggestions"
-                          aria-activedescendant={
-                            searchOpen && results[highlight]
-                              ? `match-suggestions-${results[highlight].id}`
-                              : undefined
-                          }
-                          disabled={pending}
-                        />
-                        <button
-                          aria-label="Submit guess"
-                          disabled={pending || !query.trim()}
-                        >
-                          <ArrowRight size={20} />
-                        </button>
-                        {query.trim() && searchOpen && <SongSuggestions id="match-suggestions" search={songSearch}
-                          highlight={highlight} onHighlight={setHighlight} scrollRef={suggestionsRef}
-                          onSelect={result => { setSearchOpen(false); guess(`${result.title} - ${result.artist}`, result.id); }} />}
-                      </form>
-                      <button
-                        className="match-skip"
-                        onClick={skip}
-                        disabled={pending}
-                        title={stage === 4 ? "Give up this song" : "Hear a longer clip, worth fewer points"}
-                      >
-                        <SkipForward size={16} />
-                        {stage === 4 ? "Pass" : "Skip"}
-                      </button>
-                    </div>
-                    </div>
-                  ) : (
-                    <p className="match-wait" role="status">
-                      {countdown
-                        ? "Everyone starts together."
-                        : !me
-                          ? "Join the next match to play."
-                          : `${match.entries.filter((p) => p.status === "playing").length} still listening. The answer reveals together.`}
-                    </p>
-                  )}
-                  <p className="match-feedback" role="status">
-                    {audioError ||
-                      (me?.lastAction === "miss"
-                        ? "Not that one. A longer clip is unlocked — fewer points if you need it."
-                        : canPlay
-                          ? "Type the full title. Skip for a longer clip, worth fewer points."
-                          : "")}
-                  </p>
-                </>
-              ) : (
-                <div className="match-recap round-answer" role="region" aria-label="Song result">
-                  {!finished && <p className="round-result-banner" data-perfect={me?.delta === points[0]}>
-                    {me?.delta === points[0] ? 'Perfect listen.' : me?.status === 'solved' ? 'That’s the track.' : 'One for your next listen.'}
-                  </p>}
-                  <div className="match-answer-row">
-                    {match.answer && (
-                      <button
-                        className="match-album"
-                        onClick={play}
-                        aria-label={
-                          playing
-                            ? "Pause the song"
-                            : `Play ${match.answer.title}`
-                        }
-                      >
-                        {match.answer.albumArt ? <img
-                          src={match.answer.albumArt}
-                          alt=""
-                        /> : <Headphones size={32} />}
-                        <span>
-                          {playing ? <Pause size={18} /> : <Play size={18} />}
-                        </span>
-                      </button>
-                    )}
-                    <div className="match-answer-copy">
-                      {match.answer && <SongIdentity title={match.answer.title} artist={match.answer.artist} />}
-                      {!finished && <strong>
-                        {me ? <ScoreNumber value={me.delta} prefix="+"/> : "Good listening."}
-                        <small>{me ? "this song" : ""}</small>
-                      </strong>}
-                      {!finished && <p className="match-outcome">
-                        {me?.status === "solved"
-                            ? `Named at ${MATCH_STAGES[me.stage]} seconds.${ahead ? ` ${ahead.points - me.points} to catch ${ahead.name}.` : place.tied ? " You’re tied for the lead." : " You’re in the lead."}`
-                            : timedOut
-                              ? "Nobody named it in time."
-                              : solved.length ? `${solved.map(p=>p.name).join(", ")} named it.` : "Nobody named this one."}
-                      </p>}
-                    </div>
-                  </div>
-                  {hearReveal && (
-                    <button className="match-hear" type="button" onClick={play}>
-                      <Play size={18} />
-                      Tap to hear it
-                    </button>
-                  )}
-                  {audioError && <p className="match-feedback" role="alert">{audioError}</p>}
-                  {me ? (
-                    <div className="match-ready">
-                      {me.ready && (
-                      <p className="match-waiting" role="status">
-                        {waitingNames.length
-                          ? `Waiting for ${waitingNames.join(", ")}.`
-                          : table.matchError
-                            ? "Couldn’t load the next round. Try again."
-                            : finished ? "Everyone is ready. Starting a new match…" : "Everyone is ready. Loading the next song…"}
-                      </p>
-                      )}
-                      <button
-                        className="match-primary"
-                        disabled={
-                          pending || !connected || (Boolean(me.ready) && waitingNames.length > 0) || (finished && onlineCount < 2)
-                        }
-                        onClick={() => {
-                          setPending(true);
-                          sendMatch({
-                            type: "match-next",
-                            roundId: match.roundId,
-                          });
-                        }}
-                      >
-                        {pending
-                          ? "Waiting…"
-                          : me.ready
-                            ? waitingNames.length ? "Ready · waiting" : "Try again"
-                            : finished
-                              ? "Play again"
-                              : "Ready up"}
-                        {me.ready && !pending ? <Check size={17} /> : <ArrowRight size={17} />}
-                      </button>
-                      <small>
-                        {readyCount} / {connectedPlayers} ready
-                        {finished
-                          ? match.carryScores
-                            ? " · points carry over"
-                            : " · scores reset"
-                          : ""}
-                      </small>
-                    </div>
-                  ) : (
-                    <p className="match-wait">Waiting for the players.</p>
-                  )}
-                  <div className="match-recap-party">
-                    {companion}
-                  </div>
+              <p className="match-feedback" role="status">{audioError || (audioState === 'loading' ? 'Loading the clip…' : '') || (countdown > 0 ? 'Everyone starts together.' : !me ? 'Join the next match to play.' : me.status !== 'playing' ? `${match.entries.filter(p => p.status === 'playing').length} still listening. The answer reveals together.` : me.lastAction === 'miss' ? 'Not that one. A longer clip is ready.' : selectedTrack ? 'Ready when you are. Confirm your guess.' : 'Press play, then name the track. Skip for a longer clip.')}</p>
+            </> : <div className="match-recap round-answer">
+              <div className="match-answer-row">{match.answer && <button className="match-album" onClick={play} aria-label={playing ? 'Pause song' : 'Play song'}>{match.answer.albumArt ? <img src={match.answer.albumArt} alt=""/> : <Headphones size={32}/>}<span><PlayControlIcon state={playing ? 'pause' : 'play'}/></span></button>}
+                <div className="match-answer-copy">{match.answer && <SongIdentity title={match.answer.title} artist={match.answer.artist}/>}
+                  {!finished && <p className="match-score-beat"><strong>{me ? <ScoreNumber value={me.delta} prefix="+"/> : 'Good listening.'}</strong>{me && <span>this song</span>}</p>}
+                  {!finished && <p className="match-outcome">{me?.status === 'solved' ? `Named at ${MATCH_STAGES[me.stage]} seconds.` : timedOut ? 'Nobody named it in time.' : solved.length ? `${solved.length} of ${entries.length} named it.` : 'One to remember.'}</p>}
                 </div>
-              )}
-            </section>
-            <aside className="match-board">
-              {!revealed && solved.length > 0 && (
-              <div className="match-solved" role="status" aria-live="polite">
-                {solved.length > 0 ? (
-                  <>
-                    <Check size={15} />
-                    <span>
-                      {solved
-                        .map((p) => (p.id === playerId ? "You" : p.name))
-                        .join(", ")}{" "}
-                      got it
-                      <small>
-                        {solved.length} / {entries.length} named this song
-                      </small>
-                    </span>
-                  </>
-                ) : (
-                  <span>
-                    Who will recognize it?
-                    <small>Same clip length, same points.</small>
-                  </span>
-                )}
               </div>
-              )}
-              <div className="match-section-heading">
-                <h2>{finished ? "Final scores" : "Standings"}</h2>
-              </div>
-              {boardTarget ? (
-                <p className="match-board-target">{boardTarget}</p>
-              ) : null}
-              <MatchStandings entries={entries} playerId={playerId} revealed={revealed} online={party.map(p=>p.id)} onChoose={chooseNoot}/>
-              <p className="race-tie-note">Same clip, same points. Equal scores share a place.</p>
-            </aside>
-          </div>
-        </>
-      )}
-      {!match && (
-      <footer className="match-footer">
-        <span>Made for music. Better with company.</span>
-        <span>No speed bonus. Just good ears.</span>
-      </footer>
-      )}
+              {hearReveal && <button className="match-hear" onClick={play}><Play size={16}/>Tap to hear it</button>}
+              {audioError && <p className="match-feedback" role="alert">{audioError}</p>}
+              {me ? <div className="match-ready">
+                <button className="match-primary" disabled={pending || !connected || (Boolean(me.ready) && (waitingNames.length > 0 || !table.matchError)) || (finished && onlineCount < 2)}
+                  onClick={() => { setPending(true); sendMatch({type:'match-next', roundId:match.roundId}); }}>
+                  {pending ? 'Waiting…' : me.ready ? waitingNames.length ? 'Ready · waiting' : table.matchError ? 'Try again' : 'Starting…' : finished ? 'Play again' : 'Ready up'}{me.ready && !pending ? <Check size={17}/> : <ArrowRight size={17}/>}
+                </button><small>{readyCount}/{connectedPlayers} ready{finished ? match.carryScores ? ' · points carry over' : ' · scores reset' : ''}</small>
+                {me.ready && <p className="match-waiting" role="status">{waitingNames.length ? `Waiting for ${waitingNames.join(', ')}.` : table.matchError ? 'Couldn’t load the next round. Try again.' : 'Everyone is ready. Loading the next song…'}</p>}
+              </div> : <p className="match-wait">Waiting for the players.</p>}
+            </div>}
+          </>}
+        </section>
+        {match && <MatchScoreboard entries={entries} playerId={playerId} matchId={match.id} finished={Boolean(finished)} revealed={revealed}
+          online={party.map(p => p.id)} onChoose={chooseNoot}/>}
+
+      </div>
     </main>
   );
 }

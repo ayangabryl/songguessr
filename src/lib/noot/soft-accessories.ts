@@ -1,3 +1,4 @@
+import { NOOT_TAILORED } from '../../../shared/noot-profile.ts'
 import * as THREE from 'three'
 import { spring } from './motion.ts'
 import type { NootState } from './types.ts'
@@ -36,7 +37,7 @@ export function createSoftAccessories(character: THREE.Object3D) {
     }
     // Soft front garments sit on the torso. Resolve a hand that enters the fitted
     // chest envelope with a small forearm correction; retain the authored shoulder.
-    if (!reduced && ['shirt','bandana','scarf'].includes(state.clothing ?? '')) {
+    if (!reduced && ['shirt','bandana','scarf',...NOOT_TAILORED].includes(state.clothing ?? '')) {
       for (let i=0; i<hands.length; i++) for (let pass=0; pass<2; pass++) {
         hands[i].getWorldPosition(position); character.worldToLocal(position)
         const height = position.y - (chest.position.y - chestRest.y)
