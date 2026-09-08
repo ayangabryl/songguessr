@@ -1,9 +1,11 @@
+import type { NootLiveChannel } from './live-channel.ts'
+import type { NootLiveEvent, NootMotionAction } from '../../../shared/noot-live.ts'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { createNootFromAsset, loadNootAsset } from './asset.ts'
 import { createSocialWorld, type NootParticipant, type PlayKind, type GroupKind } from './social-world.ts'
 
-export interface PartyOptions { participants: NootParticipant[]; theme: 'light' | 'dark'; paused?: boolean; speed?: number }
+export interface PartyOptions { participants: NootParticipant[]; theme: 'light' | 'dark'; paused?: boolean; speed?: number; network?: NootLiveChannel }
 
 /** A single floor, camera and physics world lets the characters meet each other. */
 export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptions, onReady: (ready: boolean) => void, choose: (id: string) => void, placeLabel?: (id: string, x: number, y: number) => boolean | void, onError?: () => void) {
@@ -37,6 +39,40 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
   let canvasWidth = 1, canvasHeight = 1
   const labelCache = new Map<string, string>()
   const frameTimes: number[] = [], cpuTimes: number[] = []
+  const remoteHeld = new Map<string, {x:number;y:number;at:number}>()
+  let heldSentAt = 0, snapshotAt = 0
+  function publish(id: string, action: NootMotionAction) {
+    const a = world.actors.get(id)
+    if (a) read().network?.send({actor:id, action, x:a.x, y:a.y, vx:a.vx, vy:a.vy})
+    heldSentAt = performance.now()
+  }
+  function localDrop(id: string) { world.drop(id); publish(id, 'drop') }
+  function localJump(id: string) { if (world.jump(id)) publish(id, 'jump') }
+  function receive(event: NootLiveEvent) {
+    if (disposed || media.matches) return
+    world.step(0, read().participants, false, !read().network)
+    if (event.type === 'pet-social') {
+      if (event.action === 'group-dance' || event.action === 'wave-chain') world.groupInteract(event.action)
+      else world.interact(event.actor, event.friend, event.action)
+      wake(); return
+    }
+    const a = world.actors.get(event.actor)
+    if (!a) return
+    if (down?.id === event.actor && down.moved) {
+      const pointerId = down.pointerId; down = undefined
+      if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId)
+    }
+    if (event.action === 'lift' || event.action === 'drag') {
+      if (!a.held) world.lift(a.id)
+      remoteHeld.set(a.id, {x:event.x,y:event.y,at:performance.now()})
+    } else {
+      remoteHeld.delete(a.id)
+      a.x = event.x; a.y = event.y; a.vx = event.vx; a.vy = event.vy
+      if (event.action === 'drop') world.drop(a.id)
+      else { a.jumpAt = undefined; world.jump(a.id) }
+    }
+    wake()
+  }
   let sampledAt = 0
   const labelPosition = new THREE.Vector3(), restingPointer = new THREE.Vector2()
 
@@ -76,8 +112,15 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
       for (const model of models.values()) model.noot.setCompact(models.size >= 4)
       resize(false)
     }
+    for (const [id, target] of remoteHeld) {
+      const a = world.actors.get(id)
+      if (!a || timestamp-target.at > 2500) { world.drop(id); remoteHeld.delete(id); continue }
+      const ease = 1-Math.exp(-dt*32)
+      world.drag(id, a.x+(target.x-a.x)*ease, a.y+(target.y-a.y)*ease)
+    }
+    if (down?.moved && timestamp-heldSentAt > 350) publish(down.id, 'drag')
     const ticks = Math.max(1,Math.ceil(dt/.033))
-    for (let i=0;i<ticks;i++) world.step(dt/ticks, options.participants, media.matches)
+    for (let i=0;i<ticks;i++) world.step(dt/ticks, options.participants, media.matches, !options.network)
     for (const a of world.actors.values()) {
       const model = models.get(a.id)!
       model.noot.update(world.time, dt, { ...world.stateFor(a), paused: options.paused }, hovered === a.id ? pointer : restingPointer, media.matches)
@@ -96,6 +139,10 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
     renderer.render(scene, camera)
     if (!ready) { ready = true; if (import.meta.env.DEV) canvas.dataset.nootReadyMs = String(Math.round(performance.now() - mountedAt)); onReady(true) }
     if (import.meta.env.DEV) {
+      if (timestamp-snapshotAt > 250) {
+        snapshotAt=timestamp
+        canvas.dataset.nootPositions=JSON.stringify([...world.actors.values()].map(a=>({id:a.id,x:models.get(a.id)!.wrapper.position.x,y:models.get(a.id)!.wrapper.position.y,held:a.held})))
+      }
       cpuTimes.push(performance.now() - cpuStart)
       if (frameTimes.length >= 120) {
         const sorted = [...frameTimes].sort((a,b) => a-b), cpu = [...cpuTimes].sort((a,b) => a-b)
@@ -124,15 +171,15 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
   function pointerMove(event: PointerEvent) {
     const hit = locate(event); hovered = hit?.id ?? ''
     if (down && !media.matches) {
-      if (!down.moved && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 5) { world.lift(down.id); down.moved = true }
-      if (down.moved) world.drag(down.id, point.x - offset.x, point.y - offset.y)
+      if (!down.moved && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 5) { remoteHeld.delete(down.id); world.lift(down.id); down.moved = true; publish(down.id, 'lift') }
+      if (down.moved) { world.drag(down.id, point.x - offset.x, point.y - offset.y); publish(down.id, 'drag') }
     }
     canvas.style.cursor = down?.moved ? 'grabbing' : hovered ? 'grab' : 'default'; wake()
   }
   function release(event: PointerEvent) {
     if (!down || event.pointerId !== down.pointerId) return
     const current = down; down = undefined
-    if (current.moved) world.drop(current.id)
+    if (current.moved) localDrop(current.id)
     else if (event.type === 'pointerup') choose(current.id)
     if (canvas.hasPointerCapture(current.pointerId)) canvas.releasePointerCapture(current.pointerId)
     canvas.style.cursor = 'grab'; wake()
@@ -140,7 +187,8 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
   function leave() { hovered = ''; pointer.set(0, 0); wake() }
   function releaseAll() {
     const current = down; down = undefined
-    for (const a of world.actors.values()) if (a.held) world.drop(a.id)
+    if (current?.moved) localDrop(current.id)
+    for (const a of world.actors.values()) if (a.held && !remoteHeld.has(a.id)) localDrop(a.id)
     if (current && canvas.hasPointerCapture(current.pointerId)) canvas.releasePointerCapture(current.pointerId)
     canvas.style.cursor = 'grab'; wake()
   }
@@ -151,11 +199,11 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Enter', 'Escape'].includes(event.key)) return
     event.preventDefault()
     if (event.key === 'Enter') choose(a.id)
-    else if (event.key === 'Escape' && a.held) world.drop(a.id)
+    else if (event.key === 'Escape' && a.held) localDrop(a.id)
     else if (event.key === ' ' && !media.matches) {
-      if (a.held) world.drop(a.id)
-      else if (!event.repeat) world.jump(a.id)
-    } else if (a.held && !media.matches) world.drag(a.id, a.x + (event.key === 'ArrowLeft' ? -.35 : event.key === 'ArrowRight' ? .35 : 0), a.y + (event.key === 'ArrowUp' ? .3 : event.key === 'ArrowDown' ? -.3 : 0))
+      if (a.held) localDrop(a.id)
+      else if (!event.repeat) localJump(a.id)
+    } else if (a.held && !media.matches) { world.drag(a.id, a.x + (event.key === 'ArrowLeft' ? -.35 : event.key === 'ArrowRight' ? .35 : 0), a.y + (event.key === 'ArrowUp' ? .3 : event.key === 'ArrowDown' ? -.3 : 0)); publish(a.id, 'drag') }
     else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       const index = list.indexOf(a), next = (index + (event.key === 'ArrowRight' ? 1 : list.length - 1)) % list.length
       a = list[next]; selected = a.id
@@ -172,13 +220,14 @@ export function mountNootParty(canvas: HTMLCanvasElement, read: () => PartyOptio
   document.addEventListener('visibilitychange', visibilityChanged); window.addEventListener('blur', releaseAll); media.addEventListener('change', wake)
   assetPromise.then(result => { if (disposed) return; asset = result; resize(); wake() }).catch(error => { if (disposed) return; console.warn('Noot party unavailable', error); onReady(false); onError?.() })
   return {
-    wake,
+    wake, receive,
     interact(a: string, b: string, kind: PlayKind) { world.step(0, read().participants); world.interact(a, b, kind); wake() },
     groupInteract(kind: GroupKind) { world.step(0, read().participants); world.groupInteract(kind); wake() },
-    jump(id: string) { if (media.matches) return; world.step(0, read().participants); world.jump(id); wake() },
+    jump(id: string) { if (media.matches) return; world.step(0, read().participants); localJump(id); wake() },
     lift(id: string) { if (media.matches) return; world.lift(id); const actor = world.actors.get(id); if (actor) world.drag(id, actor.x, 2.4); wake() },
-    drop(id: string) { world.drop(id); wake() },
+    drop(id: string) { localDrop(id); wake() },
     dispose() {
+      releaseAll(); remoteHeld.clear()
       disposed = true; cancelAnimationFrame(frame); resizeObserver.disconnect(); intersection.disconnect()
       document.removeEventListener('visibilitychange', visibilityChanged); window.removeEventListener('blur', releaseAll); media.removeEventListener('change', wake)
       for (const [name, handler] of Object.entries(handlers)) canvas.removeEventListener(name, handler as EventListener)

@@ -1,4 +1,5 @@
 export const MIX_SINGER_LIMIT = 5
+export const ARTIST_SEARCH_LIMIT = 50
 
 export function rankByArtistPopularity<T extends { name: string; popularity?: number | null }>(
   artists: T[],

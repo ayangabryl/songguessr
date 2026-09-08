@@ -179,7 +179,7 @@ export function createSocialWorld(seed = 'noot-table') {
       act(a, group!.kind === 'wave-chain' ? 'wave-small' : DANCE_POSES[(i+group!.variation)%DANCE_POSES.length], group!.kind === 'wave-chain' ? 2.4 : 16-age, true)
     })
   }
-  function step(dt: number, participants: NootParticipant[], reduced = false) {
+  function step(dt: number, participants: NootParticipant[], reduced = false, automatic = true) {
     reconcile(participants)
     if (reduced) {
       finishPlay(); finishGroup()
@@ -188,7 +188,7 @@ export function createSocialWorld(seed = 'noot-table') {
     }
     if (dt <= 0) return
     dt = Math.min(dt, .1); clock += dt
-    if (!play && !group && clock > nextPlay && actors.size > 1) {
+    if (automatic && !play && !group && clock > nextPlay && actors.size > 1) {
       const available = [...actors.values()].filter(a => !a.held && a.y < .02 && a.pose !== 'tumble' && a.jumpAt === undefined)
       if (available.length > 1) {
         if (available.length > 2 && playCount % 3 === 2) groupInteract(playCount % 2 ? 'group-dance' : 'wave-chain')

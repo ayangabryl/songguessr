@@ -27,7 +27,7 @@ export interface SittingPlayer {
   connected: boolean
   appearance?: NootAppearance
   greeting?: {from:string;at:number}
-  activity?: { action: 'skip' | 'listening' | 'solved' | 'missed'; stage: number; at: number }
+  activity?: { action: 'skip' | 'listening' | 'solved' | 'missed' | 'idle'; stage: number; at: number }
   joinedAt: number
 }
 
@@ -258,7 +258,7 @@ export function applySittingEvent(state: SittingState, event: SittingEvent): Sit
 
 export type ClientSittingMessage =
   | { type: 'score'; delta: number }
-  | { type: 'activity'; action: 'skip' | 'listening' | 'solved' | 'missed'; stage: number }
+  | { type: 'activity'; action: 'skip' | 'listening' | 'solved' | 'missed' | 'idle'; stage: number }
   | { type: 'leave' }
 
 export function parseClientSittingMessage(raw: string): ClientSittingMessage | null {
@@ -276,8 +276,8 @@ export function parseClientSittingMessage(raw: string): ClientSittingMessage | n
       return { type: 'score', delta: message.delta }
     }
     case 'activity':
-      if (!['skip','listening','solved','missed'].includes(String(message.action)) || typeof message.stage !== 'number' || !Number.isFinite(message.stage) || message.stage < 0 || message.stage > 30) return null
-      return {type:'activity', action:message.action as 'skip'|'listening'|'solved'|'missed',stage:message.stage}
+      if (!['skip','listening','solved','missed','idle'].includes(String(message.action)) || typeof message.stage !== 'number' || !Number.isFinite(message.stage) || message.stage < 0 || message.stage > 30) return null
+      return {type:'activity', action:message.action as 'skip'|'listening'|'solved'|'missed'|'idle',stage:message.stage}
     case 'leave':
       return { type: 'leave' }
     default:

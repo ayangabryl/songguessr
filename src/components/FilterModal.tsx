@@ -1,3 +1,4 @@
+import { ArtistExclusions } from './ArtistExclusions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useModalFocus } from '../hooks/useModalFocus'
 import { CountryFlag } from '../../shared/country-flag'
@@ -208,6 +209,7 @@ export function FilterModal({
   function chooseSinger(name: string) {
     const already = selectedArtistKeys.has(name.toLowerCase())
     onToggleArtist(name)
+    if (!already && onExclusions) onExclusions(excludedArtists.filter(value => value.toLowerCase() !== name.toLowerCase()), excludedGenres)
     if (!already) setSingerQuery('')
   }
 
@@ -238,11 +240,11 @@ export function FilterModal({
         <div className="mix-sheet-body">
         <p className="filter-helper">
           {draftArtists.length > 0
-            ? `${draftArtists.length === 1 ? '1 singer' : `${draftArtists.length} singers`} in this mix. Search another name to add more.`
-            : 'Add as many singers as you like. Search anyone in the catalogue.'}
+            ? `${draftArtists.length === 1 ? '1 artist' : `${draftArtists.length} artists`} in this mix. Search another name to add more.`
+            : 'Choose what to hear, or leave out artists and genres below.'}
         </p>
 
-        {hasDraftFilters ? (
+        {draftArtists.length + draftCollections.length + draftEras.length + draftGenres.length + draftCountries.length > 0 ? (
           <div className="mix-selected" aria-label="Selected mix">
             {draftArtists.map((name) => (
               <button
@@ -277,7 +279,10 @@ export function FilterModal({
                 key={`genre-${genre}`}
                 type="button"
                 className="mix-chip is-on"
-                onClick={() => onToggleGenre(genre)}
+                onClick={() => {
+                  onToggleGenre(genre)
+                  if (!draftGenres.includes(genre) && onExclusions) onExclusions(excludedArtists, excludedGenres.filter(value => value !== genre))
+                }}
               >
                 {GENRE_LABELS[genre]} ×
               </button>
@@ -328,14 +333,14 @@ export function FilterModal({
 
         <div className="mix-singer-block">
         <label className="mix-search">
-          <span className="mix-search-label">Singer</span>
+          <span className="mix-search-label">Artists to include</span>
           <input
             type="search"
             className="filter-region-search mix-search-input"
             value={singerQuery}
             onChange={(event) => setSingerQuery(event.target.value)}
             placeholder="Type a name"
-            aria-label="Search a singer"
+            aria-label="Search artists to include"
             autoComplete="off"
             enterKeyHint="search"
           />
@@ -344,7 +349,7 @@ export function FilterModal({
         <div
           className="mix-singers"
           role="listbox"
-          aria-label="Singers"
+          aria-label="Artists to include"
           aria-busy={showSingerWait || singerLookup}
         >
           {showSingerWait && displayedSingers.length === 0 ? (
@@ -370,8 +375,8 @@ export function FilterModal({
           {!showSingerWait && !singerLookup && displayedSingers.length === 0 ? (
             <p className="filter-empty" role="status">
               {singerQuery.trim()
-                ? 'No singer by that name. Try another spelling.'
-                : 'No singers yet. Type a name.'}
+                ? 'No artist by that name. Try another spelling.'
+                : 'No artists yet. Type a name.'}
             </p>
           ) : (
             displayedSingers.map((hit) => {
@@ -444,7 +449,10 @@ export function FilterModal({
                 type="button"
                 className={draftGenres.includes(genre) ? 'selected' : ''}
                 aria-pressed={draftGenres.includes(genre)}
-                onClick={() => onToggleGenre(genre)}
+                onClick={() => {
+                  onToggleGenre(genre)
+                  if (!draftGenres.includes(genre) && onExclusions) onExclusions(excludedArtists, excludedGenres.filter(value => value !== genre))
+                }}
               >
                 {GENRE_LABELS[genre]}
               </button>
@@ -455,24 +463,12 @@ export function FilterModal({
         {onExclusions && (
           <fieldset className="filter-group mix-exclusions">
             <legend>Exclude from your mix</legend>
-            <label className="mix-search">
-              <span className="mix-search-label">Artists</span>
-              <input
-                key={excludedArtists.join(';')}
-                className="filter-region-search mix-search-input"
-                aria-label="Artists to exclude"
-                aria-describedby="mix-exclusion-help"
-                placeholder="e.g. Taylor Swift; Drake"
-                defaultValue={excludedArtists.join('; ')}
-                onBlur={event => onExclusions(
-                  [...new Set(event.target.value.split(';').map(value => value.trim()).filter(Boolean))].slice(0, 50),
-                  excludedGenres,
-                )}
-              />
-            </label>
-            <p id="mix-exclusion-help" className="mix-exclusion-help">
-              Separate full names with a semicolon. Includes collaborations.
-            </p>
+            <ArtistExclusions selected={excludedArtists} onChange={names => {
+              for (const name of draftArtists) {
+                if (names.some(excluded => excluded.toLowerCase() === name.toLowerCase())) onRemoveArtist(name)
+              }
+              onExclusions(names, excludedGenres)
+            }}/>
             <span className="mix-search-label">Genres to leave out</span>
             <div className="filter-options" role="group" aria-label="Genres to exclude">
               {GENRE_OPTIONS.map(genre => {
@@ -484,9 +480,12 @@ export function FilterModal({
                     className={selected ? 'selected' : ''}
                     aria-label={`Exclude ${GENRE_LABELS[genre]}`}
                     aria-pressed={selected}
-                    onClick={() => onExclusions(excludedArtists, selected
-                      ? excludedGenres.filter(value => value !== genre)
-                      : [...excludedGenres, genre])}
+                    onClick={() => {
+                      if (!selected && draftGenres.includes(genre)) onToggleGenre(genre)
+                      onExclusions(excludedArtists, selected
+                        ? excludedGenres.filter(value => value !== genre)
+                        : [...excludedGenres, genre])
+                    }}
                   >
                     {GENRE_LABELS[genre]}{selected && <span aria-hidden="true"> ×</span>}
                   </button>

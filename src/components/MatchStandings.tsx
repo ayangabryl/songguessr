@@ -1,6 +1,7 @@
+import { Ruler } from './Ruler'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Crown } from 'lucide-react'
-import { matchRank, matchSeatLabel, type MatchEntry } from '../../shared/match'
+import { matchRank, matchSeatLabel, MATCH_STAGES, type MatchEntry } from '../../shared/match'
 import { ScoreNumber } from './ScoreNumber'
 
 export function MatchStandings({ entries, playerId, revealed, online, onChoose }: {
@@ -51,11 +52,15 @@ export function MatchStandings({ entries, playerId, revealed, online, onChoose }
     {entries.map(entry => {
       const { rank, tied } = matchRank(entries, entry.id)
       const activity = !online.includes(entry.id) ? 'Reconnecting' : matchSeatLabel(entry, revealed)
-      const detail = activity === 'Listening' ? '' : activity
+      const detail = activity === 'Reconnecting' || activity === 'Ready' ? activity : ''
       return <li key={entry.id} data-player-id={entry.id} data-you={entry.id === playerId} data-leader={rank === 1 && entry.points > 0}>
         <span className="race-place" aria-label={`${tied ? 'Tied ' : ''}rank ${rank}`}>{rank === 1 && !tied && entry.points > 0 ? <Crown size={19}/> : `${tied ? 'T' : ''}${rank}`}</span>
         <div className="race-player">
           <button onClick={() => onChoose(entry.id)}>{entry.name}{entry.id === playerId && entry.name.toLowerCase() !== 'you' && <small>you</small>}</button>
+          <div className="race-attempts"><Ruler size="signature" stages={MATCH_STAGES} stageIndex={entry.stage}
+            marks={entry.attempts ?? []} status={entry.status === 'solved' ? 'won' : entry.status === 'out' ? 'lost' : 'playing'}
+            solvedStage={entry.status === 'solved' ? MATCH_STAGES[entry.stage] : null}
+            description={entry.lastAction === 'timeout' ? `Time ran out with ${MATCH_STAGES[entry.stage]} seconds unlocked.` : undefined}/></div>
           {detail && <span>{detail}</span>}
         </div>
         <div className="race-score"><ScoreNumber value={entry.points}/>{entry.delta > 0 && <small>+{entry.delta.toLocaleString()} this round</small>}</div>

@@ -115,7 +115,7 @@ export function LeaderboardCard({
                   {player.name}
                   {mine ? <i>you</i> : null}
                   {player.connected ? null : <i>away</i>}
-                  {player.activity && <small className="sit-activity">{player.activity.action==='skip' ? 'Skipped' : player.activity.action==='solved' ? 'Named it' : player.activity.action==='missed' ? 'Finished · not named' : 'Listening'} · {player.activity.stage}s clip</small>}
+                  {player.activity && player.activity.action !== 'idle' && <small className="sit-activity">{player.activity.action==='skip' ? 'Skipped' : player.activity.action==='solved' ? 'Named it' : player.activity.action==='missed' ? 'Finished · not named' : 'Listening'} · {player.activity.stage}s clip</small>}
                 </span>
                 <span className="sit-pts">
                   <b>{formatScoreValue(player.points)}</b>

@@ -32,13 +32,13 @@
 html,
 body,
 #root {
-  background: oklch(0.17 0.012 150);
+  background: oklch(0.17 0.012 var(--page-hue, 150));
   color: oklch(0.955 0.006 150);
 }
 html[data-theme='light'],
 html[data-theme='light'] body,
 html[data-theme='light'] #root {
-  background: oklch(0.985 0.004 150);
+  background: oklch(0.985 0.004 var(--page-hue, 150));
   color: oklch(0.22 0.012 150);
 }
 
@@ -2189,3 +2189,43 @@ input {
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* Search and results form one control; its scrollbar stays inside the surface. */
+.artist-exclusions { display: grid; gap: 10px; min-width: 0; }
+.artist-exclusions .mix-exclusion-help { margin: 0; color: var(--text-2); }
+.exclude-picker { border: 1px solid var(--hairline-strong); border-radius: 16px; background: var(--surface); overflow: hidden; min-width: 0; }
+.exclude-picker:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.exclude-search-field { display: flex; align-items: center; min-height: 46px; gap: 10px; padding-inline: 14px 6px; color: var(--text-2); }
+.exclude-search-field > svg { flex: none; }
+.exclude-search-field input { min-width: 0; width: 100%; height: 46px; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px; outline: none; box-shadow: none; border-radius: 0; }
+.exclude-search-field input::placeholder { color: var(--text-3); }
+.exclude-clear { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border: 0; border-radius: 10px; color: var(--text-2); background: transparent; cursor: pointer; }
+.exclude-results { border-top: 1px solid var(--hairline); padding: 5px; }
+.exclude-results-scroll { position: relative; max-height: 228px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; scrollbar-color: var(--text-3) transparent; border-radius: 10px; }
+.exclude-results-scroll::-webkit-scrollbar { width: 8px; }
+.exclude-results-scroll::-webkit-scrollbar-thumb { background: var(--text-3); border: 2px solid var(--surface); border-radius: 10px; }
+.exclude-result { display: flex; gap: 12px; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; padding: 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 14px; cursor: pointer; }
+.exclude-result > span { overflow-wrap: anywhere; }
+.exclude-result small { display: flex; flex: none; color: var(--text-2); font-size: 12px; }
+.exclude-result:is(:hover,.is-active), .exclude-clear:hover { background: var(--surface-2); }
+.exclude-result[aria-disabled=true] { cursor: default; color: var(--text-3); }
+.exclude-search-status { padding: 8px 10px; color: var(--text-2); font-size: 12px; line-height: 1.5; }
+.exclude-search-status button { font: inherit; color: var(--accent-ink); background: transparent; border: 0; cursor: pointer; text-decoration: underline; }
+.exclude-selected { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.exclude-chip { display: flex; gap: 8px; align-items: center; max-width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid var(--hairline-strong); border-radius: 20px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.exclude-chip span { overflow-wrap: anywhere; min-width: 0; }
+.exclude-chip svg { flex: none; }
+.exclude-chip:hover { border-color: var(--text-2); }
+.exclude-chip:focus-visible, .exclude-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.mix-singers { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--text-3) transparent; }
+.exclude-selected .filter-clear-inline { min-height: 40px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.exclude-selected .filter-clear-inline:hover { color: var(--text); }
+
+/* The viewport gutters share the active room's hue on ultrawide displays. */
+html:has(.app-shell[data-difficulty='easy']) { --page-hue: 150; }
+html:has(.app-shell[data-difficulty='medium']) { --page-hue: 90; }
+html:has(.app-shell[data-difficulty='hard']) { --page-hue: 50; }
+html:has(.app-shell[data-difficulty='expert']) { --page-hue: 25; }
+html:has(.app-shell[data-difficulty='impossible']) { --page-hue: 300; }
+html, body, #root { transition: background 420ms cubic-bezier(.22,1,.36,1); }
+@media (prefers-reduced-motion: reduce) { html, body, #root { transition: none; } }

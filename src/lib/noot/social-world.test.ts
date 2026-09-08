@@ -124,3 +124,13 @@ test('finishing a group dance restores the game listening mood',()=>{
  const w=createSocialWorld('resume-music');w.step(0,roster);w.groupInteract('group-dance');advance(w,17,roster)
  for(const a of w.actors.values()){assert.equal(a.pose,'play');assert.equal(w.stateFor(a).mood,'dance');assert.equal(w.stateFor(a).danceTime,undefined)}
 })
+
+test('network-directed worlds wait for shared social events instead of independently starting play', () => {
+  const world = createSocialWorld('live-table')
+  const participants = ['a','b','c'].map(id => ({id,name:id,state:{pose:'idle' as const,difficulty:'easy' as const}}))
+  for (let i=0;i<1200;i++) world.step(1/60,participants,false,false)
+  assert.equal(world.activePlay,undefined)
+  world.groupInteract('group-dance')
+  world.step(1/60,participants,false,false)
+  assert.equal(world.activePlay,'group-dance')
+})

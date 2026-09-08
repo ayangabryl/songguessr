@@ -1,3 +1,4 @@
+import type { NootLiveChannel } from '../lib/noot/live-channel'
 import { useEffect, useRef, useState } from 'react'
 import { mountNootParty } from '../lib/noot/party-scene'
 import type { NootParticipant, PlayKind, GroupKind } from '../lib/noot/social-world'
@@ -5,16 +6,17 @@ import '../noot-loading.css'
 import '../noot-party.css'
 
 export interface PartyCommand { id: number; action: PlayKind | GroupKind | 'jump' | 'lift' | 'drop'; actor: string; friend?: string }
-export function NootParty({ participants, theme, paused, speed, command, onChoose, labelAction }: {
+export function NootParty({ participants, theme, paused, speed, command, onChoose, labelAction, network }: {
   participants: NootParticipant[]; theme: 'light' | 'dark'; paused?: boolean; speed?: number
+  network?: NootLiveChannel
   command?: PartyCommand; onChoose?: (id: string) => void; labelAction?: (id: string) => string
 }) {
   const canvas = useRef<HTMLCanvasElement>(null), controller = useRef<ReturnType<typeof mountNootParty> | null>(null)
-  const input = useRef({ participants, theme, paused, speed }), choose = useRef(onChoose)
+  const input = useRef({ participants, theme, paused, speed, network }), choose = useRef(onChoose)
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false), [attempt, setAttempt] = useState(0)
   const labels = useRef(new Map<string, HTMLSpanElement>())
-  useEffect(() => { input.current = { participants, theme, paused, speed }; choose.current = onChoose; controller.current?.wake() })
+  useEffect(() => { input.current = { participants, theme, paused, speed, network }; choose.current = onChoose; controller.current?.wake() })
   useEffect(() => {
     if (!canvas.current) return
     setReady(false); setFailed(false)
@@ -26,6 +28,7 @@ export function NootParty({ participants, theme, paused, speed, command, onChoos
     catch (error) { setFailed(true); console.warn('Noot shared stage unavailable', error) }
     return () => { controller.current?.dispose(); controller.current = null }
   }, [attempt])
+  useEffect(() => network?.subscribe(event => controller.current?.receive(event)), [network, attempt])
   useEffect(() => {
     if (!command || !controller.current || !ready) return
     if (command.action === 'lift') controller.current.lift(command.actor)

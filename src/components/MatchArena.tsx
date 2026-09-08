@@ -296,7 +296,7 @@ export function MatchArena({
       : entry?.solvedAt ? {id:entry.solvedAt,type:'success' as const}
       : entry?.lastAction === 'miss' ? {id:`${match?.roundId}:${entry.stage}`,type:'frustration' as const} : undefined;
     return {id:p.id,name:p.name,state:{...(p.id === playerId ? appearance : p.appearance ?? {}),
-      pose:entry?.status === 'solved' ? 'idle' : p.id === playerId && playing ? 'play' : 'idle',
+      pose:entry?.status === 'solved' ? 'idle' : (p.id === playerId ? playing : p.activity?.action === 'listening' && now + table.clockOffset - p.activity.at < 60000) ? 'play' : 'idle',
       eventId:entry?.solvedAt ?? p.joinedAt,difficulty:match?.difficulty ?? (difficulty === 'mixed' ? 'easy' : difficulty),theme},event};
   });
   const chooseNoot = (id: string) => {
@@ -304,7 +304,10 @@ export function MatchArena({
     else { table.greet(id); }
   };
   const sittingHistory = match ? matchSittingHistory(match, playerId) : [];
-  const companion = <NootParty participants={partyParticipants} theme={theme} onChoose={chooseNoot}
+  useEffect(() => {
+    if (table.live) table.reportActivity(playing ? 'listening' : 'idle', MATCH_STAGES[stage])
+  }, [playing, stage, table.live, table.reportActivity])
+  const companion = <NootParty participants={partyParticipants} theme={theme} network={table.nootChannel} onChoose={chooseNoot}
     labelAction={id => id === playerId ? 'Your outfit' : `Wave to ${party.find(p => p.id === id)?.name ?? 'your friend'}`}/>;
   const onlineCount = players.filter((p) => p.connected).length;
   async function copy() {

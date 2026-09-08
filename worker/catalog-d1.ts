@@ -8,7 +8,7 @@ import {
   type CatalogKind,
   type CountryCode,
 } from '../shared/catalog-meta'
-import { MIX_SINGER_LIMIT, uniqueArtistsByFame } from '../shared/catalog-artists'
+import { ARTIST_SEARCH_LIMIT, MIX_SINGER_LIMIT, uniqueArtistsByFame } from '../shared/catalog-artists'
 import { isSpotifyArtistPortrait } from './album-art'
 import { mapRequestedPoolTier, poolTierCaseSql } from './difficulty'
 import {
@@ -1240,7 +1240,7 @@ export async function searchCatalogArtists(
 ): Promise<CatalogArtistHit[]> {
   const db = requireDb(env)
   const normalized = query.trim().toLowerCase()
-  const cap = Math.min(Math.max(limit, 1), MIX_SINGER_LIMIT)
+  const cap = Math.min(Math.max(limit, 1), normalized ? ARTIST_SEARCH_LIMIT : MIX_SINGER_LIMIT)
   const scopedCollections = collections.filter(isCatalogKind)
 
   async function fromArtistsTable(): Promise<CatalogArtistHit[]> {

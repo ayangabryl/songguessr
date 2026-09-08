@@ -388,7 +388,9 @@ app.get('/api/catalog/artists', async (c) => {
   try {
     const query = c.req.query('q') ?? ''
     const filters = parseCatalogFilters(c)
-    const artists = await searchCatalogArtists(c.env, query, 5, filters.collections)
+    const artists = await searchCatalogArtists(c.env, query, query.trim() ? 50 : 5, filters.collections)
+    // Search must not wait on external portrait lookups; stored portraits are enough.
+    if (query.trim()) return c.json({ artists })
     const withFaces = await hydrateArtistPortraits(c.env.DB, artists)
     return c.json({ artists: withFaces })
   } catch (error) {

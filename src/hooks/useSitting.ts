@@ -1,3 +1,6 @@
+import { createNootLiveChannel } from '../lib/noot/live-channel'
+import type { NootLiveEvent } from '../../shared/noot-live'
+import { createSittingConnection } from '../lib/sitting-connection'
 import {useNootPreferences} from '../lib/noot/preferences'
 import { loadNootAsset } from '../lib/noot/asset'
 import { parseAppearance } from '../../shared/noot-profile'
@@ -77,10 +80,14 @@ export function useSitting() {
   const [pending, setPending] = useState<SittingPending>(null)
 
   const socketRef = useRef<WebSocket | null>(null)
+  const nootChannel = useMemo(() => createNootLiveChannel(packet => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(packet))
+  }, playerId), [playerId])
   const sentProfileRef = useRef('')
   const leaveRef = useRef(false)
-  const retryRef = useRef(0)
-  const connectRef = useRef<(nextCode: string, openingPoints: number) => void>(() => {})
+  const connectionRef = useRef<ReturnType<typeof createSittingConnection> | null>(null)
+  const requestRef = useRef(0)
+  const targetCodeRef = useRef<string | null>(null)
   const statusRef = useRef(status)
   statusRef.current = status
 
@@ -104,7 +111,6 @@ export function useSitting() {
       setError(null)
       setMessage(null)
       setSlow(false)
-      retryRef.current = 0
       setPending(null)
       saveLastSittingCode(payload.code)
       rememberSitters(
@@ -118,92 +124,40 @@ export function useSitting() {
   )
 
   const disconnectSocket = useCallback(() => {
-    const socket = socketRef.current
+    connectionRef.current?.dispose()
+    connectionRef.current = null
     socketRef.current = null
-    if (!socket) return
-    socket.onopen = null
-    socket.onmessage = null
-    socket.onerror = null
-    socket.onclose = null
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-      socket.close(1000, 'client')
-    }
   }, [])
 
-  const connect = useCallback(
-    (nextCode: string, openingPoints: number) => {
-      const parsedName = parseSittingName(name)
-      if (!parsedName.ok) {
-        fail(parsedName.error)
-        return
-      }
-      saveDisplayName(parsedName.name)
-      setName(parsedName.name)
-      leaveRef.current = false
-      setStatus('connecting')
-      setSlow(false)
-      disconnectSocket()
-      // Share the already-decoded model with the lobby before the roster arrives.
-      void loadNootAsset().catch(() => { /* The stage owns loading errors and retry. */ })
-      const socket = new WebSocket(sittingSocketUrl(nextCode, playerId, parsedName.name, openingPoints))
-      socketRef.current = socket
-      sentProfileRef.current = ''
-      socket.onopen = () => {
-        if (socketRef.current === socket) {
-          const profile = JSON.stringify({ type: 'pet-profile', appearance: parseAppearance(appearanceRef.current), name: parsedName.name })
-          socket.send(profile); sentProfileRef.current = profile
-        }
-      }
-      const slowTimer = window.setTimeout(() => setSlow(true), 1000)
-      const timeout = window.setTimeout(() => {
-        if (socketRef.current === socket && statusRef.current === 'connecting') {
-          disconnectSocket()
-          fail('timeout')
-        }
-      }, 8000)
-
-      socket.onmessage = (event) => {
-        window.clearTimeout(slowTimer)
-        window.clearTimeout(timeout)
-        let payload: StatePayload | ErrorPayload | null = null
-        try {
-          payload = JSON.parse(String(event.data)) as StatePayload | ErrorPayload
-        } catch {
-          return
-        }
-        if ((payload as {type:string}).type === 'match-error') {setMatchError((payload as {message:string}).message);return}
-        if (payload.type === 'state') {
-          applyBoard(payload)
-          return
-        }
-        if (payload.type === 'error') fail(payload.error, payload.message)
-      }
-      socket.onerror = () => {
-        /* onclose handles retry */
-      }
-      socket.onclose = () => {
-        window.clearTimeout(slowTimer)
-        window.clearTimeout(timeout)
-        if (socketRef.current === socket) socketRef.current = null
-        if (leaveRef.current) return
-        if (statusRef.current === 'connecting') {
-          fail(navigator.onLine ? 'server' : 'offline')
-          return
-        }
-        if (statusRef.current !== 'live') return
-        setStatus('connecting')
-        const delay = Math.min(8000, 500 * 2 ** retryRef.current)
-        retryRef.current += 1
-        window.setTimeout(() => {
-          if (leaveRef.current || statusRef.current === 'solo') return
-          connectRef.current(nextCode, 0)
-        }, delay)
-      }
-    },
-    [applyBoard, disconnectSocket, fail, name, playerId],
-  )
-
-  connectRef.current = connect
+  const connect = useCallback((nextCode: string, openingPoints: number) => {
+    const parsedName = parseSittingName(name)
+    if (!parsedName.ok) { fail(parsedName.error); return }
+    saveDisplayName(parsedName.name); setName(parsedName.name)
+    leaveRef.current = false; targetCodeRef.current = nextCode
+    disconnectSocket()
+    void loadNootAsset().catch(() => {})
+    sentProfileRef.current = ''
+    connectionRef.current = createSittingConnection({
+      url: sittingSocketUrl(nextCode, playerId, parsedName.name, openingPoints),
+      onSocket: socket => { socketRef.current = socket; if (!socket) nootChannel.reset() },
+      onOpen: socket => {
+        const profile = JSON.stringify({ type: 'pet-profile', appearance: parseAppearance(appearanceRef.current), name: parsedName.name })
+        socket.send(profile); sentProfileRef.current = profile
+      },
+      onConnecting: () => { setStatus('connecting'); setSlow(false); setError(null); setMessage(null) },
+      onSlow: () => setSlow(true),
+      onFailure: reason => {
+        if (reason === 'replaced') fail('server', 'This table is open in another tab. Reconnect here to switch back.')
+        else fail(reason)
+      },
+      onPayload: payload => {
+        if (payload.type === 'pet-motion' || payload.type === 'pet-social') { nootChannel.receive(payload as unknown as NootLiveEvent); return }
+        if (payload.type === 'state') applyBoard(payload as unknown as StatePayload)
+        else if (payload.type === 'match-error') setMatchError(String(payload.message))
+        else if (payload.type === 'error') fail((payload as unknown as ErrorPayload).error, String(payload.message))
+      },
+    })
+  }, [applyBoard, disconnectSocket, fail, name, playerId, nootChannel])
 
   const host = useCallback(
     async (openingPoints: number) => {
@@ -219,11 +173,14 @@ export function useSitting() {
       setStatus('connecting')
       setSlow(false)
       setPending('host')
+      const request = ++requestRef.current
       void loadNootAsset().catch(() => {})
       try {
         const created = await createSitting()
+        if (request !== requestRef.current) return
         connect(created.code, openingPoints)
       } catch (caught) {
+        if (request !== requestRef.current) return
         if (caught instanceof DOMException && caught.name === 'TimeoutError') {
           fail('timeout')
           return
@@ -257,15 +214,18 @@ export function useSitting() {
       setJoinCode(normalized)
       setStatus('connecting')
       setPending('join')
+      const request = ++requestRef.current
       void loadNootAsset().catch(() => {})
       try {
         const peek = await peekSitting(normalized, playerId)
+        if (request !== requestRef.current) return
         if (peek.full) {
           fail('room-full')
           return
         }
         connect(normalized, openingPoints)
       } catch (caught) {
+        if (request !== requestRef.current) return
         if (caught instanceof DOMException && caught.name === 'TimeoutError') {
           fail('timeout')
           return
@@ -282,7 +242,7 @@ export function useSitting() {
 
   const leave = useCallback(() => {
     leaveRef.current = true
-    retryRef.current = 0
+    requestRef.current++; targetCodeRef.current = null
     const socket = socketRef.current
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'leave' }))
@@ -318,7 +278,7 @@ export function useSitting() {
     if(socketRef.current?.readyState!==WebSocket.OPEN) {setMatchError('Reconnecting. Your progress is saved.');return}
     setMatchError(null);socketRef.current.send(JSON.stringify(command))
   },[])
-  const reportActivity = useCallback((action: 'skip'|'listening'|'solved'|'missed', stage: number) => {
+  const reportActivity = useCallback((action: 'skip'|'listening'|'solved'|'missed'|'idle', stage: number) => {
     if(socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({type:'activity',action,stage}))
   }, [])
 
@@ -338,9 +298,33 @@ export function useSitting() {
     }
     return () => {
       leaveRef.current = true
+      requestRef.current++
       disconnectSocket()
     }
   }, [disconnectSocket])
+
+  useEffect(() => {
+    const resume = () => { if (!leaveRef.current) connectionRef.current?.resume() }
+    const offline = () => connectionRef.current?.offline()
+    const visible = () => { if (!document.hidden) resume() }
+    window.addEventListener('online', resume)
+    window.addEventListener('offline', offline)
+    document.addEventListener('visibilitychange', visible)
+    return () => {
+      window.removeEventListener('online', resume)
+      window.removeEventListener('offline', offline)
+      document.removeEventListener('visibilitychange', visible)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (status !== 'live') return
+    const pulse = () => {
+      if (!document.hidden && socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({type:'pet-pulse'}))
+    }
+    const timer = window.setInterval(pulse, 15000)
+    return () => window.clearInterval(timer)
+  }, [status])
 
   const visiblePlayers = useMemo(() => filterPlayers(players, query), [players, query])
   const visibleFriends = useMemo(() => filterRecentSitters(friends, query), [friends, query])
@@ -349,6 +333,7 @@ export function useSitting() {
 
   return {
     playerId,
+    nootChannel: status === 'solo' ? undefined : nootChannel,
     match,matchError,clockOffset,sendMatch,greet,
     status,
     code,
@@ -372,7 +357,7 @@ export function useSitting() {
     host,
     join,
     leave,
-    reconnect:()=>{if(code)connect(code,0)},
+    reconnect:()=>{const target = targetCodeRef.current ?? code; if(target)connect(target,0)},
     reportScore,
     reportActivity,
     live: status === 'live',

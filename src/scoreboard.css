@@ -42,3 +42,6 @@
  .score-ledger .match-rank-notice{margin:8px 0 4px}
 }
 @media(prefers-reduced-motion:reduce){.score-ledger .match-rank-notice{animation:none}}
+
+.score-ledger .race-player .race-attempts { width: min(100%, 100px); padding: 2px 5px 10px 0; }
+.score-ledger .race-player:has(.race-attempts)>button { min-height: 32px; padding-bottom: 2px; }

@@ -146,7 +146,12 @@ export function prefetchCatalogArtists(): Promise<CatalogArtist[]> {
   return fetchCatalogArtists('')
 }
 
-export async function fetchCatalogArtists(
+/** Existing browse callers keep a cached fallback; searchable controls can show failures. */
+export function fetchCatalogArtists(query = '', collections: CatalogKind[] = []): Promise<CatalogArtist[]> {
+  return searchCatalogArtists(query, collections).catch(() => peekCatalogArtists(query, collections) ?? [])
+}
+
+export async function searchCatalogArtists(
   query = '',
   collections: CatalogKind[] = [],
 ): Promise<CatalogArtist[]> {
@@ -169,13 +174,11 @@ export async function fetchCatalogArtists(
         params.set('catalogs', collections.join(','))
       }
       const suffix = params.toString() ? `?${params.toString()}` : ''
-      const response = await fetch(`/api/catalog/artists${suffix}`)
+      const response = await fetch(`/api/catalog/artists${suffix}`, { signal: AbortSignal.timeout(8000) })
       const data = await parseJson<{ artists: CatalogArtist[] }>(response)
       const artists = data.artists ?? []
       artistListCache.set(key, artists)
       return artists
-    } catch {
-      return artistListCache.get(key) ?? []
     } finally {
       artistListInflight.delete(key)
     }

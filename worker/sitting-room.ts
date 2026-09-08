@@ -1,3 +1,4 @@
+import { createNootRelay, parseNootMotion, type NootLiveEvent } from '../shared/noot-live'
 import {parseAppearance} from '../shared/noot-profile'
 import { DurableObject } from 'cloudflare:workers'
 import {
@@ -52,6 +53,7 @@ function statusFor(error: SittingError): number {
 }
 
 export class SittingRoom extends DurableObject<Env> {
+  private nootRelay = createNootRelay()
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -105,7 +107,29 @@ export class SittingRoom extends DurableObject<Env> {
       return
     }
     const text = typeof message === 'string' ? message : ''
+    if (text.length > 8192) return
     let pet:Record<string,unknown>={};try{pet=JSON.parse(text)}catch{/* Invalid message. */}
+    if (pet?.type === 'pet-motion') {
+      const motion = parseNootMotion(pet)
+      if (!motion) return
+      const members = this.withConnections(this.loadState()).players.filter(p => p.connected).map(p => p.id)
+      const event = this.nootRelay.accept(attachment.playerId, motion, members, Date.now())
+      if (event) this.broadcastNoot(event)
+      else if (motion.action === 'lift') ws.send(JSON.stringify({...motion, action:'drop', from:'server', at:Date.now(), vx:0, vy:0}))
+      return
+    }
+    if (pet?.type === 'pet-pulse') {
+      const members = this.withConnections(this.loadState()).players.filter(p => p.connected).map(p => p.id)
+      if (!members.includes(attachment.playerId) || members.length < 2) return
+      const now = Date.now(), slot = Math.floor(now / 15000)
+      const previous = await this.ctx.storage.get<number>('pet-social-slot') ?? -1
+      if (slot <= previous) return
+      await this.ctx.storage.put('pet-social-slot', slot)
+      const actions = ['hello','high-five','dance','boop','group-dance','wave-chain'] as const
+      const index = slot % (members.length - 1)
+      this.broadcastNoot({type:'pet-social', at:now, actor:members[index], friend:members[index+1], action:actions[slot % actions.length]})
+      return
+    }
     if(pet?.type==='pet-profile') {
       const current=this.withConnections(this.loadState())
       if(!current.players.some(p=>p.id===attachment.playerId))return
@@ -142,7 +166,6 @@ export class SittingRoom extends DurableObject<Env> {
     const state = this.withConnections(this.loadState())
     switch (parsed.type) {
       case 'activity': {
-        if(await this.ctx.storage.get('match'))return
         if (!state.players.some(player=>player.id===attachment.playerId)) return
         const activity = {action:parsed.action,stage:parsed.stage,at:Date.now()}
         await this.ctx.storage.put(`activity:${attachment.playerId}`,activity)
@@ -192,8 +215,9 @@ export class SittingRoom extends DurableObject<Env> {
   private async closePlayer(ws: WebSocket): Promise<void> {
     const attachment = ws.deserializeAttachment() as SocketAttachment | null
     if (!attachment?.playerId) return
-    const stillOpen = this.ctx.getWebSockets(attachment.playerId).some((socket) => socket !== ws)
+    const stillOpen = this.ctx.getWebSockets(attachment.playerId).some((socket) => socket !== ws && socket.readyState === 1)
     if (stillOpen) return
+    for (const event of this.nootRelay.release(attachment.playerId, Date.now())) this.broadcastNoot(event)
     const result = applySittingEvent(this.withConnections(this.loadState()), { type: 'disconnect', id: attachment.playerId })
     if (!result.ok) return
     this.saveState(result.state)
@@ -274,13 +298,15 @@ export class SittingRoom extends DurableObject<Env> {
     await this.ctx.storage.put(`seat:${playerId}`,token)
     const pair = new WebSocketPair()
     const [client, server] = Object.values(pair)
+    for (const event of this.nootRelay.release(playerId, Date.now())) this.broadcastNoot(event)
     for (const existing of this.ctx.getWebSockets(playerId)) {
-      existing.close(1000, 'replaced')
+      existing.close(4001, 'replaced')
     }
     this.ctx.acceptWebSocket(server, [playerId])
     server.serializeAttachment({ playerId } satisfies SocketAttachment)
     this.saveState({ ...result.state, code })
     await this.broadcast(result.state)
+    for (const event of this.nootRelay.snapshot(Date.now())) server.send(JSON.stringify(event))
     return new Response(null, { status: 101, webSocket: client })
   }
 
@@ -337,13 +363,20 @@ export class SittingRoom extends DurableObject<Env> {
   private withConnections(state: SittingState): SittingState {
     const live = new Set(
       this.ctx
-        .getWebSockets()
+        .getWebSockets().filter(socket => socket.readyState === 1)
         .map((socket) => (socket.deserializeAttachment() as SocketAttachment | null)?.playerId)
         .filter((id): id is string => Boolean(id)),
     )
     return {
       ...state,
       players: state.players.map((player) => ({ ...player, connected: live.has(player.id) })),
+    }
+  }
+
+  private broadcastNoot(event: NootLiveEvent) {
+    const payload = JSON.stringify(event)
+    for (const socket of this.ctx.getWebSockets()) {
+      try { socket.send(payload) } catch { /* A closing peer will reconnect with saved match state. */ }
     }
   }
 
