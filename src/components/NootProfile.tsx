@@ -15,6 +15,7 @@ const categories = [
   { key: 'eyewear', label: 'Eyes', icon: Glasses },
   { key: 'clothing', label: 'Outfit', icon: Shirt },
   { key: 'footwear', label: 'Feet', icon: Footprints },
+  { key: 'looks', label: 'Looks', icon: Sparkles },
 ] as const
 const items: Record<Slot, { id: string; label: string; detail: string; icon?: typeof Shirt }[]> = {
   headgear: [
@@ -79,35 +80,57 @@ function ItemIcon({ slot, id, Icon }: { slot: Slot; id: string; Icon?: typeof Sh
 export function NootProfile({ onClose, welcome = false }: { onClose: () => void; welcome?: boolean }) {
   const [appearance, update, persisted] = useNootPreferences()
   const [name, setName] = useState(loadDisplayName), [error, setError] = useState('')
-  const [pet, setPet] = useState(0), [view, setView] = useState(0), [slot, setSlot] = useState<Slot>('clothing'), [colorPart, setColorPart] = useState<'main' | 'accent'>('main')
-  const nameInput = useRef<HTMLInputElement>(null), rail = useRef<HTMLDivElement>(null), strip = useRef<HTMLDivElement>(null), editor = useRef<HTMLElement>(null)
+  const [pet, setPet] = useState(0), [view, setView] = useState(0)
+  const [category, setCategory] = useState<Slot | 'looks'>('clothing')
+  const [panel, setPanel] = useState<'items' | 'colors'>('items')
+  const [colorPart, setColorPart] = useState<'main' | 'accent'>('main')
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 700px)').matches)
+  const nameInput = useRef<HTMLInputElement>(null), rail = useRef<HTMLDivElement>(null)
+  const strip = useRef<HTMLDivElement>(null), editor = useRef<HTMLDivElement>(null), restoreFocus = useRef(false)
+  const colorBack = useRef<HTMLButtonElement>(null)
   const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+  const slot = category === 'looks' ? 'clothing' : category
   const options = items[slot], selectedIndex = Math.max(0, options.findIndex(o => o.id === (appearance[slot] ?? 'none'))), selected = options[selectedIndex]
   const hasAccent = slot === 'clothing' && NOOT_TAILORED.some(id => id === appearance.clothing)
   const editingAccent = hasAccent && colorPart === 'accent'
   const colorKey = editingAccent ? 'trimColor' : slot === 'headgear' ? 'headColor' : slot === 'footwear' ? 'shoeColor' : 'accessoryColor'
   const color = appearance[colorKey] ?? (editingAccent ? '#eee7d7' : appearance.accessoryColor)
-  const canColor = slot === 'clothing' ? selected.id !== 'none' : slot === 'footwear' ? selected.id !== 'none' : slot === 'headgear' && ['beanie', 'bucket'].includes(selected.id)
-  useEffect(() => { if (editor.current) editor.current.scrollTop = 0 }, [slot])
+  const canColor = slot === 'clothing' || slot === 'footwear' ? selected.id !== 'none' : slot === 'headgear' && ['beanie', 'bucket'].includes(selected.id)
+  const colorLabel = Object.hasOwn(NOOT_COLORS, color) ? NOOT_COLORS[color as keyof typeof NOOT_COLORS].label : 'Custom'
+  const categoryTitle = { headgear: 'Headwear', eyewear: 'Eyewear', clothing: 'Outfits', footwear: 'Footwear', looks: 'Complete looks' }[category]
   useEffect(() => {
-    const row = strip.current, item = row?.children[selectedIndex] as HTMLElement | undefined
-    if (!row || !item) return
-    const bounds = row.getBoundingClientRect(), selectedBounds = item.getBoundingClientRect()
-    if (selectedBounds.left < bounds.left + 3) row.scrollLeft += selectedBounds.left - bounds.left - 3
-    else if (selectedBounds.right > bounds.right - 3) row.scrollLeft += selectedBounds.right - bounds.right + 3
-  }, [slot, selectedIndex])
+    const media = window.matchMedia('(max-width: 700px)')
+    const change = () => setNarrow(media.matches)
+    media.addEventListener('change', change)
+    return () => media.removeEventListener('change', change)
+  }, [])
+  useEffect(() => {
+    const scroller = editor.current
+    if (!scroller) return
+    scroller.scrollTop = 0
+    if (panel === 'colors') colorBack.current?.focus({ preventScroll: true })
+  }, [category, panel])
+  useEffect(() => {
+    const scroller = editor.current, item = strip.current?.children[selectedIndex] as HTMLElement | undefined
+    if (!scroller || !item || panel !== 'items' || category === 'looks') return
+    const bounds = scroller.getBoundingClientRect(), selectedBounds = item.getBoundingClientRect()
+    if (selectedBounds.top < bounds.top) scroller.scrollTop += selectedBounds.top - bounds.top - 4
+    else if (selectedBounds.bottom > bounds.bottom) scroller.scrollTop += selectedBounds.bottom - bounds.bottom + 4
+    if (restoreFocus.current) { item.focus({ preventScroll: true }); restoreFocus.current = false }
+  }, [category, panel, selectedIndex, narrow])
+  function selectCategory(value: Slot | 'looks') { setCategory(value); setPanel('items'); setColorPart('main') }
   function choose(index: number, focus = false) {
     const i = (index + options.length) % options.length
     update({ [slot]: options[i].id } as Partial<NootAppearance>)
     if (focus) (strip.current?.children[i] as HTMLElement)?.focus({ preventScroll: true })
   }
   function itemKeys(e: KeyboardEvent, index: number) {
-    const next = e.key === 'ArrowRight' ? index + 1 : e.key === 'ArrowLeft' ? index - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : undefined
+    const next = ['ArrowRight', 'ArrowDown'].includes(e.key) ? index + 1 : ['ArrowLeft', 'ArrowUp'].includes(e.key) ? index - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : undefined
     if (next !== undefined) { e.preventDefault(); choose(next, true) }
   }
   function categoryKeys(e: KeyboardEvent, index: number) {
-    const next = e.key === 'ArrowDown' ? (index + 1) % categories.length : e.key === 'ArrowUp' ? (index + categories.length - 1) % categories.length : e.key === 'Home' ? 0 : e.key === 'End' ? categories.length - 1 : undefined
-    if (next !== undefined) { e.preventDefault(); setSlot(categories[next].key); (rail.current?.children[next] as HTMLElement)?.focus() }
+    const next = ['ArrowRight', 'ArrowDown'].includes(e.key) ? (index + 1) % categories.length : ['ArrowLeft', 'ArrowUp'].includes(e.key) ? (index + categories.length - 1) % categories.length : e.key === 'Home' ? 0 : e.key === 'End' ? categories.length - 1 : undefined
+    if (next !== undefined) { e.preventDefault(); selectCategory(categories[next].key); (rail.current?.children[next] as HTMLElement)?.focus() }
   }
   function save() {
     const result = parseSittingName(name)
@@ -117,38 +140,46 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
   function tint(value: NootColor) { if (value !== color) update({ [colorKey]: value }) }
   return <div className="app-shell profile-shell wardrobe-shell" data-theme={theme} data-difficulty="easy" data-welcome={welcome}>
     <SettingsSheet open onClose={onClose} title={welcome ? 'Meet your Noot' : 'Your wardrobe'} closeLabel="Close customization">
-      <div className="wardrobe-stage">
-        <div className="wardrobe-categories" ref={rail} role="tablist" aria-label="Customize from head to foot" aria-orientation="vertical">
-          {categories.map(({ key, label, icon: Icon }, i) => <button key={key} type="button" role="tab" id={`wardrobe-tab-${key}`} aria-controls="wardrobe-items" aria-selected={slot === key} tabIndex={slot === key ? 0 : -1} onClick={() => { setSlot(key); if (editor.current) editor.current.scrollTop = 0 }} onKeyDown={e => categoryKeys(e, i)}><Icon size={25} strokeWidth={1.6} aria-hidden="true" /><span>{label}</span></button>)}
-        </div>
-        <div className="wardrobe-model">
-          <button type="button" className="wardrobe-pet mascot" aria-label="See an outfit gesture" onClick={() => setPet(p => p + 1)}>
-            <Noot3D {...appearance} viewYaw={view} pose={pet ? 'outfit' : 'idle'} eventId={pet} difficulty="easy" theme={theme} />
-          </button>
-          <div className="wardrobe-angles" role="group" aria-label="Preview angle">
-            {[[0, 'Front'], [.72, 'Turn'], [Math.PI, 'Back']].map(([angle, label]) => <button type="button" key={label} aria-pressed={view === angle} onClick={() => setView(Number(angle))}>{label === 'Turn' && <RotateCcw size={13} aria-hidden="true" />}{label}</button>)}
-          </div>
-          <span className="wardrobe-hint">Tap Noot to show it off</span>
-        </div>
+      <div className="wardrobe-categories" ref={rail} role="tablist" aria-label="Customize from head to foot" aria-orientation={narrow ? 'horizontal' : 'vertical'}>
+        {categories.map(({ key, label, icon: Icon }, i) => <button key={key} type="button" role="tab" aria-label={label} title={label} id={`wardrobe-tab-${key}`} aria-controls="wardrobe-items" aria-selected={category === key} tabIndex={category === key ? 0 : -1} onClick={() => selectCategory(key)} onKeyDown={e => categoryKeys(e, i)}><Icon size={24} strokeWidth={1.6} aria-hidden="true" /><span>{label}</span></button>)}
       </div>
-      <section className="wardrobe-editor" ref={editor} role="tabpanel" id="wardrobe-items" aria-labelledby={`wardrobe-tab-${slot}`}>
-        <div className="wardrobe-selection"><div><span className="wardrobe-eyebrow">{categories.find(c => c.key === slot)!.label} · {selectedIndex + 1} / {options.length}</span><h3>{selected.label}</h3></div><div className="wardrobe-stepper"><button type="button" aria-label="Previous item" onClick={() => choose(selectedIndex - 1)}><ChevronLeft size={18} /></button><button type="button" aria-label="Next item" onClick={() => choose(selectedIndex + 1)}><ChevronRight size={18} /></button></div></div>
-        <p className="wardrobe-description">{selected.detail}</p>
-        <div className="wardrobe-item-strip" ref={strip} role="radiogroup" aria-label={`${categories.find(c => c.key === slot)!.label} items`}>
-          {options.map((item, i) => <button key={item.id} type="button" role="radio" aria-checked={i === selectedIndex} tabIndex={i === selectedIndex ? 0 : -1} onClick={() => choose(i)} onKeyDown={e => itemKeys(e, i)}><ItemIcon slot={slot} id={item.id} Icon={item.icon} /><span>{item.label}</span>{i === selectedIndex && <Check size={12} className="wardrobe-equipped" aria-hidden="true" />}</button>)}
+      <div className="wardrobe-stage">
+        <button type="button" className="wardrobe-pet mascot" aria-label="See an outfit gesture" onClick={() => setPet(p => p + 1)}>
+          <Noot3D {...appearance} viewYaw={view} pose={pet ? 'outfit' : 'idle'} eventId={pet} difficulty="easy" theme={theme} />
+        </button>
+        <div className="wardrobe-angles" role="group" aria-label="Preview angle">
+          {[[0, 'Front'], [.72, 'Turn'], [Math.PI, 'Back']].map(([angle, label]) => <button type="button" key={label} aria-pressed={view === angle} onClick={() => setView(Number(angle))}>{label === 'Turn' && <RotateCcw size={14} aria-hidden="true" />}{label}</button>)}
         </div>
-        {hasAccent && <div className="wardrobe-color-parts" role="group" aria-label="Color section"><button type="button" aria-pressed={!editingAccent} onClick={() => setColorPart('main')}>Fabric</button><button type="button" aria-pressed={editingAccent} onClick={() => setColorPart('accent')}>Details</button></div>}
-        {canColor && <fieldset className="wardrobe-colors"><legend>{editingAccent ? 'Detail color' : slot === 'headgear' ? 'Hat color' : slot === 'footwear' ? 'Shoe color' : 'Fabric color'}<span>{Object.hasOwn(NOOT_COLORS, color) ? NOOT_COLORS[color as keyof typeof NOOT_COLORS].label : editingAccent && !appearance.trimColor ? 'Warm cream' : 'Custom'}</span><label className="wardrobe-custom" title="Choose any color"><Palette size={20} aria-hidden="true" /><input type="color" aria-label="Custom color" value={nootColorHex(color)} onInput={e => tint(e.currentTarget.value as NootColor)} onChange={e => tint(e.target.value as NootColor)} /></label></legend><div className="wardrobe-palette">
-          {Object.entries(NOOT_COLORS).map(([value, swatch]) => <button type="button" key={value} aria-label={swatch.label} title={swatch.label} aria-pressed={color === value} style={{ '--swatch': swatch.hex } as CSSProperties} onClick={() => tint(value as NootColor)}>{color === value && <Check size={15} aria-hidden="true" />}</button>)}
-
-        </div></fieldset>}
-        {slot === 'clothing' && canColor && !editingAccent && <div className="wardrobe-patterns" role="group" aria-label="Fabric pattern">{patterns.map(([value, label]) => <button type="button" key={value} aria-pressed={appearance.pattern === value} onClick={() => update({ pattern: value })}><i aria-hidden="true" data-pattern={value} />{label}</button>)}</div>}
-        <div className="wardrobe-looks"><span><Sparkles size={14} aria-hidden="true" />Try a whole look</span><div>{looks.map(look => <button key={look.label} type="button" onClick={() => { update(look.outfit); setSlot('clothing'); setColorPart('main'); if (editor.current) editor.current.scrollTop = 0; setPet(p => p + 1) }}><i style={{ background: look.color }} aria-hidden="true" />{look.label}</button>)}</div></div>
+        <span className="wardrobe-hint">Tap Noot to show it off</span>
+      </div>
+      <section className="wardrobe-editor" role="tabpanel" id="wardrobe-items" aria-labelledby={`wardrobe-tab-${category}`}>
+        <div className="wardrobe-selection">
+          <div><h3>{panel === 'colors' ? selected.label : categoryTitle}</h3><span className="wardrobe-eyebrow">{panel === 'colors' ? 'Make it yours' : category === 'looks' ? 'A whole outfit, in one tap' : `${options.length} to try on`}</span></div>
+          {category !== 'looks' && canColor && panel === 'items' && <button type="button" className="wardrobe-edit-color" aria-label={slot === 'clothing' ? 'Edit color and pattern' : 'Edit color'} onClick={() => setPanel('colors')}><Palette size={18}/><span>Color</span><ChevronRight size={15}/></button>}
+          {panel === 'colors' && <button ref={colorBack} type="button" aria-label="Back to items" className="wardrobe-edit-color" onClick={() => { restoreFocus.current = true; setPanel('items') }}><ChevronLeft size={16}/><span>Items</span></button>}
+        </div>
+        <div className="wardrobe-scroll" ref={editor}>
+          {category === 'looks' ? <div className="wardrobe-look-list" aria-label="Complete looks">
+            {looks.map(look => {
+              const equipped = Object.entries(look.outfit).every(([key, value]) => appearance[key as keyof NootAppearance] === value)
+              return <button key={look.label} type="button" aria-pressed={equipped} onClick={() => { update(look.outfit); setPet(p => p + 1) }}><i style={{ '--look-color': look.color } as CSSProperties} aria-hidden="true"><ItemIcon slot="clothing" id={look.outfit.clothing ?? 'none'}/></i><span>{look.label}<small>{items.clothing.find(item => item.id === look.outfit.clothing)?.label} · {items.footwear.find(item => item.id === look.outfit.footwear)?.label}</small></span>{equipped ? <Check size={18} aria-hidden="true"/> : <ChevronRight size={16} aria-hidden="true"/>}</button>
+            })}
+          </div> : panel === 'items' ? <div className="wardrobe-item-list" ref={strip} role="radiogroup" aria-label={`${categories.find(c => c.key === slot)!.label} items`}>
+            {options.map((item, i) => <button key={item.id} type="button" role="radio" aria-checked={i === selectedIndex} tabIndex={i === selectedIndex ? 0 : -1} onClick={() => choose(i)} onKeyDown={e => itemKeys(e, i)}><span className="wardrobe-item-icon"><ItemIcon slot={slot} id={item.id} Icon={item.icon}/></span><span>{item.label}</span>{i === selectedIndex && <Check size={18} className="wardrobe-equipped" aria-hidden="true"/>}</button>)}
+          </div> : <div className="wardrobe-color-editor">
+            {hasAccent && <div className="wardrobe-color-parts" role="group" aria-label="Color section"><button type="button" aria-pressed={!editingAccent} onClick={() => setColorPart('main')}>Fabric</button><button type="button" aria-pressed={editingAccent} onClick={() => setColorPart('accent')}>Details</button></div>}
+            <fieldset className="wardrobe-colors"><legend>{editingAccent ? 'Detail color' : slot === 'headgear' ? 'Hat color' : slot === 'footwear' ? 'Shoe color' : 'Fabric color'}<span>{colorLabel}</span></legend><div className="wardrobe-palette">
+              {Object.entries(NOOT_COLORS).map(([value, swatch]) => <button type="button" key={value} aria-label={swatch.label} title={swatch.label} aria-pressed={color === value} style={{ '--swatch': swatch.hex } as CSSProperties} onClick={() => tint(value as NootColor)}>{color === value && <Check size={16} aria-hidden="true"/>}</button>)}
+            </div></fieldset>
+            <label className="wardrobe-custom"><Palette size={18} aria-hidden="true"/><span>Choose any color</span><span className="wardrobe-custom-chip" style={{background:nootColorHex(color)}}/><input type="color" aria-label="Custom color" value={nootColorHex(color)} onInput={e => tint(e.currentTarget.value as NootColor)} onChange={e => tint(e.target.value as NootColor)}/></label>
+            {slot === 'clothing' && !editingAccent && <fieldset className="wardrobe-patterns"><legend>Pattern</legend><div role="group" aria-label="Fabric pattern">{patterns.map(([value, label]) => <button type="button" key={value} aria-pressed={appearance.pattern === value} onClick={() => update({pattern:value})}><i aria-hidden="true" data-pattern={value}/>{label}</button>)}</div></fieldset>}
+          </div>}
+        </div>
       </section>
       <form className="wardrobe-footer" onSubmit={e => { e.preventDefault(); save() }}>
-        <label className="wardrobe-name"><span>Your name</span><input ref={nameInput} value={name} onChange={e => { setName(e.target.value); setError('') }} maxLength={24} autoComplete="nickname" placeholder="Your name" aria-invalid={Boolean(error)} aria-describedby={error ? 'profile-name-error' : undefined} /></label>
-        <span className="wardrobe-save-note">{persisted && <Check size={14} aria-hidden="true" />} {persisted ? 'Outfit saved on this device' : 'Kept for this session'}</span>
-        <button type="submit" className="wardrobe-done">{welcome ? 'Start listening' : 'Back to game'}<ArrowRight size={18} aria-hidden="true" /></button>
+        <label className="wardrobe-name"><span>Your name</span><input ref={nameInput} value={name} onChange={e => { setName(e.target.value); setError('') }} maxLength={24} autoComplete="nickname" placeholder="Your name" aria-invalid={Boolean(error)} aria-describedby={error ? 'profile-name-error' : undefined}/></label>
+        <span className="wardrobe-save-note">{persisted && <Check size={14} aria-hidden="true"/>}{persisted ? 'Outfit saved on this device' : 'Kept for this session'}</span>
+        <button type="submit" className="wardrobe-done">{welcome ? 'Start listening' : 'Done'}<ArrowRight size={18} aria-hidden="true"/></button>
         {error && <p id="profile-name-error" role="alert">{error}</p>}
       </form>
     </SettingsSheet>

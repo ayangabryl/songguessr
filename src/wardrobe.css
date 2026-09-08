@@ -1,88 +1,124 @@
-/* Character-first wardrobe: spatial slots, one item strip, contextual controls. */
-.profile-shell.wardrobe-shell *{box-sizing:border-box}
-.profile-shell.wardrobe-shell .sheet-overlay{display:flex;align-items:center;justify-content:center;padding:0}
-
-.profile-shell.wardrobe-shell .settings-sheet{box-sizing:border-box;display:block;padding:0;width:min(960px,calc(100vw - 32px));max-height:calc(100dvh - 40px);border-radius:24px;background:var(--canvas);overflow:auto;scrollbar-width:thin;scrollbar-color:var(--hairline-strong) transparent}
-.profile-shell.wardrobe-shell .settings-sheet-head{padding:24px 28px 12px;margin:0;position:sticky;top:0;background:var(--canvas);z-index:2}
-.profile-shell.wardrobe-shell .settings-sheet-head h2{font:400 40px/1.1 var(--font-display);letter-spacing:-.025em}
-.profile-shell.wardrobe-shell .settings-sheet-body{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);gap:20px 28px;box-sizing:border-box;padding:12px 28px 24px;overflow:visible;max-height:none}
-.profile-shell.wardrobe-shell button,.profile-shell.wardrobe-shell input{font-family:var(--font)}
-.profile-shell.wardrobe-shell button{cursor:pointer;-webkit-tap-highlight-color:transparent}
-.profile-shell.wardrobe-shell button:focus-visible,.profile-shell.wardrobe-shell input:focus-visible,.profile-shell.wardrobe-shell .wardrobe-custom:focus-within{outline:2px solid var(--accent);outline-offset:3px}
-.profile-shell.wardrobe-shell .wardrobe-stage{display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px;align-items:center;align-self:start;position:sticky;top:80px}
-.profile-shell.wardrobe-shell .wardrobe-categories{display:flex;flex-direction:column;gap:12px;position:relative;z-index:1}
-.profile-shell.wardrobe-shell .wardrobe-categories button{width:64px;min-height:68px;border:1px solid transparent;background:transparent;color:var(--text-2);border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:11px;font-weight:600}
-.profile-shell.wardrobe-shell .wardrobe-categories button[aria-selected=true]{color:var(--accent);background:var(--surface-2);border-color:var(--hairline-strong)}
-.profile-shell.wardrobe-shell .wardrobe-categories button:hover{background:var(--surface-2)}
-.profile-shell.wardrobe-shell .wardrobe-model{min-width:0;text-align:center}
-.profile-shell.wardrobe-shell .wardrobe-pet.mascot{position:relative;display:block;width:100%;height:350px;padding:0;margin:0;border:0;background:transparent;cursor:pointer}
-.profile-shell.wardrobe-shell .wardrobe-pet .noot-3d{width:100%;height:100%}
-.profile-shell.wardrobe-shell .wardrobe-angles{display:flex;justify-content:center;gap:4px;margin:8px 0 4px}
-.profile-shell.wardrobe-shell .wardrobe-angles button{min-width:54px;min-height:44px;padding:8px 10px;display:flex;align-items:center;justify-content:center;gap:4px;background:transparent;border:1px solid transparent;color:var(--text-2);border-radius:12px;font-size:12px}
-.profile-shell.wardrobe-shell .wardrobe-angles button[aria-pressed=true]{background:var(--surface);border-color:var(--hairline);color:var(--text)}
-.profile-shell.wardrobe-shell .wardrobe-hint{font-size:11px;color:var(--text-2)}
-.profile-shell.wardrobe-shell .wardrobe-editor{min-width:0;padding-top:14px}
-.profile-shell.wardrobe-shell .wardrobe-selection{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.profile-shell.wardrobe-shell .wardrobe-eyebrow{font-size:11px;color:var(--text-2);font-variant-numeric:tabular-nums}
-.profile-shell.wardrobe-shell .wardrobe-selection h3{font:500 22px/1.3 var(--font);letter-spacing:-.045em;margin:5px 0 0;color:var(--text)}
-.profile-shell.wardrobe-shell .wardrobe-stepper{display:flex;gap:2px}.profile-shell.wardrobe-shell .wardrobe-stepper button{width:44px;height:44px;display:grid;place-items:center;border:1px solid var(--hairline);background:var(--surface);color:var(--text);border-radius:50%}
-.profile-shell.wardrobe-shell .wardrobe-stepper button:hover{background:var(--surface-2)}
-.profile-shell.wardrobe-shell .wardrobe-description{font-size:12px;color:var(--text-2);line-height:1.5;margin:8px 0 16px;min-height:18px}
-.profile-shell.wardrobe-shell .wardrobe-item-strip{display:flex;gap:8px;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--hairline-strong) transparent;padding:4px 3px 10px;scroll-padding:3px;overscroll-behavior-x:contain}
-.profile-shell.wardrobe-shell .wardrobe-item-strip::-webkit-scrollbar{height:5px}.profile-shell.wardrobe-shell .wardrobe-item-strip::-webkit-scrollbar-thumb{background:var(--hairline-strong);border-radius:10px}
-.profile-shell.wardrobe-shell .wardrobe-item-strip>button{position:relative;flex:0 0 98px;min-height:86px;padding:12px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;border:1px solid var(--hairline);border-radius:16px;background:var(--surface);color:var(--text-2);font-size:10px;line-height:1.3}
-.profile-shell.wardrobe-shell .wardrobe-item-strip>button[aria-checked=true]{background:var(--surface-2);border-color:var(--accent);color:var(--accent)}
-.profile-shell.wardrobe-shell .wardrobe-item-strip>button:hover{border-color:var(--text-2)}
-.profile-shell.wardrobe-shell .wardrobe-equipped{position:absolute;top:7px;right:7px}
-.profile-shell.wardrobe-shell .wardrobe-colors{border:0;padding:0;margin:18px 0 0;min-width:0}
-.profile-shell.wardrobe-shell .wardrobe-colors legend{display:flex;width:100%;justify-content:space-between;gap:8px;font-size:12px;font-weight:600;margin:0 0 8px;padding:0;align-items:center}
-.profile-shell.wardrobe-shell .wardrobe-colors legend span{font-size:11px;font-weight:400;color:var(--text-2);margin-left:auto}
-.profile-shell.wardrobe-shell .wardrobe-palette{display:flex;flex-wrap:wrap;gap:0;align-items:center}
-.profile-shell.wardrobe-shell .wardrobe-palette>button,.profile-shell.wardrobe-shell .wardrobe-custom{position:relative;width:calc(100% / 11);height:40px;flex:0 0 calc(100% / 11);display:grid;place-items:center;background:none;border:0;border-radius:10px;color:white;padding:0}
-.profile-shell.wardrobe-shell .wardrobe-palette>button:before{content:'';position:absolute;inset:7px 6px;border-radius:50%;background:var(--swatch);border:1px solid #00000016}
-.profile-shell.wardrobe-shell .wardrobe-palette>button[aria-pressed=true]:after{content:'';position:absolute;inset:3px 2px;border:1px solid var(--text);border-radius:50%}
-.profile-shell.wardrobe-shell .wardrobe-palette>button svg{position:relative;filter:drop-shadow(0 1px 1px #0008)}
-.profile-shell.wardrobe-shell .wardrobe-colors legend .wardrobe-custom{width:32px;height:32px;flex:0 0 32px}
-.profile-shell.wardrobe-shell .wardrobe-custom{cursor:pointer;color:var(--text-2)}.profile-shell.wardrobe-shell .wardrobe-custom input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0;border:0}
-.profile-shell.wardrobe-shell .wardrobe-patterns{display:flex;gap:4px;flex-wrap:wrap;margin-top:12px}
-.profile-shell.wardrobe-shell .wardrobe-patterns button{min-height:44px;padding:7px 8px;display:flex;align-items:center;gap:5px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--text-2);font-size:10px}
-.profile-shell.wardrobe-shell .wardrobe-patterns button[aria-pressed=true]{border-color:var(--hairline-strong);background:var(--surface);color:var(--text)}
-.profile-shell.wardrobe-shell .wardrobe-patterns i{width:14px;height:14px;background:#91a39b;border:1px solid #64736930;border-radius:3px}
-.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=stripes]{background:repeating-linear-gradient(0deg,#91a39b 0 3px,#e9eee6 3px 5px)}
-.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=dots]{background:radial-gradient(#f4f5ee 1px,transparent 2px) 0 0/5px 5px #91a39b}
-.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=gingham]{background:repeating-conic-gradient(#91a39b 0% 25%,#e9eee6 0% 50%) 0 0/7px 7px}
-.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=confetti]{background:radial-gradient(#ebcd81 1px,transparent 2px) 0 0/6px 5px,radial-gradient(#f1dddd 1px,transparent 2px) 2px 2px/7px 6px #91a39b}
-.profile-shell.wardrobe-shell .wardrobe-looks{margin-top:20px;padding-top:16px;border-top:1px solid var(--hairline)}
-.profile-shell.wardrobe-shell .wardrobe-looks>span{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2);margin-bottom:8px}
-.profile-shell.wardrobe-shell .wardrobe-looks>div{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--hairline-strong) transparent;padding:3px 2px 8px}
-.profile-shell.wardrobe-shell .wardrobe-looks button{flex:0 0 auto;min-height:44px;display:flex;align-items:center;gap:6px;padding:8px;border:1px solid var(--hairline);border-radius:12px;background:var(--surface);color:var(--text);font-size:10px}
-.profile-shell.wardrobe-shell .wardrobe-looks i{width:9px;height:9px;border-radius:50%}
-.profile-shell.wardrobe-shell form.wardrobe-footer{grid-column:1/-1;display:flex;align-items:center;gap:16px;flex-wrap:wrap;border-top:1px solid var(--hairline);padding:16px 0 0;margin:0}
-.profile-shell.wardrobe-shell .wardrobe-name{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-2)}
-.profile-shell.wardrobe-shell .wardrobe-name input{width:120px;border:1px solid var(--hairline);border-radius:10px;background:var(--surface);color:var(--text);min-height:44px;padding:8px 12px;font-size:13px}
-.profile-shell.wardrobe-shell .wardrobe-save-note{display:flex;gap:5px;align-items:center;color:var(--text-2);font-size:10px;margin-left:auto}
-.profile-shell.wardrobe-shell .wardrobe-done{display:flex;align-items:center;justify-content:center;gap:16px;min-height:48px;border:0;border-radius:999px;background:var(--accent);color:var(--on-accent,#fff);padding:12px 20px;font-size:12px;font-weight:600}
-.profile-shell.wardrobe-shell .wardrobe-footer [role=alert]{flex-basis:100%;margin:0;color:var(--text);font-size:12px}
-@media(max-width:680px){
-.profile-shell.wardrobe-shell .settings-sheet{--wardrobe-stage-height:clamp(176px,30dvh,250px);display:flex;flex-direction:column;width:calc(100vw - 16px);height:calc(100dvh - 16px);max-height:calc(100dvh - 16px);border-radius:20px;overflow:hidden}
-.profile-shell.wardrobe-shell .settings-sheet-head{padding:12px 20px 4px;margin:0;flex:0 0 auto;position:static}.profile-shell.wardrobe-shell .settings-sheet-head h2{font-size:32px}
-.profile-shell.wardrobe-shell .settings-sheet-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:var(--wardrobe-stage-height) minmax(0,1fr) auto;align-items:stretch;width:100%;min-width:0;min-height:0;padding:4px 20px 14px;gap:8px;overflow:hidden;flex:1}
-.profile-shell.wardrobe-shell .wardrobe-stage{position:static;top:auto;z-index:1;background:var(--canvas);height:var(--wardrobe-stage-height);width:100%;grid-template-columns:56px minmax(0,1fr);gap:8px}
-.profile-shell.wardrobe-shell .wardrobe-categories{gap:4px}.profile-shell.wardrobe-shell .wardrobe-categories button{width:56px;min-height:56px;font-size:10px;gap:4px}.profile-shell.wardrobe-shell .wardrobe-categories svg{width:23px;height:23px}
-.profile-shell.wardrobe-shell .wardrobe-pet.mascot{height:calc(var(--wardrobe-stage-height) - 44px)}.profile-shell.wardrobe-shell .wardrobe-angles{margin:0}.profile-shell.wardrobe-shell .wardrobe-hint{display:none}
-.profile-shell.wardrobe-shell .wardrobe-editor{padding:8px 3px 12px;width:100%;min-width:0;min-height:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--hairline-strong) transparent;overscroll-behavior:contain}.profile-shell.wardrobe-shell .wardrobe-selection h3{font-size:20px}.profile-shell.wardrobe-shell .wardrobe-description{margin:5px 0 8px;font-size:11px}
-.profile-shell.wardrobe-shell .wardrobe-item-strip>button{flex-basis:94px;min-height:76px;gap:7px;padding:10px 5px}
-.profile-shell.wardrobe-shell .wardrobe-colors{margin-top:12px}.profile-shell.wardrobe-shell .wardrobe-palette>button,.profile-shell.wardrobe-shell .wardrobe-custom{width:calc(100% / 8);flex-basis:calc(100% / 8);height:44px}.profile-shell.wardrobe-shell .wardrobe-palette>button:before{inset:8px 6px}.profile-shell.wardrobe-shell .wardrobe-palette>button[aria-pressed=true]:after{inset:4px 2px}
-.profile-shell.wardrobe-shell .wardrobe-patterns{margin-top:8px;flex-wrap:nowrap}.profile-shell.wardrobe-shell .wardrobe-patterns button{flex:1;flex-direction:column;gap:4px;padding:6px 2px}.profile-shell.wardrobe-shell .wardrobe-looks{margin-top:12px;padding-top:12px}
-.profile-shell.wardrobe-shell form.wardrobe-footer{gap:12px;padding-top:12px}.profile-shell.wardrobe-shell .wardrobe-name{flex:1}.profile-shell.wardrobe-shell .wardrobe-name input{width:100%;max-width:140px;min-width:60px}.profile-shell.wardrobe-shell .wardrobe-name>span{white-space:nowrap;font-size:11px}
-.profile-shell.wardrobe-shell .wardrobe-done{gap:8px;font-size:11px;padding:12px 15px}.profile-shell.wardrobe-shell .wardrobe-save-note{order:3;margin:0 auto;font-size:10px}
+/* A persistent fitting room and one focused, scrollable inventory. */
+.profile-shell.wardrobe-shell * { box-sizing: border-box; }
+.profile-shell.wardrobe-shell .sheet-overlay { display:flex; align-items:center; justify-content:center; padding:24px; }
+.profile-shell.wardrobe-shell .settings-sheet { display:flex; flex-direction:column; width:min(1360px,94vw); height:min(860px,92dvh); max-height:none; padding:0; overflow:hidden; border-radius:24px; background:var(--canvas); }
+.profile-shell.wardrobe-shell .settings-sheet-head { height:auto; flex:0 0 auto; padding:24px 32px 20px; margin:0; }
+.profile-shell.wardrobe-shell .settings-sheet-head h2 { font:400 40px/1.1 var(--font-display); letter-spacing:-.025em; }
+.profile-shell.wardrobe-shell .sheet-close { width:44px; height:44px; flex:0 0 44px; display:grid; place-items:center; border:0; background:transparent; color:var(--text); font-size:26px; }
+.profile-shell.wardrobe-shell .settings-sheet-body { display:grid; align-items:stretch; grid-template-columns:76px minmax(0,1fr) clamp(340px,32vw,440px); grid-template-rows:minmax(0,1fr) auto; gap:24px; flex:1; min-height:0; max-height:none; padding:0 32px 24px; overflow:hidden; }
+.profile-shell.wardrobe-shell button,.profile-shell.wardrobe-shell input { font-family:var(--font); }
+.profile-shell.wardrobe-shell button { cursor:pointer; -webkit-tap-highlight-color:transparent; }
+.profile-shell.wardrobe-shell button:focus-visible,.profile-shell.wardrobe-shell input:focus-visible,.profile-shell.wardrobe-shell .wardrobe-custom:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+.profile-shell.wardrobe-shell .wardrobe-categories { display:flex; flex-direction:column; gap:8px; align-self:center; }
+.profile-shell.wardrobe-shell .wardrobe-categories button { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; min-height:72px; width:76px; padding:8px; border:1px solid transparent; border-radius:14px; background:transparent; color:var(--text-2); font-size:12px; font-weight:500; }
+.profile-shell.wardrobe-shell .wardrobe-categories button[aria-selected=true] { background:var(--surface-2); border-color:var(--hairline-strong); color:var(--accent); }
+.profile-shell.wardrobe-shell .wardrobe-categories button:hover { background:var(--surface-2); }
+.profile-shell.wardrobe-shell .wardrobe-stage { display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:0; min-height:0; padding:24px 12px 20px; border-radius:20px; background:var(--surface-2); overflow:hidden; }
+.profile-shell.wardrobe-shell .wardrobe-pet.mascot { position:relative; display:block; flex:1; min-height:0; width:100%; height:auto; padding:0; margin:0; border:0; background:transparent; cursor:pointer; }
+.profile-shell.wardrobe-shell .wardrobe-pet .noot-3d { width:100%; height:100%; }
+.profile-shell.wardrobe-shell .wardrobe-angles { flex:0 0 auto; display:flex; gap:4px; justify-content:center; padding:3px; border:1px solid var(--hairline); border-radius:999px; background:var(--canvas); }
+.profile-shell.wardrobe-shell .wardrobe-angles button { min-width:68px; min-height:44px; display:flex; justify-content:center; align-items:center; gap:5px; padding:8px 12px; border:0; border-radius:999px; background:transparent; color:var(--text-2); font-size:13px; }
+.profile-shell.wardrobe-shell .wardrobe-angles button[aria-pressed=true] { background:var(--surface-2); color:var(--text); }
+.profile-shell.wardrobe-shell .wardrobe-hint { margin-top:12px; color:var(--text-2); font-size:12px; }
+.profile-shell.wardrobe-shell .wardrobe-editor { min-width:0; min-height:0; display:flex; flex-direction:column; }
+.profile-shell.wardrobe-shell .wardrobe-selection { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 4px 20px; border-bottom:1px solid var(--hairline); flex:0 0 auto; }
+.profile-shell.wardrobe-shell .wardrobe-selection h3 { margin:0 0 6px; font:500 24px/1.2 var(--font); letter-spacing:-.03em; color:var(--text); }
+.profile-shell.wardrobe-shell .wardrobe-eyebrow { font-size:13px; color:var(--text-2); }
+.profile-shell.wardrobe-shell .wardrobe-edit-color { display:flex; align-items:center; justify-content:center; gap:6px; flex:0 0 auto; min-height:44px; padding:8px 10px; border:1px solid var(--hairline-strong); border-radius:10px; background:var(--canvas); color:var(--text); font-size:13px; }
+.profile-shell.wardrobe-shell .wardrobe-scroll { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:var(--hairline-strong) transparent; padding:8px 6px 8px 0; }
+.profile-shell.wardrobe-shell .wardrobe-scroll::-webkit-scrollbar { width:5px; }
+.profile-shell.wardrobe-shell .wardrobe-scroll::-webkit-scrollbar-thumb { background:var(--hairline-strong); border-radius:8px; }
+.profile-shell.wardrobe-shell .wardrobe-item-list,.profile-shell.wardrobe-shell .wardrobe-look-list { display:flex; flex-direction:column; gap:4px; padding:3px; }
+.profile-shell.wardrobe-shell .wardrobe-item-list>button,.profile-shell.wardrobe-shell .wardrobe-look-list>button { position:relative; display:flex; align-items:center; gap:14px; flex:0 0 auto; width:100%; min-height:56px; padding:8px 14px; text-align:left; border:1px solid transparent; border-radius:12px; background:transparent; color:var(--text); font-size:14px; line-height:1.4; }
+.profile-shell.wardrobe-shell .wardrobe-item-icon { display:grid; place-items:center; width:32px; flex:0 0 32px; color:var(--text-2); }
+.profile-shell.wardrobe-shell .wardrobe-item-list>button[aria-checked=true],.profile-shell.wardrobe-shell .wardrobe-look-list>button[aria-pressed=true] { background:var(--surface-2); color:var(--accent); border-color:var(--hairline-strong); }
+.profile-shell.wardrobe-shell .wardrobe-item-list>button[aria-checked=true] .wardrobe-item-icon { color:inherit; }
+.profile-shell.wardrobe-shell .wardrobe-item-list>button:hover,.profile-shell.wardrobe-shell .wardrobe-look-list>button:hover { background:var(--surface-2); }
+.profile-shell.wardrobe-shell .wardrobe-equipped,.profile-shell.wardrobe-shell .wardrobe-look-list>button>svg { margin-left:auto; flex:0 0 18px; }
+.profile-shell.wardrobe-shell .wardrobe-look-list>button { min-height:80px; gap:12px; padding:12px 10px; }
+.profile-shell.wardrobe-shell .wardrobe-look-list i { display:grid; place-items:center; background:color-mix(in srgb,var(--look-color) 18%,var(--canvas)); color:var(--text); border-radius:12px; width:46px; height:46px; flex:0 0 46px; }
+.profile-shell.wardrobe-shell .wardrobe-look-list small { display:block; margin-top:4px; color:var(--text-2); font-size:12px; line-height:1.4; }
+.profile-shell.wardrobe-shell .wardrobe-color-editor { padding:8px 4px; }
+.profile-shell.wardrobe-shell .wardrobe-color-parts { display:flex; gap:4px; padding:4px; margin-bottom:20px; border-radius:12px; background:var(--surface-2); }
+.profile-shell.wardrobe-shell .wardrobe-color-parts button { flex:1; min-height:44px; padding:8px 12px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text-2); font-size:14px; }
+.profile-shell.wardrobe-shell .wardrobe-color-parts button[aria-pressed=true] { border-color:var(--hairline); background:var(--canvas); color:var(--text); }
+.profile-shell.wardrobe-shell .wardrobe-colors,.profile-shell.wardrobe-shell .wardrobe-patterns { border:0; padding:0; margin:0; min-width:0; }
+.profile-shell.wardrobe-shell .wardrobe-colors legend,.profile-shell.wardrobe-shell .wardrobe-patterns legend { width:100%; display:flex; gap:8px; justify-content:space-between; margin-bottom:12px; padding:0; font-size:14px; color:var(--text); }
+.profile-shell.wardrobe-shell .wardrobe-colors legend span { color:var(--text-2); font-size:13px; }
+.profile-shell.wardrobe-shell .wardrobe-palette { display:grid; grid-template-columns:repeat(auto-fit,minmax(44px,1fr)); gap:4px; }
+.profile-shell.wardrobe-shell .wardrobe-palette>button { display:grid; place-items:center; position:relative; min-width:44px; height:48px; padding:0; border:0; border-radius:50%; background:none; color:#fff; }
+.profile-shell.wardrobe-shell .wardrobe-palette>button:before { content:''; position:absolute; width:30px; height:30px; border:1px solid #0002; border-radius:50%; background:var(--swatch); }
+.profile-shell.wardrobe-shell .wardrobe-palette>button[aria-pressed=true]:after { content:''; position:absolute; width:38px; height:38px; border:1px solid var(--text); border-radius:50%; }
+.profile-shell.wardrobe-shell .wardrobe-palette>button svg { position:relative; filter:drop-shadow(0 1px 1px #0009); }
+.profile-shell.wardrobe-shell .wardrobe-custom { position:relative; display:flex; align-items:center; gap:10px; min-height:48px; margin:16px 0 24px; padding:8px 12px; border:1px solid var(--hairline-strong); border-radius:10px; font-size:14px; color:var(--text); cursor:pointer; }
+.profile-shell.wardrobe-shell .wardrobe-custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.profile-shell.wardrobe-shell .wardrobe-custom-chip { width:22px; height:22px; border:1px solid var(--hairline-strong); border-radius:50%; margin-left:auto; }
+.profile-shell.wardrobe-shell .wardrobe-patterns>div { display:flex; gap:4px; flex-wrap:wrap; }
+.profile-shell.wardrobe-shell .wardrobe-patterns button { display:flex; align-items:center; gap:8px; min-height:44px; padding:8px 10px; border:1px solid transparent; border-radius:10px; background:transparent; color:var(--text-2); font-size:13px; }
+.profile-shell.wardrobe-shell .wardrobe-patterns button[aria-pressed=true] { border-color:var(--hairline-strong); background:var(--surface-2); color:var(--text); }
+.profile-shell.wardrobe-shell .wardrobe-patterns i { width:18px; height:18px; background:#91a39b; border:1px solid #64736930; border-radius:4px; }
+.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=stripes] { background:repeating-linear-gradient(0deg,#91a39b 0 3px,#e9eee6 3px 5px); }
+.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=dots] { background:radial-gradient(#f4f5ee 1px,transparent 2px) 0 0/5px 5px #91a39b; }
+.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=gingham] { background:repeating-conic-gradient(#91a39b 0% 25%,#e9eee6 0% 50%) 0 0/7px 7px; }
+.profile-shell.wardrobe-shell .wardrobe-patterns i[data-pattern=confetti] { background:radial-gradient(#ebcd81 1px,transparent 2px) 0 0/6px 5px,radial-gradient(#f1dddd 1px,transparent 2px) 2px 2px/7px 6px #91a39b; }
+.profile-shell.wardrobe-shell form.wardrobe-footer { grid-column:1/-1; display:flex; align-items:center; gap:24px; flex-wrap:wrap; border-top:1px solid var(--hairline); padding:20px 0 0; margin:0; }
+.profile-shell.wardrobe-shell .wardrobe-name { display:flex; gap:12px; align-items:center; font-size:13px; color:var(--text-2); }
+.profile-shell.wardrobe-shell .wardrobe-name input { width:180px; min-width:0; min-height:44px; padding:8px 12px; border:1px solid var(--hairline-strong); border-radius:10px; background:var(--canvas); color:var(--text); font-size:16px; }
+.profile-shell.wardrobe-shell .wardrobe-save-note { display:flex; align-items:center; gap:6px; margin-left:auto; font-size:12px; color:var(--text-2); }
+.profile-shell.wardrobe-shell .wardrobe-done { display:flex; align-items:center; justify-content:center; gap:16px; min-height:48px; min-width:124px; padding:12px 24px; border:0; border-radius:999px; background:var(--accent); color:var(--on-accent,#fff); font-size:14px; font-weight:600; }
+.profile-shell.wardrobe-shell .wardrobe-footer [role=alert] { flex-basis:100%; margin:0; font-size:13px; color:var(--text); }
+@media (min-width:701px) and (max-width:1000px) {
+  .profile-shell.wardrobe-shell .settings-sheet-body { grid-template-columns:60px minmax(0,1fr) 310px; gap:16px; padding:0 20px 20px; }
+  .profile-shell.wardrobe-shell .wardrobe-categories button { width:60px; min-height:64px; }
+  .profile-shell.wardrobe-shell .wardrobe-stage { padding:12px 0; }
+  .profile-shell.wardrobe-shell .wardrobe-hint { display:none; }
 }
-@media(prefers-reduced-motion:reduce){.profile-shell.wardrobe-shell *{scroll-behavior:auto}}
-
-.profile-shell.wardrobe-shell .sheet-close{width:44px;height:44px;display:grid;place-items:center;background:transparent;border:0;color:var(--text);font-size:22px;flex:0 0 44px}
-
-@media(max-width:680px) and (max-height:720px){.profile-shell.wardrobe-shell .wardrobe-categories{gap:0}.profile-shell.wardrobe-shell .wardrobe-categories button{min-height:44px;gap:2px}.profile-shell.wardrobe-shell .wardrobe-categories svg{width:20px;height:20px}}
-
-.profile-shell.wardrobe-shell .wardrobe-color-parts{display:flex;gap:4px;margin:12px 0 -6px}
-.profile-shell.wardrobe-shell .wardrobe-color-parts button{min-height:44px;min-width:72px;padding:8px 12px;border:1px solid transparent;border-radius:12px;background:transparent;color:var(--text-2);font-size:12px}
-.profile-shell.wardrobe-shell .wardrobe-color-parts button[aria-pressed=true]{background:var(--surface-2);border-color:var(--hairline-strong);color:var(--text)}
+@media (max-width:700px) {
+  .profile-shell.wardrobe-shell .sheet-overlay { padding:0; }
+  .profile-shell.wardrobe-shell .settings-sheet { width:100%; height:100dvh; max-height:100dvh; border-radius:0; }
+  .profile-shell.wardrobe-shell .settings-sheet-head { padding:calc(12px + env(safe-area-inset-top)) 20px 8px; }
+  .profile-shell.wardrobe-shell .settings-sheet-head h2 { font-size:32px; }
+  .profile-shell.wardrobe-shell .settings-sheet-body { grid-template-columns:minmax(0,1fr); grid-template-rows:clamp(160px,29dvh,300px) 60px minmax(0,1fr) auto; gap:8px; padding:0 20px max(12px,env(safe-area-inset-bottom)); }
+  .profile-shell.wardrobe-shell .wardrobe-stage { grid-row:1; padding:0 0 4px; border-radius:16px; }
+  .profile-shell.wardrobe-shell .wardrobe-pet.mascot { width:100%; }
+  .profile-shell.wardrobe-shell .wardrobe-angles { padding:0; background:transparent; border:0; }
+  .profile-shell.wardrobe-shell .wardrobe-angles button { min-width:64px; font-size:12px; padding:6px 10px; }
+  .profile-shell.wardrobe-shell .wardrobe-angles button[aria-pressed=true] { background:var(--canvas); }
+  .profile-shell.wardrobe-shell .wardrobe-hint { display:none; }
+  .profile-shell.wardrobe-shell .wardrobe-categories { grid-row:2; flex-direction:row; align-self:stretch; gap:4px; border-bottom:1px solid var(--hairline); padding-bottom:4px; }
+  .profile-shell.wardrobe-shell .wardrobe-categories button { flex:1; min-width:0; width:auto; min-height:52px; gap:3px; padding:4px; font-size:11px; border-radius:10px; }
+  .profile-shell.wardrobe-shell .wardrobe-categories button svg { width:22px; height:22px; }
+  .profile-shell.wardrobe-shell .wardrobe-editor { grid-row:3; }
+  .profile-shell.wardrobe-shell .wardrobe-selection { padding:8px 3px 12px; min-height:72px; }
+  .profile-shell.wardrobe-shell .wardrobe-selection h3 { font-size:20px; margin-bottom:4px; }
+  .profile-shell.wardrobe-shell .wardrobe-eyebrow { font-size:12px; }
+  .profile-shell.wardrobe-shell .wardrobe-scroll { padding-top:4px; }
+  .profile-shell.wardrobe-shell .wardrobe-item-list>button { min-height:52px; gap:12px; padding:6px 10px; }
+  .profile-shell.wardrobe-shell .wardrobe-look-list>button { min-height:72px; }
+  .profile-shell.wardrobe-shell .wardrobe-color-parts { margin-bottom:16px; }
+  .profile-shell.wardrobe-shell form.wardrobe-footer { grid-row:4; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 12px; padding-top:12px; }
+  .profile-shell.wardrobe-shell .wardrobe-name { flex-direction:column; align-items:stretch; gap:4px; font-size:11px; }
+  .profile-shell.wardrobe-shell .wardrobe-name input { width:100%; height:44px; }
+  .profile-shell.wardrobe-shell .wardrobe-done { grid-column:2; grid-row:1; align-self:end; min-width:94px; min-height:44px; padding:10px 18px; gap:10px; }
+  .profile-shell.wardrobe-shell .wardrobe-save-note { grid-column:1/-1; margin:0; font-size:11px; justify-content:center; }
+  .profile-shell.wardrobe-shell .wardrobe-footer [role=alert] { grid-column:1/-1; font-size:12px; }
+}
+@media (max-width:700px) and (max-height:700px) {
+  .profile-shell.wardrobe-shell .settings-sheet-body { grid-template-rows:144px 56px minmax(0,1fr) auto; gap:4px; padding-inline:16px; }
+  .profile-shell.wardrobe-shell .settings-sheet-head { padding-top:8px; padding-bottom:4px; }
+  .profile-shell.wardrobe-shell .settings-sheet-head h2 { font-size:28px; }
+  .profile-shell.wardrobe-shell .wardrobe-selection { min-height:60px; padding-block:6px; }
+  .profile-shell.wardrobe-shell form.wardrobe-footer { padding-top:8px; }
+}
+@media (min-width:701px) and (max-height:600px) {
+  .profile-shell.wardrobe-shell .settings-sheet { height:96dvh; }
+  .profile-shell.wardrobe-shell .settings-sheet-head { padding-block:8px; }
+  .profile-shell.wardrobe-shell .settings-sheet-head h2 { font-size:28px; }
+  .profile-shell.wardrobe-shell .settings-sheet-body { gap:8px 16px; padding-bottom:12px; }
+  .profile-shell.wardrobe-shell .wardrobe-categories { gap:0; }
+  .profile-shell.wardrobe-shell .wardrobe-categories button { min-height:44px; flex-direction:row; width:auto; }
+  .profile-shell.wardrobe-shell .wardrobe-categories button span { display:none; }
+  .profile-shell.wardrobe-shell .wardrobe-hint { display:none; }
+  .profile-shell.wardrobe-shell form.wardrobe-footer { padding-top:8px; }
+}
+@media (prefers-reduced-motion:reduce) { .profile-shell.wardrobe-shell * { scroll-behavior:auto; } }
