@@ -119,6 +119,7 @@ const handle = startClipTimer({
   },
 })
 expectEqual('timer schedules early pause', timeoutMs, clipPauseDelayMs(100, 0, 40))
+now = timeoutMs
 timeoutFn?.()
 expectTrue('timer end fires', ended)
 handle.abort()

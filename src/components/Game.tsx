@@ -237,6 +237,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   const suggestionsRef = useRef<HTMLDivElement | null>(null)
   const startModeRef = useRef<StartMode>(loadStartMode())
   const clipTimerRef = useRef<ClipTimerHandle | null>(null)
+  const activeClipRef = useRef<{ round: GameRound; level: Difficulty; position: () => number; extend: (end: number) => boolean } | null>(null)
   const playbackBarRef = useRef<HTMLDivElement | null>(null)
   const levelSwitchRef = useRef<HTMLDivElement | null>(null)
   const playbackSecondsRef = useRef(0)
@@ -824,6 +825,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
 
   async function stopClip(options?: { preserveProgress?: boolean }) {
     const audio = audioRef.current
+    activeClipRef.current = null
     playSessionRef.current += 1
     playbackModeRef.current = 'idle'
     clipTimerRef.current?.abort()
@@ -908,7 +910,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
       return
     }
 
-    const stageEndpoint = continuation?.end ?? currentStageEndpoint
+    let stageEndpoint = continuation?.end ?? currentStageEndpoint
     const startTimeline =
       continuation?.start ?? (activeState.unlockedSeconds >= stageEndpoint ? 0 : activeState.unlockedSeconds)
     const session = playSessionRef.current + 1
@@ -916,6 +918,18 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
     playbackModeRef.current = 'clip'
     clipTimerRef.current?.abort()
     clipTimerRef.current = null
+
+    activeClipRef.current = {
+      round, level: difficulty,
+      position: () => clipLoadingPendingRef.current ? startTimeline : getTimelineSeconds(),
+      extend: end => {
+        if (session !== playSessionRef.current || end <= stageEndpoint) return false
+        if (clipTimerRef.current && !clipTimerRef.current.extend((end - startTimeline) * 1000)) return false
+        stageEndpoint = end
+        spotifyStageEndpointRef.current = end
+        return true
+      },
+    }
 
     setAudioError(null)
     prefetchNextRound(difficulty)
@@ -959,6 +973,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
         const endSpotifyStage = () => {
           if (stageEnded || session !== playSessionRef.current) return
           stageEnded = true
+          activeClipRef.current = null
           spotifyForcePauseRef.current = true
           spotifyClipArmedRef.current = false
           spotifyEndStageRef.current = null
@@ -1005,6 +1020,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
         })
       } catch {
         if (session !== playSessionRef.current) return
+        activeClipRef.current = null
         spotifyForcePauseRef.current = true
         spotifyClipArmedRef.current = false
         usingSpotifyRef.current = false
@@ -1021,11 +1037,12 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
 
     usingSpotifyRef.current = false
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio) { activeClipRef.current = null; return }
 
     beginClipLoading()
     const previewSource = resolvePlaybackSource(round, 'intro')
     if (!previewSource.url) {
+      activeClipRef.current = null
       endClipLoading()
       skipDeadAudio()
       return
@@ -1069,6 +1086,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
         },
         onEnd: () => {
           if (session !== playSessionRef.current) return
+          activeClipRef.current = null
+          clipTimerRef.current = null
           audio.pause()
           setIsPlaying(false)
           updateRound(difficulty, {
@@ -1080,6 +1099,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
       })
     } catch (error) {
       if (session !== playSessionRef.current) return
+      activeClipRef.current = null
       endClipLoading()
       setIsPlaying(false)
       audio.pause()
@@ -1373,7 +1393,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
     }, MISS_SHAKE_MS)
   }
 
-  function advanceStageAfterSkip(level: Difficulty = difficulty) {
+  function advanceStageAfterSkip(level: Difficulty = difficulty, position = 0) {
     const stageEndpoint = activeStages[rounds[level].stageIndex] ?? activeStages[0] ?? 0.1
     const nextIndex = rounds[level].stageIndex + 1
 
@@ -1386,8 +1406,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
     updateRound(level, {
       stageIndex: nextIndex,
       marks: [...rounds[level].marks, { stage: stageEndpoint, kind: 'skip' as const }],
-      unlockedSeconds: stageEndpoint,
-      playbackSeconds: stageEndpoint,
+      unlockedSeconds: position,
+      playbackSeconds: position,
     })
   }
 
@@ -1413,6 +1433,16 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
 
     const skippedRound = activeState.round
     const skippedStage = activeState.stageIndex
+    const active = activeClipRef.current
+    const matching = active?.round === skippedRound && active.level === difficulty ? active : null
+    const position = Math.max(0, Math.min(currentStageEndpoint,
+      matching ? matching.position() : playbackModeRef.current === 'clip' ? playbackSecondsRef.current : activeState.playbackSeconds))
+    if (!isLastStage && matching?.extend(activeStages[nextIndex])) {
+      advanceStageAfterSkip(difficulty, position)
+      writePlaybackBar(position)
+      skippingRef.current = false
+      return
+    }
     const stopped = stopClip({ preserveProgress: true })
     const session = playSessionRef.current
     void stopped.then(() => {
@@ -1420,8 +1450,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
       if (session !== playSessionRef.current || difficultyRef.current !== difficulty ||
           roundsRef.current[difficulty].round !== skippedRound ||
           roundsRef.current[difficulty].stageIndex !== skippedStage) return
-      advanceStageAfterSkip()
-      if (!isLastStage) void playClip({ start: currentStageEndpoint, end: activeStages[nextIndex] })
+      advanceStageAfterSkip(difficulty, position)
+      if (!isLastStage) void playClip({ start: position, end: activeStages[nextIndex] })
     }).finally(() => { skippingRef.current = false })
   }
 

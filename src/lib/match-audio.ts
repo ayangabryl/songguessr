@@ -9,7 +9,12 @@ export function createMatchAudioPlayer(audio: HTMLAudioElement, callbacks: {
 }) {
   let request: AbortController | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
+  let active: { start: number; end: number } | undefined
+  let stoppedPosition = 0
+  const position = () => active ? audio.readyState >= 1 && !audio.seeking ? Math.max(active.start, audio.currentTime) : active.start : stoppedPosition
   const stop = () => {
+    stoppedPosition = position()
+    active = undefined
     request?.abort()
     request = undefined
     clearTimeout(timer)
@@ -40,10 +45,18 @@ export function createMatchAudioPlayer(audio: HTMLAudioElement, callbacks: {
   audio.addEventListener('error', failed)
   return {
     stop,
+    get position() { return position() },
+    extendTo(endpoint: number) {
+      if (!request || request.signal.aborted || !active || !Number.isFinite(endpoint) || endpoint <= active.end) return false
+      active.end = endpoint
+      return true
+    },
     async play(options: { start: number; duration: number; volume: number }) {
       stop()
       const current = new AbortController()
       request = current
+      const clip = { start: options.start, end: options.start + options.duration }
+      active = clip
       const { signal } = current
       callbacks.state('loading')
       try {
@@ -70,12 +83,11 @@ export function createMatchAudioPlayer(audio: HTMLAudioElement, callbacks: {
         if (signal.aborted) return
         callbacks.state('playing')
         callbacks.heard()
-        const endpoint = options.start + options.duration
         const tick = () => {
           if (signal.aborted) return
           callbacks.tick?.(audio.currentTime)
-          const remaining = endpoint - audio.currentTime
-          if (remaining <= .008 || audio.ended) { stop(); return }
+          const remaining = clip.end - audio.currentTime
+          if (remaining <= .008 || audio.ended) { stop(); if (remaining <= .008) stoppedPosition = clip.end; return }
           // Count decoded song time; buffering must not consume the short clip.
           timer = setTimeout(tick, Math.max(4, Math.min(25, remaining * 1000 - 8)))
         }

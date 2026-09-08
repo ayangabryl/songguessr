@@ -1,4 +1,4 @@
-import { getHtmlPauseLeadMs, observePauseLatency, startClipTimer, type ClipTimerHandle } from './clip-timer'
+import { getHtmlPauseLeadMs, observePauseLatency, startClipTimer, type ClipTimerHandle } from './clip-timer.ts'
 
 const SEEK_TOLERANCE_SECONDS = 0.05
 const METADATA_TIMEOUT_MS = 15_000
@@ -74,6 +74,8 @@ export function startTimedHtmlClip(
   const halt = () => {
     if (finished) return
     finished = true
+    timer.abort()
+    audio.removeEventListener('ended', halt)
     const pauseStartedAt = performance.now()
     audio.pause()
     observePauseLatency('html', performance.now() - pauseStartedAt)
@@ -85,13 +87,17 @@ export function startTimedHtmlClip(
     alreadyElapsedMs,
     pauseLeadMs: getHtmlPauseLeadMs(),
     getMediaElapsedMs: () => Math.max(0, (audio.currentTime - startSeconds) * 1000),
+    mediaClockOnly: true,
     onTick: (elapsedMs) => options.onTick?.(elapsedMs / 1000),
     onEnd: halt,
   })
+  audio.addEventListener('ended', halt, { once: true })
 
   return {
+    extend: durationMs => !finished && timer.extend(durationMs),
     abort: () => {
       timer.abort()
+      audio.removeEventListener('ended', halt)
       if (finished) return
       finished = true
       audio.pause()

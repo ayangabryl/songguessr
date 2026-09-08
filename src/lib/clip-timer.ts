@@ -17,6 +17,7 @@ export interface ClipTimerClock {
 
 export interface ClipTimerHandle {
   abort: () => void
+  extend: (durationMs: number) => boolean
 }
 
 export interface StartClipTimerOptions {
@@ -24,6 +25,7 @@ export interface StartClipTimerOptions {
   alreadyElapsedMs?: number
   pauseLeadMs: number
   getMediaElapsedMs?: () => number
+  mediaClockOnly?: boolean
   onTick?: (elapsedMs: number) => void
   onEnd: () => void
   clock?: ClipTimerClock
@@ -94,11 +96,10 @@ export function assumedElapsedMs(options: {
 
 export function startClipTimer(options: StartClipTimerOptions): ClipTimerHandle {
   const clock = options.clock ?? browserClock()
-  const durationMs = Math.max(0, options.durationMs)
+  let durationMs = Math.max(0, options.durationMs)
   const alreadyElapsedMs = Math.max(0, options.alreadyElapsedMs ?? 0)
-  const pauseLeadMs = effectivePauseLeadMs(durationMs, options.pauseLeadMs)
+  let pauseLeadMs = effectivePauseLeadMs(durationMs, options.pauseLeadMs)
   const startedAt = clock.now()
-  const delayMs = clipPauseDelayMs(durationMs, alreadyElapsedMs, options.pauseLeadMs)
 
   let ended = false
   let rafId = 0
@@ -107,7 +108,7 @@ export function startClipTimer(options: StartClipTimerOptions): ClipTimerHandle 
   const readElapsed = (): number => {
     const wall = alreadyElapsedMs + Math.max(0, clock.now() - startedAt)
     const media = options.getMediaElapsedMs?.()
-    const elapsed = media == null ? wall : Math.max(wall, media)
+    const elapsed = media == null ? wall : options.mediaClockOnly ? Math.max(0, media) : Math.max(wall, media)
     return Math.min(durationMs, elapsed)
   }
 
@@ -131,10 +132,24 @@ export function startClipTimer(options: StartClipTimerOptions): ClipTimerHandle 
     rafId = clock.raf(tick)
   }
 
-  timeoutId = clock.setTimeout(finish, delayMs)
+  const checkDeadline = () => {
+    if (ended) return
+    const remaining = durationMs - readElapsed() - pauseLeadMs
+    if (remaining <= 0) finish()
+    else timeoutId = clock.setTimeout(checkDeadline, Math.max(4, remaining))
+  }
+  timeoutId = clock.setTimeout(checkDeadline, clipPauseDelayMs(durationMs, alreadyElapsedMs, options.pauseLeadMs))
   rafId = clock.raf(tick)
 
   return {
+    extend: nextDurationMs => {
+      if (ended || !Number.isFinite(nextDurationMs) || nextDurationMs <= durationMs) return false
+      durationMs = nextDurationMs
+      pauseLeadMs = effectivePauseLeadMs(durationMs, options.pauseLeadMs)
+      clock.clearTimeout(timeoutId)
+      timeoutId = clock.setTimeout(checkDeadline, Math.max(0, durationMs - readElapsed() - pauseLeadMs))
+      return true
+    },
     abort: () => {
       if (ended) return
       ended = true

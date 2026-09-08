@@ -122,7 +122,9 @@ export function MatchArena({
     setSelectedTrack(null);
     setSearchOpen(false);
     setHighlight(0);
-    if (match?.phase === "playing") stop();
+    const skipped = skipContinuation.current;
+    const acknowledgedSkip = skipped && skipped.roundId === match?.roundId && stage > skipped.stage && me?.status === 'playing';
+    if (match?.phase === "playing" && !acknowledgedSkip) stop();
   }, [match?.roundId, stage, me?.status]);
   useEffect(() => {
     setHearReveal(false);
@@ -202,7 +204,11 @@ export function MatchArena({
     if (stage <= skipped.stage || !canPlay) return;
     skipContinuation.current = null;
     // Only the acknowledged skip unlocks more audio; roster updates never replay it.
-    void startPlayback(MATCH_STAGES[skipped.stage]);
+    if (player.current?.extendTo(match.offset + MATCH_STAGES[stage])) return;
+    // A clip that finished while awaiting acknowledgement resumes at its cut;
+    // paused or not-yet-started clips resume where the listener actually was.
+    const cursor = Math.max(0, (player.current?.position ?? match.offset) - match.offset);
+    void startPlayback(Math.min(MATCH_STAGES[skipped.stage], cursor));
   }, [stage, canPlay, connected, revealed, match?.roundId, me?.status]);
   function play() {
     skipContinuation.current = null;
@@ -241,8 +247,10 @@ export function MatchArena({
   }
   function skip() {
     if (!canPlay || pending || !match) return;
+    resumeAt.current = null;
     skipContinuation.current = { roundId: match.roundId, stage };
-    stop();
+    // Keep the authorized clip playing while the server processes the skip.
+    if (stage === MATCH_STAGES.length - 1) stop();
     setPending(true);
     sendMatch({ type: "match-skip", roundId: match.roundId, stage });
   }
