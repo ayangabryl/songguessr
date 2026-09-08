@@ -137,7 +137,9 @@
 .match-difficulty select { min-width: 0; width: 58%; height: 44px; padding: 0 14px; border: 1px solid var(--hairline); border-radius: var(--r-pill); background: var(--surface); color: var(--text); font: inherit; }
 .match-more summary { padding: 12px 0; color: var(--text-2); font-size: 13px; cursor: pointer; }
 .match-more[open] { padding-bottom: 8px; }
-.match-mix { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 12px 0 20px; font: 13px var(--font); }
+.match-mix { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 12px 0; font: 13px var(--font); cursor: pointer; }
+.match-mix span { min-width: 0; overflow-wrap: anywhere; }
+.match-mix svg { flex: none; }
 .match-fine { margin: 24px 0 20px; font-size: 12px; color: var(--text-2); line-height: 1.7; }
 .match-experience[data-phase='lobby'] .match-primary { width: 100%; }
 .match-notice { margin: 20px 0 0; padding: 12px 16px; background: var(--surface-2); border-radius: var(--r-2); font-size: 13px; }

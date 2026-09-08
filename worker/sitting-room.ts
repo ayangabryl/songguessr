@@ -444,7 +444,7 @@ export class SittingRoom extends DurableObject<Env> {
       const carryScores=command.type==='match-start'?(command.carryScores??false):(match!.carryScores??false)
       const difficulty=roundDifficulty(mode,continuing?match!.number+1:1)
       const filters = command.type === 'match-start' ? (command.filters ?? {}) : (match!.filters ?? {})
-      const catalogFilters = {eras: filters.eras ?? (filters.era ? [filters.era] : []), genres: filters.genres ?? (filters.genre ? [filters.genre] : []), countries: filters.countries ?? (filters.country ? [filters.country] : []), collections: filters.collections ?? [], artists: filters.artists ?? [], excludedArtists: filters.excludedArtists ?? [], excludedGenres: filters.excludedGenres ?? []}
+      const catalogFilters = {playlistId: filters.playlist?.id, eras: filters.eras ?? (filters.era ? [filters.era] : []), genres: filters.genres ?? (filters.genre ? [filters.genre] : []), countries: filters.countries ?? (filters.country ? [filters.country] : []), collections: filters.collections ?? [], artists: filters.artists ?? [], excludedArtists: filters.excludedArtists ?? [], excludedGenres: filters.excludedGenres ?? []}
       if (!continuing) {
         let availabilityTimer: ReturnType<typeof setTimeout> | undefined
         const counts = await Promise.race([getAvailabilityCounts(this.env, catalogFilters), new Promise<never>((_, reject) => { availabilityTimer = setTimeout(() => reject(new Error('Catalog timed out')), 8000) })]).finally(() => clearTimeout(availabilityTimer))

@@ -312,6 +312,11 @@ function buildFilterSql(filters: CatalogFilters): { sql: string; params: SqlValu
   const clauses: string[] = []
   const params: SqlValue[] = []
 
+  if (filters.playlistId !== undefined) {
+    clauses.push('tracks.id IN (SELECT value FROM json_each((SELECT track_ids FROM playlist_mixes WHERE id = ?)))')
+    params.push(filters.playlistId)
+  }
+
   if (filters.eras.length > 0) {
     clauses.push(`(${filters.eras.map((era) => eraSql(era)).join(' OR ')})`)
   }

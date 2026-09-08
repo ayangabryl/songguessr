@@ -384,8 +384,8 @@ export function MatchArena({
                 {['mixed','easy','medium','hard','expert','impossible'].map(d => <option key={d} value={d}>{d === 'mixed' ? 'All difficulties' : d[0].toUpperCase() + d.slice(1)}</option>)}
               </select></label>
               <label className="match-difficulty">Songs<select value={length} onChange={e => setLength(Number(e.target.value))}>{[5,10,15,20].map(n => <option key={n} value={n}>{n} songs</option>)}</select></label>
+              <button className="match-mix" onClick={() => setMixOpen(true)}><span>Mix · {filters.playlist?.name ?? 'playlist, artists & genres'}{activeFilterCount(filters) > 0 ? ` (${activeFilterCount(filters)})` : ''}</span><ArrowRight size={16}/></button>
               <details className="match-more"><summary>Match options</summary>
-                <button className="match-mix" onClick={() => setMixOpen(true)}>Mix · artists, genres & exclusions{activeFilterCount(filters) > 0 ? ` (${activeFilterCount(filters)})` : ''}<ArrowRight size={16}/></button>
                 <label className="match-difficulty">After a match<select value={String(carryScores)} onChange={e => setCarryScores(e.target.value === 'true')}><option value="false">Reset scores</option><option value="true">Keep points</option></select></label>
               </details>
             </div> : <p className="match-fine">The host chooses the mix. You’ll hear the same song.</p>}

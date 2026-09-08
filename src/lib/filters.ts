@@ -1,3 +1,4 @@
+import { parsePlaylistMix, type PlaylistMix } from '../../shared/playlist-mix'
 import {
   COUNTRY_CODES,
   COUNTRY_LABELS,
@@ -29,6 +30,7 @@ export type EraFilter = (typeof ERA_OPTIONS)[number]
 export type GenreFilter = (typeof GENRE_OPTIONS)[number]
 
 export interface CatalogFilters {
+  playlist?: PlaylistMix
   eras: EraFilter[]
   genres: GenreFilter[]
   countries: CountryCode[]
@@ -179,12 +181,13 @@ export function activeFilterCount(filters: CatalogFilters): number {
     filters.genres.length +
     filters.countries.length +
     filters.collections.length +
-    filters.artists.length + (filters.excludedArtists?.length ?? 0) + (filters.excludedGenres?.length ?? 0)
+    filters.artists.length + (filters.playlist ? 1 : 0) + (filters.excludedArtists?.length ?? 0) + (filters.excludedGenres?.length ?? 0)
   )
 }
 
 export function filtersToSearchParams(filters: CatalogFilters): string {
   const params = new URLSearchParams()
+  if (filters.playlist) params.set('playlistId', filters.playlist.id)
   if (filters.eras.length > 0) params.set('eras', filters.eras.join(','))
   if (filters.genres.length > 0) params.set('genres', filters.genres.join(','))
   if (filters.countries.length > 0) {
@@ -200,4 +203,8 @@ export function filtersToSearchParams(filters: CatalogFilters): string {
   if (filters.excludedGenres?.length) params.set("excludedGenres", filters.excludedGenres.join(","))
   const query = params.toString()
   return query ? `&${query}` : ''
+}
+
+export function loadPlaylistMix(): PlaylistMix | undefined {
+  try {return parsePlaylistMix(JSON.parse(localStorage.getItem('songguessr-playlist-mix') ?? 'null')) ?? undefined} catch {return undefined}
 }

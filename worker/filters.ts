@@ -20,6 +20,7 @@ export type EraFilter = (typeof ERA_OPTIONS)[number]
 export type GenreFilter = (typeof GENRE_OPTIONS)[number]
 
 export interface CatalogFilters {
+  playlistId?: string
   eras: EraFilter[]
   genres: GenreFilter[]
   countries: CountryCode[]

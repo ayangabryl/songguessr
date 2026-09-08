@@ -1,3 +1,4 @@
+import { importPlaylistMix, PlaylistMixError } from './playlist-mix'
 import { Hono } from 'hono'
 import { foldSearchText } from '../shared/search-text'
 import { cors } from 'hono/cors'
@@ -58,6 +59,7 @@ function parseDifficulty(value: string | undefined): Difficulty {
 
 function parseCatalogFilters(c: { req: { query: (key: string) => string | undefined } }): CatalogFilters {
   return {
+    playlistId: c.req.query('playlistId'),
     eras: parseEraFilters(c.req.query('eras')),
     genres: parseGenreFilters(c.req.query('genres')),
     countries: parseCountryFilters(c.req.query('countries'), c.req.query('regions')),
@@ -69,6 +71,7 @@ function parseCatalogFilters(c: { req: { query: (key: string) => string | undefi
 }
 
 function parseCatalogFiltersFromBody(body: {
+  playlistId?: string
   eras?: string[]
   genres?: string[]
   countries?: string[]
@@ -86,6 +89,7 @@ function parseCatalogFiltersFromBody(body: {
     .map((item) => item.trim().toLowerCase())
     .filter(isCatalogKind)
   return {
+    playlistId: body.playlistId,
     eras: (body.eras ?? []).filter((era): era is EraFilter =>
       (['modern', '2010s', '2000s', 'classics'] as const).includes(era as EraFilter),
     ),
@@ -385,6 +389,13 @@ app.get('/api/catalog/regions', async (c) => {
   }
 })
 
+app.post('/api/mix/playlist', async c => {
+  const body = await c.req.json<{url?:unknown}>().catch(() => ({} as {url?:unknown}))
+  if (typeof body.url !== 'string' || body.url.length > 1000) return c.json({message:'Paste a public Spotify playlist link.'},400)
+  try { return c.json({playlist:await importPlaylistMix(c.env,body.url)}) }
+  catch(error) { return c.json({message:error instanceof PlaylistMixError ? error.message : 'Could not load this playlist. Please try again.'},422) }
+})
+
 app.get('/api/catalog/artists', async (c) => {
   try {
     const query = c.req.query('q') ?? ''
@@ -568,6 +579,9 @@ app.post('/api/guess', async (c) => {
       collections?: string[]
       catalogs?: string[]
       artists?: string[]
+      playlistId?: string
+      excludedArtists?: string[]
+      excludedGenres?: string[]
     }>()
 
     const difficulty = parseDifficulty(body.difficulty)

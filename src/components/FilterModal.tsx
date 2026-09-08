@@ -1,3 +1,5 @@
+import { PlaylistMix } from './PlaylistMix'
+import type { PlaylistMix as PlaylistSelection } from '../../shared/playlist-mix'
 import { ArtistExclusions } from './ArtistExclusions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useModalFocus } from '../hooks/useModalFocus'
@@ -40,6 +42,8 @@ function singersMatching(artists: CatalogArtist[], query: string): CatalogArtist
 }
 
 interface FilterModalProps {
+  playlist?: PlaylistSelection
+  onPlaylist?: (value?:PlaylistSelection) => void
   excludedArtists?: string[]
   excludedGenres?: GenreFilter[]
   onExclusions?: (artists: string[], genres: GenreFilter[]) => void
@@ -55,6 +59,8 @@ interface FilterModalProps {
   collections: CatalogCollection[]
   previewCount: number
   previewReady?: boolean
+  previewError?: boolean
+  onRetryPreview?: () => void
   onClose: () => void
   onToggleEra: (era: EraFilter) => void
   onToggleGenre: (genre: GenreFilter) => void
@@ -71,6 +77,7 @@ interface FilterModalProps {
 }
 
 export function FilterModal({
+  playlist, onPlaylist,
   excludedArtists = [], excludedGenres = [], onExclusions,
   variant = 'sheet',
   open,
@@ -84,6 +91,7 @@ export function FilterModal({
   collections,
   previewCount,
   previewReady = true,
+  previewError = false, onRetryPreview,
   onClose,
   onToggleEra,
   onToggleGenre,
@@ -98,6 +106,9 @@ export function FilterModal({
   onClearAll,
   onApply,
 }: FilterModalProps) {
+  const [playlistPending, setPlaylistPending] = useState(false)
+  const [playlistReset, setPlaylistReset] = useState(0)
+  function clearMix() { setPlaylistReset(n => n + 1); setPlaylistPending(false); onClearAll() }
   const [countryQuery, setCountryQuery] = useState('')
   const [singerQuery, setSingerQuery] = useState('')
   const [singerHits, setSingerHits] = useState<CatalogArtist[]>(() => peekCatalogArtists('') ?? [])
@@ -197,13 +208,13 @@ export function FilterModal({
   if (!open) return null
 
   const hasDraftFilters =
-    draftEras.length > 0 ||
+    Boolean(playlist) || playlistPending || draftEras.length > 0 ||
     draftGenres.length > 0 ||
     draftCountries.length > 0 ||
     draftCollections.length > 0 ||
     draftArtists.length > 0 || excludedArtists.length > 0 || excludedGenres.length > 0
   const showCountrySearch = regions.filter((region) => (region.count ?? 0) > 0).length > 8
-  const emptyPreview = previewReady && previewCount === 0
+  const emptyPreview = previewReady && !previewError && previewCount === 0
   const isDesk = variant === 'desk'
 
   function chooseSinger(name: string) {
@@ -226,11 +237,11 @@ export function FilterModal({
         </header>
 
         <p className="filter-count-line">
-          {previewReady
+          {previewError ? 'Could not count songs.' : previewReady
             ? `${previewCount} ${previewCount === 1 ? 'song' : 'songs'} in ${DIFFICULTY_LABELS[difficulty]}`
             : 'Counting songs…'}
           {isDesk && hasDraftFilters ? (
-            <button type="button" className="filter-clear-inline" onClick={onClearAll}>
+            <button type="button" className="filter-clear-inline" onClick={clearMix}>
               Clear mix
             </button>
           ) : null}
@@ -238,6 +249,8 @@ export function FilterModal({
         </div>
 
         <div className="mix-sheet-body">
+        {previewError && <p className="filter-empty" role="alert">Check your connection and <button className="playlist-cancel" type="button" onClick={onRetryPreview}>try again</button>.</p>}
+        {onPlaylist && <PlaylistMix key={`${playlist?.id ?? 'empty'}-${playlistReset}`} value={playlist} onChange={onPlaylist} onPending={setPlaylistPending}/>}
         <p className="filter-helper">
           {draftArtists.length > 0
             ? `${draftArtists.length === 1 ? '1 artist' : `${draftArtists.length} artists`} in this mix. Search another name to add more.`
@@ -546,10 +559,10 @@ export function FilterModal({
 
         {isDesk ? null : (
           <div className="filter-footer mix-sheet-foot">
-            <button type="button" className="filter-clear" disabled={!hasDraftFilters} onClick={onClearAll}>
+            <button type="button" className="filter-clear" disabled={!hasDraftFilters} onClick={clearMix}>
               Clear mix
             </button>
-            <button type="button" className="filter-done" disabled={emptyPreview} onClick={onApply}>
+            <button type="button" className="filter-done" disabled={emptyPreview || previewError || playlistPending || !previewReady} onClick={onApply}>
               Done
             </button>
           </div>

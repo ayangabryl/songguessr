@@ -1,3 +1,5 @@
+import { loadPlaylistMix, filtersToSearchParams } from '../lib/filters'
+import type { PlaylistMix } from '../../shared/playlist-mix'
 import { SittingHistory, type SessionEntry } from './SittingHistory'
 import { useSongSearch } from '../hooks/useSongSearch'
 import { SongSuggestions } from './SongSuggestions'
@@ -238,6 +240,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
     collections: loadCollectionFilters(),
     artists: loadArtistFilters(),
   })
+  const roundGeneration = useRef(0)
   const prefetchedRef = useRef<Partial<Record<Difficulty, GameRound>>>({})
   const prefetchInFlightRef = useRef<Partial<Record<Difficulty, Promise<void>>>>({})
   const playbackModeRef = useRef<PlaybackMode>('idle')
@@ -290,6 +293,11 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   const [draftCollections, setDraftCollections] = useState<CatalogKind[]>([])
   const [draftArtists, setDraftArtists] = useState<string[]>([])
   const [exclusions, setExclusions] = useState<{excludedArtists:string[];excludedGenres:GenreFilter[]}>(() => {try{return JSON.parse(localStorage.getItem('songguessr-exclusions') ?? '{"excludedArtists":[],"excludedGenres":[]}')}catch{return {excludedArtists:[],excludedGenres:[]}}})
+  const [playlistMix, setPlaylistMix] = useState<PlaylistMix | undefined>(loadPlaylistMix)
+  const [draftPlaylist, setDraftPlaylist] = useState<PlaylistMix | undefined>(playlistMix)
+  const [draftPreviewReady, setDraftPreviewReady] = useState(false)
+  const [draftPreviewError, setDraftPreviewError] = useState(false)
+  const [previewRetry, setPreviewRetry] = useState(0)
   const [draftExclusions, setDraftExclusions] = useState(exclusions)
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<Difficulty, number> | null>(
     null,
@@ -330,8 +338,9 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
       collections: collectionFilters,
       artists: artistFilters,
       ...exclusions,
+      playlist:playlistMix,
     }),
-    [eraFilters, genreFilters, regionFilters, collectionFilters, artistFilters, exclusions],
+    [eraFilters, genreFilters, regionFilters, collectionFilters, artistFilters, exclusions, playlistMix],
   )
   const draftFilters = useMemo<CatalogFilters>(
     () => ({
@@ -341,8 +350,9 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
       collections: draftCollections,
       artists: draftArtists,
       ...draftExclusions,
+      playlist:draftPlaylist,
     }),
-    [draftEras, draftGenres, draftCountries, draftCollections, draftArtists, draftExclusions],
+    [draftEras, draftGenres, draftCountries, draftCollections, draftArtists, draftExclusions, draftPlaylist],
   )
   const activeFilterTotal = activeFilterCount(catalogFilters)
 
@@ -398,23 +408,25 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
 
   function prefetchNextRound(level: Difficulty) {
     if (prefetchedRef.current[level] || prefetchInFlightRef.current[level]) return
+    const generation = roundGeneration.current
     const currentId = roundsRef.current[level].round?.trackId
     prefetchInFlightRef.current[level] = (async () => {
       try {
         const round = await fetchPlayableRound(level, catalogFiltersRef.current, collectPrefetchExcludes(level))
-        if (round.trackId === currentId) return
+        if (generation !== roundGeneration.current || round.trackId === currentId) return
         rememberTrack(round.trackId, round.songKey)
         prefetchedRef.current[level] = round
         warmRoundAudio(round)
       } catch {
         // Next-song click will fetch live if prefetch misses.
       } finally {
-        delete prefetchInFlightRef.current[level]
+        if (generation === roundGeneration.current) delete prefetchInFlightRef.current[level]
       }
     })()
   }
 
   function applyRound(level: Difficulty, round: GameRound) {
+    if (filtersToSearchParams(round.filters) !== filtersToSearchParams(catalogFiltersRef.current)) return
     closingRoundRef.current = false
     rememberTrack(round.trackId, round.songKey)
     warmRoundAudio(round)
@@ -432,6 +444,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   }
 
   const loadAllRounds = useCallback(async (filters: CatalogFilters = catalogFilters) => {
+    const generation = ++roundGeneration.current
+    catalogFiltersRef.current = filters
     setCatalogLoading(true)
     setCatalogError(null)
     prefetchedRef.current = {}
@@ -453,6 +467,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
                 ...(currentRound?.songKey ? [currentRound.songKey] : []),
               ],
             })
+            if (generation !== roundGeneration.current) return {level,state:createRoundState()}
             rememberTrack(round.trackId, round.songKey)
             warmRoundAudio(round)
             return {
@@ -470,6 +485,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
         }),
       )
 
+      if (generation !== roundGeneration.current) return
       setRounds(
         Object.fromEntries(settled.map((result) => [result.level, result.state])) as Record<
           Difficulty,
@@ -480,9 +496,9 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
         setCatalogError('No songs match these filters.')
       }
     } catch (error) {
-      setCatalogError(error instanceof Error ? error.message : 'Could not load songs.')
+      if (generation === roundGeneration.current) setCatalogError(error instanceof Error ? error.message : 'Could not load songs.')
     } finally {
-      setCatalogLoading(false)
+      if (generation === roundGeneration.current) setCatalogLoading(false)
     }
   }, [catalogFilters])
 
@@ -701,10 +717,14 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
 
   useEffect(() => {
     if (!filterModalOpen) return
+    let alive = true
+    setDraftPreviewReady(false)
+    setDraftPreviewError(false)
     void fetchAvailability(draftFilters).then((data) => {
-      setDraftPreviewCount(data.counts[difficulty] ?? 0)
-    })
-  }, [draftFilters, difficulty, filterModalOpen])
+      if(alive){setDraftPreviewCount(data.counts[difficulty] ?? 0);setDraftPreviewReady(true)}
+    }).catch(()=>{if(alive){setDraftPreviewError(true);setDraftPreviewReady(true)}})
+    return ()=>{alive=false}
+  }, [draftFilters, difficulty, filterModalOpen, previewRetry])
 
   useEffect(() => {
     clearSearchSelection()
@@ -1511,6 +1531,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   }
 
   function openFilterModal() {
+    setDraftPlaylist(playlistMix)
     setDraftExclusions(exclusions)
     setDraftEras([...eraFilters])
     setDraftGenres([...genreFilters])
@@ -1521,6 +1542,13 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   }
 
   function applyFilters() {
+    roundGeneration.current++
+    catalogFiltersRef.current = draftFilters
+    prefetchedRef.current = {}
+    prefetchInFlightRef.current = {}
+    stopClip()
+    setPlaylistMix(draftPlaylist)
+    try {if(draftPlaylist)localStorage.setItem('songguessr-playlist-mix',JSON.stringify(draftPlaylist));else localStorage.removeItem('songguessr-playlist-mix')}catch{}
     setExclusions(draftExclusions)
     try {localStorage.setItem("songguessr-exclusions", JSON.stringify(draftExclusions))} catch {}
     setEraFilters([...draftEras])
@@ -1532,6 +1560,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   }
 
   function clearAllFilters() {
+    setPlaylistMix(undefined);setDraftPlaylist(undefined)
+    try {localStorage.removeItem('songguessr-playlist-mix')}catch{}
     setExclusions({excludedArtists:[],excludedGenres:[]})
     setDraftExclusions({excludedArtists:[],excludedGenres:[]})
     try {localStorage.removeItem("songguessr-exclusions")} catch {}
@@ -2180,6 +2210,9 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
         </div>
       }>
         <FilterModal
+          playlist={draftPlaylist} onPlaylist={setDraftPlaylist}
+          previewReady={draftPreviewReady}
+          previewError={draftPreviewError} onRetryPreview={()=>setPreviewRetry(n=>n+1)}
           excludedArtists={draftExclusions.excludedArtists}
           excludedGenres={draftExclusions.excludedGenres}
           onExclusions={(excludedArtists,excludedGenres) => setDraftExclusions({excludedArtists,excludedGenres})}
@@ -2217,6 +2250,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
           onClearRegions={() => setDraftCountries([])}
           onClearCollections={() => setDraftCollections([])}
           onClearAll={() => {
+            setDraftPlaylist(undefined)
             setDraftExclusions({excludedArtists:[],excludedGenres:[]})
             setDraftEras([])
             setDraftGenres([])
