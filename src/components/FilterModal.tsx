@@ -57,6 +57,8 @@ interface FilterModalProps {
   draftArtists: string[]
   regions: CatalogRegion[]
   collections: CatalogCollection[]
+  allDifficulties?: boolean
+  previewDifficulty?: Difficulty
   previewCount: number
   previewReady?: boolean
   previewError?: boolean
@@ -90,6 +92,7 @@ export function FilterModal({
   regions,
   collections,
   previewCount,
+  previewDifficulty = difficulty, allDifficulties = false,
   previewReady = true,
   previewError = false, onRetryPreview,
   onClose,
@@ -107,8 +110,9 @@ export function FilterModal({
   onApply,
 }: FilterModalProps) {
   const [playlistPending, setPlaylistPending] = useState(false)
+  const [playlistAdded, setPlaylistAdded] = useState(false)
   const [playlistReset, setPlaylistReset] = useState(0)
-  function clearMix() { setPlaylistReset(n => n + 1); setPlaylistPending(false); onClearAll() }
+  function clearMix() { setPlaylistAdded(false); setPlaylistReset(n => n + 1); setPlaylistPending(false); onClearAll() }
   const [countryQuery, setCountryQuery] = useState('')
   const [singerQuery, setSingerQuery] = useState('')
   const [singerHits, setSingerHits] = useState<CatalogArtist[]>(() => peekCatalogArtists('') ?? [])
@@ -207,14 +211,20 @@ export function FilterModal({
 
   if (!open) return null
 
-  const hasDraftFilters =
-    Boolean(playlist) || playlistPending || draftEras.length > 0 ||
+  const hasRefinements =
+    draftEras.length > 0 ||
     draftGenres.length > 0 ||
     draftCountries.length > 0 ||
     draftCollections.length > 0 ||
     draftArtists.length > 0 || excludedArtists.length > 0 || excludedGenres.length > 0
+  const hasDraftFilters = Boolean(playlist) || playlistPending || hasRefinements
   const showCountrySearch = regions.filter((region) => (region.count ?? 0) > 0).length > 8
-  const emptyPreview = previewReady && !previewError && previewCount === 0
+  const emptyPreview = !playlistPending && previewReady && !previewError && previewCount === 0
+  function usePlaylistOnly() {
+    onClearEras(); onClearGenres(); onClearRegions(); onClearCollections()
+    for (const name of draftArtists) onRemoveArtist(name)
+    onExclusions?.([], [])
+  }
   const isDesk = variant === 'desk'
 
   function chooseSinger(name: string) {
@@ -237,8 +247,8 @@ export function FilterModal({
         </header>
 
         <p className="filter-count-line">
-          {previewError ? 'Could not count songs.' : previewReady
-            ? `${previewCount} ${previewCount === 1 ? 'song' : 'songs'} in ${DIFFICULTY_LABELS[difficulty]}`
+          {playlistPending ? 'Preparing your playlist…' : previewError ? 'Could not count songs.' : previewReady
+            ? `${previewCount} ${previewCount === 1 ? 'song' : 'songs'} ${allDifficulties ? 'across all difficulties' : `in ${DIFFICULTY_LABELS[previewDifficulty]}`}`
             : 'Counting songs…'}
           {isDesk && hasDraftFilters ? (
             <button type="button" className="filter-clear-inline" onClick={clearMix}>
@@ -250,7 +260,7 @@ export function FilterModal({
 
         <div className="mix-sheet-body">
         {previewError && <p className="filter-empty" role="alert">Check your connection and <button className="playlist-cancel" type="button" onClick={onRetryPreview}>try again</button>.</p>}
-        {onPlaylist && <PlaylistMix key={`${playlist?.id ?? 'empty'}-${playlistReset}`} value={playlist} onChange={onPlaylist} onPending={setPlaylistPending}/>}
+        {onPlaylist && <PlaylistMix key={`${playlist?.id ?? 'empty'}-${playlistReset}`} value={playlist} ready={playlistAdded && previewReady && !previewError && previewCount > 0 && !playlistPending} onChange={value=>{setPlaylistAdded(Boolean(value));onPlaylist(value)}} onPending={setPlaylistPending}/>}
         <p className="filter-helper">
           {draftArtists.length > 0
             ? `${draftArtists.length === 1 ? '1 artist' : `${draftArtists.length} artists`} in this mix. Search another name to add more.`
@@ -552,18 +562,23 @@ export function FilterModal({
 
         {emptyPreview ? (
           <p className="filter-empty" role="status">
-            No songs match. Clear a chip and try again.
+            {playlist ? hasRefinements ? 'Your filters exclude every song in this playlist.' : 'No playable songs are available. Refresh this playlist to check again.' : 'No songs match these filters. Clear a filter and try again.'}
+            {isDesk && playlist && hasRefinements && <button type="button" className="playlist-refresh" onClick={usePlaylistOnly}>Use playlist only</button>}
           </p>
         ) : null}
         </div>
 
         {isDesk ? null : (
           <div className="filter-footer mix-sheet-foot">
+            {(playlistPending || !previewReady || previewError || emptyPreview || previewDifficulty !== difficulty) && <p className="mix-apply-status" role="status">
+              {playlistPending ? 'Finish playlist setup to apply your mix.' : !previewReady ? 'Checking your mix…' : previewError ? 'The song count is unavailable. Try again above.' : emptyPreview ? playlist && !hasRefinements ? 'Refresh this playlist to check its songs.' : 'No songs match these filters.' : `This mix will use ${DIFFICULTY_LABELS[previewDifficulty]}.`}
+              {emptyPreview && playlist && hasRefinements && <button type="button" className="mix-recover" onClick={usePlaylistOnly}>Use playlist only</button>}
+            </p>}
             <button type="button" className="filter-clear" disabled={!hasDraftFilters} onClick={clearMix}>
               Clear mix
             </button>
             <button type="button" className="filter-done" disabled={emptyPreview || previewError || playlistPending || !previewReady} onClick={onApply}>
-              Done
+              Apply mix
             </button>
           </div>
         )}

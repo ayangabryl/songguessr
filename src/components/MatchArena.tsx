@@ -330,8 +330,8 @@ export function MatchArena({
       data-difficulty={match?.difficulty ?? (difficulty === 'mixed' ? 'easy' : difficulty)}
       data-sound-playing={audioState !== 'idle'} data-audio-state={audioState}>
       <audio ref={audio} preload="auto" hidden aria-hidden="true" />
-      {mixOpen && <HostMix value={filters} difficulty={difficulty === 'mixed' ? 'easy' : difficulty}
-        onClose={() => setMixOpen(false)} onApply={value => { setFilters(value); setMixOpen(false); }}/>}
+      {mixOpen && <HostMix value={filters} difficulty={difficulty}
+        onClose={() => setMixOpen(false)} onApply={(value, availableDifficulty) => { setFilters(value); if(difficulty!=='mixed')setDifficulty(availableDifficulty); setMixOpen(false); }}/>}
       <header className="match-header">
         <a href="/" className="match-brand"><img className="wordmark-mark" src="/app-icons/noot-app-icon.png" alt=""/><span className="wordmark-name">SongGuessr</span></a>
         <button className="match-code" onClick={() => void copy()} aria-label={`Share table code ${table.code ?? ''}`}>

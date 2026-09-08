@@ -1,3 +1,4 @@
+import { useMixAvailability } from '../hooks/useMixAvailability'
 import { loadPlaylistMix, filtersToSearchParams } from '../lib/filters'
 import type { PlaylistMix } from '../../shared/playlist-mix'
 import { SittingHistory, type SessionEntry } from './SittingHistory'
@@ -295,14 +296,10 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   const [draftArtists, setDraftArtists] = useState<string[]>([])
   const [exclusions, setExclusions] = useState<{excludedArtists:string[];excludedGenres:GenreFilter[]}>(() => {try{return JSON.parse(localStorage.getItem('songguessr-exclusions') ?? '{"excludedArtists":[],"excludedGenres":[]}')}catch{return {excludedArtists:[],excludedGenres:[]}}})
   const [draftPlaylist, setDraftPlaylist] = useState<PlaylistMix | undefined>(playlistMix)
-  const [draftPreviewReady, setDraftPreviewReady] = useState(false)
-  const [draftPreviewError, setDraftPreviewError] = useState(false)
-  const [previewRetry, setPreviewRetry] = useState(0)
   const [draftExclusions, setDraftExclusions] = useState(exclusions)
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<Difficulty, number> | null>(
     null,
   )
-  const [draftPreviewCount, setDraftPreviewCount] = useState(0)
   const [streak, setStreak] = useState(loadStreak)
   const [session, setSession] = useState<SessionEntry[]>([])
   const [sittingTotal, setSittingTotal] = useState(0)
@@ -354,6 +351,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
     }),
     [draftEras, draftGenres, draftCountries, draftCollections, draftArtists, draftExclusions, draftPlaylist],
   )
+  const mixPreview = useMixAvailability(draftFilters, difficulty, filterModalOpen)
   const activeFilterTotal = activeFilterCount(catalogFilters)
 
   const activeState = rounds[difficulty]
@@ -705,26 +703,18 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   }, [])
 
   useEffect(() => {
-    void fetchAvailability(catalogFilters).then((data) => {
+    const controller = new AbortController()
+    void fetchAvailability(catalogFilters, controller.signal).then((data) => {
+      if (controller.signal.aborted) return
       setAvailabilityCounts(data.counts)
       setDifficulty((current) =>
         data.counts[current] === 0
           ? (DIFFICULTIES.find((level) => data.counts[level] > 0) ?? current)
           : current,
       )
-    })
+    }).catch(() => { /* Keep the last known availability; Mix offers a retry. */ })
+    return () => controller.abort()
   }, [catalogFilters])
-
-  useEffect(() => {
-    if (!filterModalOpen) return
-    let alive = true
-    setDraftPreviewReady(false)
-    setDraftPreviewError(false)
-    void fetchAvailability(draftFilters).then((data) => {
-      if(alive){setDraftPreviewCount(data.counts[difficulty] ?? 0);setDraftPreviewReady(true)}
-    }).catch(()=>{if(alive){setDraftPreviewError(true);setDraftPreviewReady(true)}})
-    return ()=>{alive=false}
-  }, [draftFilters, difficulty, filterModalOpen, previewRetry])
 
   useEffect(() => {
     clearSearchSelection()
@@ -1542,6 +1532,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   }
 
   function applyFilters() {
+    if (!mixPreview.ready || mixPreview.error || mixPreview.count === 0) return
+    setDifficulty(mixPreview.difficulty)
     roundGeneration.current++
     catalogFiltersRef.current = draftFilters
     prefetchedRef.current = {}
@@ -2211,8 +2203,9 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
       }>
         <FilterModal
           playlist={draftPlaylist} onPlaylist={setDraftPlaylist}
-          previewReady={draftPreviewReady}
-          previewError={draftPreviewError} onRetryPreview={()=>setPreviewRetry(n=>n+1)}
+          previewReady={mixPreview.ready}
+          previewError={mixPreview.error} onRetryPreview={mixPreview.retry}
+          previewDifficulty={mixPreview.difficulty}
           excludedArtists={draftExclusions.excludedArtists}
           excludedGenres={draftExclusions.excludedGenres}
           onExclusions={(excludedArtists,excludedGenres) => setDraftExclusions({excludedArtists,excludedGenres})}
@@ -2225,7 +2218,7 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
           draftArtists={draftArtists}
           regions={regions}
           collections={collections}
-          previewCount={draftPreviewCount}
+          previewCount={mixPreview.count}
           onClose={() => setFilterModalOpen(false)}
           onToggleEra={(era) => setDraftEras((current) => toggleFilterValue(current, era, ERA_OPTIONS))}
           onToggleGenre={(genre) =>

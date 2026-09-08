@@ -4,7 +4,7 @@ import { parsePlaylistMix, spotifyPlaylistId, type PlaylistMix as Selection } fr
 import type { PlaylistProgress, PlaylistIssue } from '../../shared/playlist-import'
 import '../playlist-mix.css'
 
-export function PlaylistMix({value,onChange,onPending}:{value?:Selection;onChange:(value?:Selection)=>void;onPending:(pending:boolean)=>void}) {
+export function PlaylistMix({value,onChange,onPending,ready=false}:{ready?:boolean;value?:Selection;onChange:(value?:Selection)=>void;onPending:(pending:boolean)=>void}) {
   const id=useId(),request=useRef<AbortController|null>(null)
   const [link,setLink]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const [progress,setProgress]=useState<PlaylistProgress|null>(null)
@@ -59,6 +59,7 @@ export function PlaylistMix({value,onChange,onPending}:{value?:Selection;onChang
     {value?.partial&&<p className="playlist-note">Spotify shared a limited playlist preview. Songs it hasn’t shared cannot be imported.</p>}
     {value?.unavailable ? <button type="button" className="playlist-cancel" onClick={()=>void showIssues()}>View {value.unavailable} unavailable {value.unavailable===1?'song':'songs'}</button>:null}
     {value&&!link&&<button type="button" className="playlist-refresh" onClick={()=>{cancel();setLink(`https://open.spotify.com/playlist/${value.spotifyId}`)}}>Refresh playlist</button>}
+    {ready && value && !link && <p className="playlist-ready" role="status">Playlist ready. Choose Apply mix to use it.</p>}
     {!value||link?<div className="playlist-input-row">
       <input aria-label="Spotify playlist link" type="url" value={link} disabled={busy} placeholder="https://open.spotify.com/playlist/…" autoComplete="off" spellCheck={false}
         aria-invalid={Boolean(error)} aria-describedby={error?`${id}-error`:undefined}

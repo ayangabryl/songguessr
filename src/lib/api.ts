@@ -189,10 +189,10 @@ export async function searchCatalogArtists(
   return request
 }
 
-export async function fetchAvailability(filters: CatalogFilters): Promise<AvailabilityCounts> {
+export async function fetchAvailability(filters: CatalogFilters, signal?: AbortSignal): Promise<AvailabilityCounts> {
   const query = filtersToSearchParams(filters).replace(/^&/, '')
   const suffix = query ? `?${query}` : ''
-  const response = await fetch(`/api/catalog/availability${suffix}`)
+  const response = await fetch(`/api/catalog/availability${suffix}`, {signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000)})
   return parseJson<AvailabilityCounts>(response)
 }
 

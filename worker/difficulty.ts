@@ -1,4 +1,4 @@
-import { normalizeName } from './opm-artists'
+import { normalizeName } from './opm-artists.ts'
 import type { Difficulty } from './types'
 
 /** Household OPM names used when Spotify popularity is unavailable. */
