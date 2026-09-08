@@ -208,7 +208,16 @@ export class SittingRoom extends DurableObject<Env> {
     }
   }
 
-  async webSocketClose(ws: WebSocket): Promise<void> {
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    // This Worker's compatibility date predates automatic close replies. Complete
+    // the handshake so leaving/reconnecting doesn't become an abnormal 1006 close.
+    const replyCode = code === 1005 || code === 1006 || code === 1015 ? 1000 : code
+    try { ws.close(replyCode, reason) } catch { /* Transport already gone. */ }
+    await this.ctx.blockConcurrencyWhile(()=>this.closePlayer(ws))
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    try { ws.close(1011, 'connection error') } catch { /* Transport already gone. */ }
     await this.ctx.blockConcurrencyWhile(()=>this.closePlayer(ws))
   }
 
