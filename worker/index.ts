@@ -501,8 +501,13 @@ app.get('/api/search', async (c) => {
     cacheUrl.search = new URLSearchParams({ q: query, offset: String(offset), v: '2' }).toString()
     const cacheKey = new Request(cacheUrl)
     const cached = await caches.default.match(cacheKey).catch(() => undefined)
-    if (cached) {
+    const expires = Number(cached?.headers.get('X-Search-Expires') ?? 0)
+    if (cached && expires > Date.now()) {
       const response = new Response(cached.body, cached)
+      // Zone browser-TTL defaults can rewrite cached headers. Bound freshness
+      // ourselves, even when an edge retains the object longer than requested.
+      response.headers.set('Cache-Control', `public, max-age=${Math.max(0, Math.floor((expires - Date.now()) / 1000))}`)
+      response.headers.delete('X-Search-Expires')
       response.headers.set('Server-Timing', 'search-cache;desc="hit"')
       return response
     }
@@ -518,7 +523,9 @@ app.get('/api/search', async (c) => {
     c.header('Cache-Control', 'public, max-age=60')
     c.header('Server-Timing', `search;dur=${(performance.now() - started).toFixed(1)}`)
     const response = c.json({ results, total: page.total, nextOffset: page.nextOffset })
-    c.executionCtx.waitUntil(caches.default.put(cacheKey, response.clone()).catch(() => {}))
+    const stored = response.clone()
+    stored.headers.set('X-Search-Expires', String(Date.now() + 60_000))
+    c.executionCtx.waitUntil(caches.default.put(cacheKey, stored).catch(() => {}))
     return response
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {
