@@ -1,0 +1,16 @@
+{
+  "project": "Mesh2Motion",
+  "revision": "2d3d1ff03247d9e7e830d1ae375653da4e2146e2",
+  "url": "https://github.com/Mesh2Motion/mesh2motion-app/tree/2d3d1ff03247d9e7e830d1ae375653da4e2146e2",
+  "license": "CC0-1.0",
+  "file": "static/animations/human-addon-animations.glb",
+  "sha256": "a0d64d555e0d492026b72d58bf8e16c5e86779295f9093e376dcc001915c2c95",
+  "selected_clips": {
+    "Groove": "Idle Listening",
+    "BodyRoll": "Dance Body Roll",
+    "Charleston": "Dance Charleston",
+    "HipSway": "Dance Reach Hip",
+    "VictoryPump": "Victory Fist Pump",
+    "FriendlyWave": "Greeting"
+  }
+}

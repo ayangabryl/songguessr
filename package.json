@@ -22,7 +22,7 @@
     "deploy": "npm run build && wrangler deploy",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:noot": "node --test src/lib/noot/model.test.ts"
+    "test:noot": "node --test src/lib/noot/model.test.ts src/lib/noot/asset.test.ts src/lib/noot/social-world.test.ts"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

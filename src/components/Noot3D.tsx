@@ -5,25 +5,25 @@ import { NootRig } from './NootRig'
 
 export function Noot3D(props: NootState) {
   const [appearance]=useNootPreferences()
-  props={...appearance,...props}
+  const resolvedProps={...appearance,...props}
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const state = useRef(props)
+  const state = useRef(resolvedProps)
   const scene = useRef<{ wake(): void; dispose(): void } | null>(null)
-  const [fallback, setFallback] = useState(false)
+  const [fallback, setFallback] = useState(true)
   useEffect(() => {
-    state.current = props
+    state.current = resolvedProps
     scene.current?.wake()
-  }, [props])
+  })
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     try {
       scene.current = mountNoot(canvas, () => state.current, (ready) => {
-        if (!ready) setFallback(true)
+        setFallback(!ready)
       })
     } catch (error) {
       console.warn('Noot 3D unavailable; using vector fallback.', error)
-      setFallback(true)
+      // The initial vector remains visible if WebGL creation fails.
     }
     return () => {
       scene.current?.dispose()

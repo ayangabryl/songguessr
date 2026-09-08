@@ -422,7 +422,7 @@ export class SittingRoom extends DurableObject<Env> {
       const track = picked.track
       const now=Date.now(), startsAt=now+3000
       const previous=continuing||carryScores?(match?.entries??[]):[]
-      match={id:continuing?match!.id:crypto.randomUUID(),roundId:crypto.randomUUID(),number:continuing?match!.number+1:1,phase:'playing',difficulty,filters,difficultyMode:mode,length,carryScores,startsAt,deadline:startsAt+ROUND_MS,
+      match={id:continuing?match!.id:crypto.randomUUID(),roundId:crypto.randomUUID(),number:continuing?match!.number+1:1,phase:'playing',difficulty,filters,difficultyMode:mode,length,carryScores,scoringVersion:continuing?match!.scoringVersion:2,startsAt,deadline:startsAt+ROUND_MS,
         entries:nextEntries(previous,active,continuing,carryScores),
         song:{id:track.id,title:track.title,artist:track.artist,albumArt:track.albumArt,audio:picked.audio.url,offset:picked.audio.offset},used:[...(continuing?match!.used:[]),track.id]}
       match=finishRound(match)

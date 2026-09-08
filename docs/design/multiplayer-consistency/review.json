@@ -1,0 +1,124 @@
+{
+  "errors": [],
+  "fonts": {
+    "brand": "\"Instrument Serif\", \"Iowan Old Style\", Palatino, Georgia, serif",
+    "numeral": "\"Instrument Serif\", \"Iowan Old Style\", Palatino, Georgia, serif",
+    "field": "\"Open Runde\", ui-rounded, \"SF Pro Rounded\", system-ui, sans-serif"
+  },
+  "geometry": [
+    {
+      "name": "desktop-playing",
+      "width": 1440,
+      "document": 1440,
+      "controls": [
+        {
+          "left": 108,
+          "right": 164,
+          "top": 765.59375,
+          "bottom": 821.59375
+        },
+        {
+          "left": 176,
+          "right": 885.0625,
+          "top": 765.59375,
+          "bottom": 823.59375
+        },
+        {
+          "left": 897.0625,
+          "right": 988,
+          "top": 765.59375,
+          "bottom": 823.59375
+        }
+      ]
+    },
+    {
+      "name": "mobile-long",
+      "width": 390,
+      "document": 390,
+      "controls": [
+        {
+          "left": 20,
+          "right": 164.46875,
+          "top": 551.203125,
+          "bottom": 599.203125
+        }
+      ]
+    },
+    {
+      "name": "mobile-playing",
+      "width": 390,
+      "document": 390,
+      "controls": [
+        {
+          "left": 20,
+          "right": 72,
+          "top": 772,
+          "bottom": 824
+        },
+        {
+          "left": 80,
+          "right": 302,
+          "top": 772,
+          "bottom": 826
+        },
+        {
+          "left": 310,
+          "right": 370,
+          "top": 772,
+          "bottom": 826
+        }
+      ]
+    },
+    {
+      "name": "mobile-result",
+      "width": 390,
+      "document": 390,
+      "controls": [
+        {
+          "left": 20,
+          "right": 164.46875,
+          "top": 486.265625,
+          "bottom": 534.265625
+        }
+      ]
+    },
+    {
+      "name": "320px-reflow",
+      "width": 320,
+      "document": 320,
+      "controls": [
+        {
+          "left": 20,
+          "right": 164.46875,
+          "top": 539.53125,
+          "bottom": 587.53125
+        }
+      ]
+    },
+    {
+      "name": "short-desktop",
+      "width": 1440,
+      "document": 1440,
+      "controls": [
+        {
+          "left": 108,
+          "right": 164,
+          "top": 722.59375,
+          "bottom": 778.59375
+        },
+        {
+          "left": 176,
+          "right": 885.0625,
+          "top": 722.59375,
+          "bottom": 780.59375
+        },
+        {
+          "left": 897.0625,
+          "right": 988,
+          "top": 722.59375,
+          "bottom": 780.59375
+        }
+      ]
+    }
+  ]
+}

@@ -869,7 +869,7 @@
   }
 }
 
-/* 3D renderer fills the reserved figure. SVG is only a WebGL failure fallback. */
+/* The SVG fills loading and failure states; only one character is visible. */
 .noot-canvas {
   position: absolute;
   inset: 0;
@@ -877,3 +877,5 @@
   height: 100%;
   display: block;
 }
+
+.noot-canvas[hidden] { display: none; }

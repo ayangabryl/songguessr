@@ -9,7 +9,8 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
   const [appearance, update] = useNootPreferences(),
     [name, setName] = useState(loadDisplayName),
     [error, setError] = useState(""),
-    [pet, setPet] = useState(0);
+    [pet, setPet] = useState(0),
+    [view, setView] = useState(0);
   const nameInput = useRef<HTMLInputElement>(null);
   const theme =
     document.documentElement.dataset.theme === "dark" ? "dark" : "light";
@@ -36,6 +37,8 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
         ["headphones", "Studio"],
         ["cat-earphones", "Kitten"],
         ["daisy", "Daisy"],
+        ["beanie", "Knit beanie"],
+        ["bucket", "Bucket hat"],
         ["none", "None"],
       ],
     },
@@ -47,6 +50,7 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
         ["scarf", "Soft scarf"],
         ["bow", "Bow tie"],
         ["bandana", "Bandana"],
+        ["shirt", "Everyday tee"],
       ],
     },
     {
@@ -97,18 +101,27 @@ export function NootProfile({ onClose, welcome = false }: { onClose: () => void;
         </p>
         <button
           className="profile-pet mascot"
-          aria-label="Pet your Noot"
+          aria-label="See an outfit gesture"
           onClick={() => setPet((p) => p + 1)}
         >
           <Noot3D
             {...appearance}
-            pose={pet ? "tap" : "idle"}
+            viewYaw={view}
+            pose={pet ? "outfit" : "idle"}
             eventId={pet}
             difficulty="easy"
             theme={theme}
           />
         </button>
-        <p className="profile-preview-caption">Tap Noot for a little hello</p>
+        <p className="profile-preview-caption">Tap for an outfit moment. Find your favorite angle.</p>
+        <div className="profile-angles" aria-label="Preview angle">
+          {[[0,'Front'],[.72,'Three-quarter'],[Math.PI,'Back']].map(([angle,label])=><button type="button" key={label} aria-pressed={view===angle} onClick={()=>setView(Number(angle))}>{label}</button>)}
+        </div>
+        <div className="profile-presets"><span>A look to start with</span>
+          <button type="button" onClick={()=>update({headgear:'headphones',clothing:'bandana',accessoryColor:'blue',pattern:'gingham',eyewear:'none'})}>Studio day</button>
+          <button type="button" onClick={()=>update({headgear:'beanie',clothing:'shirt',accessoryColor:'rose',pattern:'plain',eyewear:'round'})}>Cozy club</button>
+          <button type="button" onClick={()=>update({headgear:'bucket',clothing:'shirt',accessoryColor:'mint',pattern:'stripes',eyewear:'sunny'})}>Sunday stroll</button>
+        </div>
         {welcome && <button type="button" className="profile-later" onClick={onClose}>Play now, customize later</button>}
         </div>
         <form

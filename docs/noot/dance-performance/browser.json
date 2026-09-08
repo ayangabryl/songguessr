@@ -1,0 +1,6 @@
+{
+  "environment": "Codex in-app browser on development Mac, six Noots in Noot Studio; fixed authored tempo, no live multiplayer server",
+  "beforeCrowdDetail": {"characters":6,"frameMedianMs":13.9,"frameP95Ms":20.9,"cpuP95Ms":2.8,"drawCalls":298,"triangles":488364,"pixelRatio":1.5},
+  "afterCrowdDetail": {"characters":6,"frameMedianMs":6.9,"frameP95Ms":8.3,"cpuP95Ms":2.9,"drawCalls":202,"triangles":457644,"pixelRatio":1.25},
+  "limitations": "Short development-browser samples; scheduling varies with display and load. CPU includes command submission, not a GPU timer. This does not guarantee performance on older phones."
+}

@@ -190,3 +190,13 @@ test('seat labels stay the same on the stage and the board', () => {
   assert.equal(matchSeatLabel({ status: 'out', ready: true, lastAction: 'timeout', stage: 2 }, true), 'Ready')
   assert.equal(matchSeatLabel({ status: 'solved', ready: false, lastAction: 'solved', stage: 1 }, true), 'Named it')
 })
+
+test('new scoring offers 5,000 while active classic matches retain their original stakes',async()=>{
+ const {matchPoints,matchRank}=await import('./match.ts')
+ assert.deepEqual(matchPoints({scoringVersion:2}),[5000,4000,3000,2000,1000])
+ assert.deepEqual(matchPoints({}),[1000,800,600,400,200])
+ const entries=[{id:'a',points:17500},{id:'b',points:17500},{id:'c',points:11500}]
+ assert.deepEqual(matchRank(entries,'a'),{rank:1,tied:true})
+ assert.deepEqual(matchRank(entries,'b'),{rank:1,tied:true})
+ assert.deepEqual(matchRank(entries,'c'),{rank:3,tied:false})
+})

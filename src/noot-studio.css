@@ -88,3 +88,5 @@
  .has-comparison .studio-control-section + .studio-control-section {border-top:1px solid var(--studio-line);margin-top:23px;padding-top:23px;}
  .studio-reference figcaption,.studio-live-label {font-size:8px;}
 }
+
+.noot-studio .studio-intro h1 em {font-style:normal}

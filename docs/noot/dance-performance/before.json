@@ -1,0 +1,25 @@
+{
+  "assetBytes": 4850320,
+  "clips": 43,
+  "results": [
+    {
+      "characters": 1,
+      "creationMs": 20.41,
+      "medianCpuMs": 0.06,
+      "p95CpuMs": 0.131
+    },
+    {
+      "characters": 2,
+      "creationMs": 15.59,
+      "medianCpuMs": 0.1,
+      "p95CpuMs": 0.184
+    },
+    {
+      "characters": 6,
+      "creationMs": 40.76,
+      "medianCpuMs": 0.328,
+      "p95CpuMs": 0.561
+    }
+  ],
+  "note": "Node CPU timings on the development Mac; excludes browser rendering and GPU time."
+}

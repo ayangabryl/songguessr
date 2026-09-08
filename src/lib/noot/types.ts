@@ -3,6 +3,7 @@ import type { MascotPose } from "../mascot";
 
 export type NootAction =
   | MascotPose
+  | "groove" | "body-roll" | "charleston" | "hip-sway" | "victory-dance" | "friendly-wave"
   | "dance"
   | "happy-song"
   | "sad-song"
@@ -11,15 +12,17 @@ export type NootAction =
   | "sleepy"
   | "listen-close"
   | "shrug"
-  | "cheer";
-export type NootHeadgear = "headphones" | "cat-earphones" | "daisy" | "none";
+  | "cheer"
+  | "look-around" | "stretch" | "yawn" | "wave-small" | "high-five"
+  | "boop" | "laugh" | "angry" | "startled" | "tumble" | "sit" | "get-up" | "catch" | "samba" | "outfit" | "jump";
+export type NootHeadgear = "headphones" | "cat-earphones" | "daisy" | "beanie" | "bucket" | "none";
 export type NootMood = "chill" | "happy" | "sad" | "dance";
 export interface NootState {
   pose: NootAction;
   difficulty: Difficulty;
   variant?: string;
   headgear?: NootHeadgear;
-  clothing?: "none" | "scarf" | "bow" | "bandana";
+  clothing?: "none" | "scarf" | "bow" | "bandana" | "shirt";
   eyewear?: "none" | "round" | "sunny";
   pattern?: "plain" | "stripes" | "dots" | "gingham" | "confetti";
   accessoryColor?:
@@ -36,6 +39,13 @@ export interface NootState {
   onRuler?: boolean;
   /** Measured ruler translation, converted to model units per second. */
   travelSpeed?: number;
+  /** Shared-space director supplies world motion and intent when true. */
+  directed?: boolean;
+  /** Shared elapsed dance time, in seconds, for beat-aligned group playback. */
+  danceTime?: number;
+  interactionHand?: "L" | "R";
+  /** Attention target in the character's own face plane, normalized to -1..1. */
+  lookAt?: { x: number; y: number };
 }
 export const HEADGEAR: {
   id: NootHeadgear;
@@ -57,5 +67,7 @@ export const HEADGEAR: {
     label: "Daisy",
     description: "A little flower, just for Noot",
   },
+  { id: "beanie", label: "Beanie", description: "A soft ribbed knit cap" },
+  { id: "bucket", label: "Bucket", description: "A curved canvas sun hat" },
   { id: "none", label: "Just Noot", description: "No accessories" },
 ];

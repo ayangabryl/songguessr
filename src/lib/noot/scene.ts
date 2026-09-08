@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { createNoot } from "./model";
+import { createNootFromAsset, loadNootAsset } from "./asset";
 import type { NootState } from "./types";
 export type { NootState } from "./types";
 
@@ -22,9 +22,10 @@ export function mountNoot(
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1;
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 30);
-  camera.position.set(0, 2.31, 8.5);
-  camera.lookAt(0, 1.93, 0);
+  const camera = new THREE.OrthographicCamera(-2.05, 2.05, 2.05, -2.05, 0.1, 30);
+  let cameraAspect = 1;
+  camera.position.set(0, 1.9, 9);
+  camera.lookAt(0, 1.9, 0);
   const pmrem = new THREE.PMREMGenerator(renderer);
   const room = new RoomEnvironment();
   const environment = pmrem.fromScene(room, 0.04);
@@ -40,9 +41,8 @@ export function mountNoot(
   const rim = new THREE.DirectionalLight("#e9f3ff", 0.85);
   rim.position.set(3, 4, -3);
   scene.add(rim);
-  const noot = createNoot();
+  let noot: ReturnType<typeof createNootFromAsset> | undefined;
   const turntable = new THREE.Group();
-  turntable.add(noot.root);
   scene.add(turntable);
   const shadowCanvas = document.createElement("canvas");
   shadowCanvas.width = shadowCanvas.height = 128;
@@ -68,17 +68,14 @@ export function mountNoot(
   const floorOrigin = new THREE.Vector3(),
     floorUnit = new THREE.Vector3();
   let canvasWidth = 1;
-  function frameCamera(state: NootState) {
-    if (state.comparison) {
-      const distance =
-        (4.06 * Math.max(1, 1 / camera.aspect)) /
-        (2 * Math.tan(THREE.MathUtils.degToRad(16)));
-      camera.position.set(0, 1.91, distance);
-      camera.lookAt(0, 1.91, 0);
-    } else {
-      camera.position.set(0, 2.31, 8.5);
-      camera.lookAt(0, 1.93, 0);
-    }
+  function frameCamera() {
+    // A constant orthographic scale preserves source proportions throughout turns.
+    const halfHeight = 2.05 * Math.max(1, 1 / cameraAspect);
+    camera.left = -halfHeight * cameraAspect;
+    camera.right = halfHeight * cameraAspect;
+    camera.top = halfHeight;
+    camera.bottom = -halfHeight;
+    camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
   }
   const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -94,7 +91,7 @@ export function mountNoot(
     previousLeft: number | undefined;
   function render(timestamp: number) {
     frame = 0;
-    if (disposed || lost || !visible || document.hidden) return;
+    if (disposed || lost || !visible || document.hidden || !noot) return;
     const dt = Math.min((timestamp - previousTime) / 1000 || 1 / 60, 0.05);
     previousTime = timestamp;
     const state = readState();
@@ -105,7 +102,6 @@ export function mountNoot(
       signature = nextSignature;
       settleUntil = timestamp + 1800;
     }
-    frameCamera(state);
     let travelSpeed: number | undefined;
     if (state.onRuler && state.pose === "skip") {
       const rect = canvas.getBoundingClientRect();
@@ -159,10 +155,10 @@ export function mountNoot(
       lightBlend,
     );
     turntable.rotation.y = state.viewYaw ?? 0;
-    shadow.scale.setScalar(1 - noot.root.position.y * 0.3);
+    shadow.scale.setScalar(1 - noot.elevation * 0.3);
     shadow.position.x = noot.root.position.x;
     shadowMaterial.opacity =
-      (state.theme === "dark" ? 0.6 : 1) * (1 - noot.root.position.y * 0.7);
+      (state.theme === "dark" ? 0.6 : 1) * (1 - noot.elevation * 0.7);
     renderer.render(scene, camera);
     if (!ready) {
       ready = true;
@@ -184,7 +180,8 @@ export function mountNoot(
     previousLeft = undefined;
     canvasWidth = width;
     renderer.setSize(width, height, false);
-    camera.aspect = width / height;
+    cameraAspect = width / height;
+    frameCamera();
     camera.updateProjectionMatrix();
     wake();
   }
@@ -225,6 +222,7 @@ export function mountNoot(
   }
   function contextRestored() {
     lost = false;
+    if (noot) onReady(true);
     wake();
   }
   canvas.addEventListener("pointermove", move);
@@ -233,6 +231,19 @@ export function mountNoot(
   canvas.addEventListener("webglcontextrestored", contextRestored);
   document.addEventListener("visibilitychange", wake);
   media.addEventListener("change", wake);
+  loadNootAsset().then(asset => {
+    if (disposed) return;
+    noot = createNootFromAsset(asset);
+    turntable.add(noot.root);
+    // Unhide the canvas before ResizeObserver measures its first visible frame.
+    onReady(true);
+    resize();
+    wake();
+  }).catch(error => {
+    if (disposed) return;
+    console.warn('Noot Blender asset unavailable; using vector fallback.', error);
+    onReady(false);
+  });
   resize();
   return {
     wake,
@@ -247,7 +258,7 @@ export function mountNoot(
       canvas.removeEventListener("webglcontextrestored", contextRestored);
       document.removeEventListener("visibilitychange", wake);
       media.removeEventListener("change", wake);
-      noot.dispose();
+      noot?.dispose();
       environment.dispose();
       shadowTexture.dispose();
       shadowMaterial.dispose();

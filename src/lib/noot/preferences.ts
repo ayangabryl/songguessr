@@ -15,7 +15,6 @@ function parse(raw: string): Preferences {
   try { value = JSON.parse(raw) ?? {} } catch { /* First visit. */ }
   return {
     ...parseAppearance(value),
-    headgear: ['headphones','cat-earphones','daisy','none'].includes(value.headgear ?? '') ? value.headgear! : 'headphones',
     mood: ['chill','happy','sad','dance'].includes(value.mood ?? '') ? value.mood! : 'chill',
   }
 }

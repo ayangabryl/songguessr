@@ -3,7 +3,7 @@ import { HEAD_Y, frontSurface } from "./geometry.ts";
 import type { NootState } from "./types.ts";
 import { spring } from "./motion.ts";
 /** Accessories follow the head anchor; fabric has bounded secondary motion. */
-export function createWearables(head: THREE.Bone) {
+export function createWearables(head: THREE.Bone, surface = frontSurface) {
   const mount = new THREE.Group();
   mount.position.y = -HEAD_Y;
   head.add(mount);
@@ -11,39 +11,7 @@ export function createWearables(head: THREE.Bone) {
     color: "#698da4",
     roughness: 0.95,
   });
-  const patternUniform = { value: 0 };
-  fabric.onBeforeCompile = (shader) => {
-    shader.uniforms.nootPattern = patternUniform;
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        "#include <common>",
-        "#include <common>\nvarying vec3 fabricPosition;",
-      )
-      .replace(
-        "#include <begin_vertex>",
-        "#include <begin_vertex>\nfabricPosition = position;",
-      );
-    // Use the mesh-local position so motifs move with Noot, never swim in world space.
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <common>",
-      "#include <common>\nuniform float nootPattern; varying vec3 fabricPosition;",
-    );
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <color_fragment>",
-      `#include <color_fragment>
-      vec2 p=fabricPosition.xy*18.0;
-      vec2 cell=fract(p)-0.5;
-      float aa=max(fwidth(p.x),fwidth(p.y));
-      float motif=0.0;
-      if(nootPattern>0.5 && nootPattern<1.5) motif=1.0-smoothstep(.32-aa,.32+aa,abs(fract((p.x+p.y)*.5)-.5));
-      else if(nootPattern<2.5 && nootPattern>1.5) motif=1.0-smoothstep(.16-aa,.16+aa,length(cell));
-      else if(nootPattern<3.5 && nootPattern>2.5) motif=(step(.5,fract(p.x*.5))+step(.5,fract(p.y*.5)))*.5;
-      else if(nootPattern>3.5) {float h=fract(sin(dot(floor(p),vec2(127.1,311.7)))*43758.5453);motif=(1.0-smoothstep(.12-aa,.12+aa,length(cell)))*step(.35,h);}
-      diffuseColor.rgb=mix(diffuseColor.rgb,mix(diffuseColor.rgb,vec3(1.0),.65),motif*.65);
-    `,
-    );
-  };
-  fabric.customProgramCacheKey = () => "noot-fabric-pattern-v1";
+  const patternUniform = styleFabric(fabric);
   const frame = new THREE.MeshStandardMaterial({
     color: "#454b48",
     roughness: 0.6,
@@ -78,7 +46,7 @@ export function createWearables(head: THREE.Bone) {
   const collar = new THREE.CatmullRomCurve3(
     Array.from({ length: 33 }, (_, i) => {
       const x = -0.69 + (i / 32) * 1.38;
-      return new THREE.Vector3(x, 1.57, frontSurface(x, 1.57) + 0.025);
+      return new THREE.Vector3(x, 1.57, surface(x, 1.57) + 0.025);
     }),
   );
   scarf.add(
@@ -91,14 +59,14 @@ export function createWearables(head: THREE.Bone) {
     scarf,
     0.29,
     1.4,
-    frontSurface(0.29, 1.4) + 0.06,
+    surface(0.29, 1.4) + 0.06,
     0.09,
     0.22,
     0.035,
   );
-  oval(bow, -0.12, 1.57, frontSurface(-0.12, 1.57) + 0.06, 0.14, 0.09, 0.045);
-  oval(bow, 0.12, 1.57, frontSurface(0.12, 1.57) + 0.06, 0.14, 0.09, 0.045);
-  oval(bow, 0, 1.57, frontSurface(0, 1.57) + 0.09, 0.055, 0.065, 0.05);
+  oval(bow, -0.12, 1.57, surface(-0.12, 1.57) + 0.06, 0.14, 0.09, 0.045);
+  oval(bow, 0.12, 1.57, surface(0.12, 1.57) + 0.06, 0.14, 0.09, 0.045);
+  oval(bow, 0, 1.57, surface(0, 1.57) + 0.09, 0.055, 0.065, 0.05);
   for (const group of [glasses, sunny]) {
     for (const side of [-1, 1]) {
       const curve = new THREE.CatmullRomCurve3(
@@ -106,7 +74,7 @@ export function createWearables(head: THREE.Bone) {
           const a = (i / 64) * Math.PI * 2,
             x = side * 0.42 + Math.cos(a) * 0.25,
             y = 2.015 + Math.sin(a) * 0.29;
-          return new THREE.Vector3(x, y, frontSurface(x, y) + 0.065);
+          return new THREE.Vector3(x, y, surface(x, y) + 0.065);
         }),
       );
       group.add(
@@ -128,16 +96,16 @@ export function createWearables(head: THREE.Bone) {
         lens.position.set(
           side * 0.42,
           2.015,
-          frontSurface(side * 0.42, 2.015) + 0.06,
+          surface(side * 0.42, 2.015) + 0.06,
         );
         lens.scale.set(0.22, 0.25, 0.024);
         group.add(lens);
       }
     }
     const bridge = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(-0.17, 2.06, frontSurface(-0.17, 2.06) + 0.065),
-      new THREE.Vector3(0, 2.1, frontSurface(0, 2.1) + 0.065),
-      new THREE.Vector3(0.17, 2.06, frontSurface(0.17, 2.06) + 0.065),
+      new THREE.Vector3(-0.17, 2.06, surface(-0.17, 2.06) + 0.065),
+      new THREE.Vector3(0, 2.1, surface(0, 2.1) + 0.065),
+      new THREE.Vector3(0.17, 2.06, surface(0.17, 2.06) + 0.065),
     ]);
     group.add(
       new THREE.Mesh(
@@ -155,7 +123,7 @@ export function createWearables(head: THREE.Bone) {
       width = 0.43 * (1 - t) + 0.012;
     for (let col = 0; col <= 24; col++) {
       const x = ((col / 24) * 2 - 1) * width;
-      vertices.push(x, y, frontSurface(x, y) + 0.025);
+      vertices.push(x, y, surface(x, y) + 0.025);
     }
   }
   for (let row = 0; row < 16; row++)
@@ -195,10 +163,46 @@ export function createWearables(head: THREE.Bone) {
           navy: "#4e647c",
         }[state.accessoryColor ?? "blue"],
       );
-      tail.rotation.z = flutter.step(
-        reduced ? 0 : THREE.MathUtils.clamp(drive * 0.12, -0.13, 0.13),
-        dt,
+      tail.rotation.z = reduced ? flutter.reset(0) : flutter.step(
+        THREE.MathUtils.clamp(drive * 0.12, -0.13, 0.13), dt,
       );
     },
   };
+}
+
+export function styleFabric(fabric: THREE.MeshStandardMaterial) {
+  const patternUniform = { value: 0 };
+  fabric.onBeforeCompile = (shader) => {
+    shader.uniforms.nootPattern = patternUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 fabricPosition;",
+      )
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\nfabricPosition = position;",
+      );
+    // Use the mesh-local position so motifs move with Noot, never swim in world space.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <common>",
+      "#include <common>\nuniform float nootPattern; varying vec3 fabricPosition;",
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <color_fragment>",
+      `#include <color_fragment>
+      vec2 p=fabricPosition.xy*18.0;
+      vec2 cell=fract(p)-0.5;
+      float aa=max(fwidth(p.x),fwidth(p.y));
+      float motif=0.0;
+      if(nootPattern>0.5 && nootPattern<1.5) motif=1.0-smoothstep(.32-aa,.32+aa,abs(fract((p.x+p.y)*.5)-.5));
+      else if(nootPattern<2.5 && nootPattern>1.5) motif=1.0-smoothstep(.16-aa,.16+aa,length(cell));
+      else if(nootPattern<3.5 && nootPattern>2.5) motif=(step(.5,fract(p.x*.5))+step(.5,fract(p.y*.5)))*.5;
+      else if(nootPattern>3.5) {float h=fract(sin(dot(floor(p),vec2(127.1,311.7)))*43758.5453);motif=(1.0-smoothstep(.12-aa,.12+aa,length(cell)))*step(.35,h);}
+      diffuseColor.rgb=mix(diffuseColor.rgb,mix(diffuseColor.rgb,vec3(1.0),.65),motif*.65);
+    `,
+    );
+  };
+  fabric.customProgramCacheKey = () => "noot-fabric-pattern-v1";
+  return patternUniform;
 }

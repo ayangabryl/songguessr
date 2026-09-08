@@ -1,6 +1,6 @@
 export interface NootAppearance {
-  headgear: "headphones" | "cat-earphones" | "daisy" | "none";
-  clothing: "none" | "scarf" | "bow" | "bandana";
+  headgear: "headphones" | "cat-earphones" | "daisy" | "beanie" | "bucket" | "none";
+  clothing: "none" | "scarf" | "bow" | "bandana" | "shirt";
   eyewear: "none" | "round" | "sunny";
   pattern: "plain" | "stripes" | "dots" | "gingham" | "confetti";
   accessoryColor:
@@ -24,10 +24,10 @@ export function parseAppearance(value: unknown): NootAppearance {
     ),
     headgear: pick(
       "headgear",
-      ["headphones", "cat-earphones", "daisy", "none"],
+      ["headphones", "cat-earphones", "daisy", "beanie", "bucket", "none"],
       "headphones",
     ),
-    clothing: pick("clothing", ["none", "scarf", "bow", "bandana"], "none"),
+    clothing: pick("clothing", ["none", "scarf", "bow", "bandana", "shirt"], "none"),
     eyewear: pick("eyewear", ["none", "round", "sunny"], "none"),
     accessoryColor: pick(
       "accessoryColor",

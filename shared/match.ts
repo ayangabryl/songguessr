@@ -1,7 +1,8 @@
 import { parseMatchFilters, type MatchFilters } from './match-filters.ts'
 /** Authoritative match rules. Public views deliberately omit the song until reveal. */
 export const MATCH_STAGES = [0.1, 0.5, 2, 8, 15]
-export const MATCH_POINTS = [1000, 800, 600, 400, 200]
+export const MATCH_POINTS = [5000, 4000, 3000, 2000, 1000]
+const CLASSIC_POINTS = [1000, 800, 600, 400, 200]
 export const MATCH_LENGTH = 10
 export const ROUND_MS = 90000
 export const MATCH_SUGGESTION_LIMIT = 8
@@ -32,6 +33,7 @@ export interface MatchSong {
   offset: number
 }
 export interface MatchState {
+  scoringVersion?: 2
   id: string
   roundId: string
   number: number
@@ -46,6 +48,16 @@ export interface MatchState {
   entries: MatchEntry[]
   song: MatchSong
   used: string[]
+}
+/** Preserve the rules of a match already in progress across a deployment. */
+export function matchPoints(match?: Pick<MatchState, 'scoringVersion'>): readonly number[] {
+  return match && match.scoringVersion !== 2 ? CLASSIC_POINTS : MATCH_POINTS
+}
+export function matchRank(entries: Pick<MatchEntry, 'id' | 'points'>[], id: string) {
+  const player = entries.find(entry => entry.id === id)
+  if (!player) return { rank: 0, tied: false }
+  return { rank: 1 + entries.filter(entry => entry.points > player.points).length,
+    tied: entries.filter(entry => entry.points === player.points).length > 1 }
 }
 export type MatchView = Omit<MatchState, 'song' | 'used'> & {
   audio: string
@@ -194,8 +206,8 @@ export function advancePlayer(
               status: 'solved',
               solvedAt: now,
               lastAction: 'solved',
-              delta: MATCH_POINTS[stage],
-              points: p.points + MATCH_POINTS[stage],
+              delta: matchPoints(match)[stage],
+              points: p.points + matchPoints(match)[stage],
             }
           : {
               ...p,
@@ -293,4 +305,3 @@ export function matchSeatLabel(
     }
   }
 }
-
