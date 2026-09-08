@@ -1,11 +1,14 @@
+import { NootAvatar } from './NootAvatar'
+import type { NootAppearance } from '../../shared/noot-profile'
+import type { Difficulty } from '../lib/api'
 import { Ruler } from './Ruler'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Crown } from 'lucide-react'
 import { matchRank, matchSeatLabel, MATCH_STAGES, type MatchEntry } from '../../shared/match'
 import { ScoreNumber } from './ScoreNumber'
 
-export function MatchStandings({ entries, playerId, revealed, online, onChoose }: {
-  entries: MatchEntry[]; playerId: string; revealed: boolean; online: string[]; onChoose: (id: string) => void
+export function MatchStandings({ entries, playerId, revealed, online, onChoose, appearances, difficulty }: {
+  entries: MatchEntry[]; playerId: string; revealed: boolean; appearances: Record<string, NootAppearance | undefined>; difficulty: Difficulty; online: string[]; onChoose: (id: string) => void
 }) {
   const list = useRef<HTMLOListElement>(null)
   const positions = useRef(new Map<string, {x: number; y: number}>())
@@ -56,7 +59,7 @@ export function MatchStandings({ entries, playerId, revealed, online, onChoose }
       return <li key={entry.id} data-player-id={entry.id} data-you={entry.id === playerId} data-leader={rank === 1 && entry.points > 0}>
         <span className="race-place" aria-label={`${tied ? 'Tied ' : ''}rank ${rank}`}>{rank === 1 && !tied && entry.points > 0 ? <Crown size={19}/> : `${tied ? 'T' : ''}${rank}`}</span>
         <div className="race-player">
-          <button onClick={() => onChoose(entry.id)}>{entry.name}{entry.id === playerId && entry.name.toLowerCase() !== 'you' && <small>you</small>}</button>
+          <button onClick={() => onChoose(entry.id)} title={entry.name}><NootAvatar appearance={appearances[entry.id]} difficulty={difficulty}/><span className="race-player-name">{entry.name}</span>{entry.id === playerId && entry.name.toLowerCase() !== 'you' && <small>you</small>}</button>
           <div className="race-attempts"><Ruler size="signature" stages={MATCH_STAGES} stageIndex={entry.stage}
             marks={entry.attempts ?? []} status={entry.status === 'solved' ? 'won' : entry.status === 'out' ? 'lost' : 'playing'}
             solvedStage={entry.status === 'solved' ? MATCH_STAGES[entry.stage] : null}

@@ -1,3 +1,4 @@
+import { NootAvatar } from './NootAvatar';
 import { SittingHistory } from './SittingHistory'
 import { matchSittingHistory } from '../lib/match-history'
 import { useSongSearch } from '../hooks/useSongSearch'
@@ -376,7 +377,7 @@ export function MatchArena({
           {!match ? <>
             <div className="match-section-heading"><h2>Your listening party</h2><span>{onlineCount}/{MAX_SITTING_PLAYERS}</span></div>
             <ul className="match-guests">{players.map(p => <li key={p.id}>
-              <span className="match-avatar">{p.name.slice(0,1).toUpperCase()}</span><button className="friend-name" onClick={() => chooseNoot(p.id)}>{p.name}{p.id === playerId && p.name.toLowerCase() !== 'you' && <small>you</small>}</button><span>{p.id === hostId ? 'Host' : p.connected ? 'Ready' : 'Away'}</span>
+              <NootAvatar appearance={p.id === playerId ? appearance : p.appearance} difficulty={difficulty === 'mixed' ? 'easy' : difficulty}/><button className="friend-name" onClick={() => chooseNoot(p.id)}>{p.name}{p.id === playerId && p.name.toLowerCase() !== 'you' && <small>you</small>}</button><span>{p.id === hostId ? 'Host' : p.connected ? 'Ready' : 'Away'}</span>
             </li>)}</ul>
             {isHost ? <div className="match-options">
               <label className="match-difficulty">Difficulty<select value={difficulty} onChange={e => setDifficulty(e.target.value as MatchDifficulty | 'mixed')}>
@@ -443,7 +444,7 @@ export function MatchArena({
         </section>
         {match && sittingHistory.length > 0 && <SittingHistory entries={sittingHistory} total={sittingHistory.reduce((sum, entry) => sum + entry.points, 0)}/>}
         {match && <MatchScoreboard entries={entries} playerId={playerId} matchId={match.id} finished={Boolean(finished)} revealed={revealed}
-          online={party.map(p => p.id)} onChoose={chooseNoot}/>}
+          online={party.map(p => p.id)} onChoose={chooseNoot} appearances={Object.fromEntries(players.map(p => [p.id, p.id === playerId ? appearance : p.appearance]))} difficulty={match.difficulty}/>}
 
       </div>
     </main>

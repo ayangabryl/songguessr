@@ -1,3 +1,5 @@
+import type { NootAppearance } from '../../shared/noot-profile'
+import type { Difficulty } from '../lib/api'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Trophy } from 'lucide-react'
 import { matchRank, type MatchEntry } from '../../shared/match'
@@ -11,9 +13,9 @@ function initialVisibility() {
   return matchMedia('(min-width: 1001px)').matches
 }
 
-export function MatchScoreboard({ entries, playerId, matchId, finished, revealed, online, onChoose }: {
+export function MatchScoreboard({ entries, playerId, matchId, finished, revealed, online, onChoose, appearances, difficulty }: {
   entries: MatchEntry[]; playerId: string; matchId: string; finished: boolean; revealed: boolean
-  online: string[]; onChoose: (id: string) => void
+  appearances: Record<string, NootAppearance | undefined>; difficulty: Difficulty; online: string[]; onChoose: (id: string) => void
 }) {
   const [open, setOpen] = useState(initialVisibility), [notice, setNotice] = useState('')
   const contentId = useId()
@@ -61,7 +63,7 @@ export function MatchScoreboard({ entries, playerId, matchId, finished, revealed
       <div className="match-board-heading"><h2>{finished ? 'Final scores' : 'Standings'}</h2><span>{entries.length} players</span></div>
       {notice && <p className="match-rank-notice" aria-hidden="true" data-active="true">{notice}</p>}
       <div className="match-board-body">
-        {open && <MatchStandings entries={entries} playerId={playerId} revealed={revealed} online={online} onChoose={onChoose}/>}
+        {open && <MatchStandings entries={entries} playerId={playerId} revealed={revealed} online={online} onChoose={onChoose} appearances={appearances} difficulty={difficulty}/>}
       </div>
     </div>
   </aside>

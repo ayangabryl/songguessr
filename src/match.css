@@ -129,7 +129,6 @@
 .match-section-heading { display: flex; justify-content: space-between; align-items: baseline; }
 .match-guests { list-style: none; padding: 0 8px 0 0; margin: 20px 0 24px; max-height: 280px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; overscroll-behavior: contain; }
 .match-guests li { display: flex; align-items: center; gap: 12px; min-height: 56px; }
-.match-avatar { display: grid; place-items: center; flex: 0 0 32px; height: 32px; background: var(--surface-2); color: var(--text-2); border-radius: 50%; font-size: 12px; }
 .friend-name { padding: 8px 0; flex: 1; min-width: 0; border: 0; background: none; text-align: left; color: var(--text); font: 600 14px var(--font); overflow-wrap: anywhere; }
 .friend-name small { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--text-2); }
 .match-guests li > span:last-child { font-size: 12px; color: var(--text-2); }
