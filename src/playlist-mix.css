@@ -16,3 +16,11 @@
 .playlist-error { color:var(--text); font:400 12px/1.5 var(--font); margin:10px 0 0; }
 .playlist-cancel { border:0; padding:8px 0; background:transparent; color:var(--text-2); font:400 12px/1.5 var(--font); cursor:pointer; text-decoration:underline; }
 .playlist-input-row input:disabled { opacity:.7; }
+.playlist-refresh { display:block; border:0; padding:8px 0; margin-bottom:8px; color:var(--text-2); background:none; font:500 12px var(--font); text-decoration:underline; cursor:pointer; }
+.playlist-import-progress { margin-top:12px; }
+.playlist-import-progress progress { width:100%; height:5px; accent-color:var(--accent); }
+.playlist-issues { padding:0 8px 0 0; margin:12px 0; max-height:240px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--hairline-strong) transparent; list-style:none; }
+.playlist-issues li { padding:10px 0; }
+.playlist-issues strong,.playlist-issues span,.playlist-issues small { display:block; overflow-wrap:anywhere; font:400 12px/1.5 var(--font); }
+.playlist-issues strong { color:var(--text); font-weight:600; }
+.playlist-issues span,.playlist-issues small { color:var(--text-2); }

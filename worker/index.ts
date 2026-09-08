@@ -1,3 +1,4 @@
+import { beginPlaylistImport, preparePlaylistBatch, getPlaylistImport } from './playlist-prepare'
 import { importPlaylistMix, PlaylistMixError } from './playlist-mix'
 import { Hono } from 'hono'
 import { foldSearchText } from '../shared/search-text'
@@ -390,10 +391,24 @@ app.get('/api/catalog/regions', async (c) => {
 })
 
 app.post('/api/mix/playlist', async c => {
-  const body = await c.req.json<{url?:unknown}>().catch(() => ({} as {url?:unknown}))
-  if (typeof body.url !== 'string' || body.url.length > 1000) return c.json({message:'Paste a public Spotify playlist link.'},400)
-  try { return c.json({playlist:await importPlaylistMix(c.env,body.url)}) }
+  const body = await c.req.json<{url?:unknown;prepare?:boolean}>().catch(() => ({} as {url?:unknown;prepare?:boolean}))
+  if (typeof body?.url !== 'string' || body.url.length > 1000) return c.json({message:'Paste a public Spotify playlist link.'},400)
+  try {
+    if(body.prepare) return c.json(await beginPlaylistImport(c.env,body.url))
+    return c.json({playlist:await importPlaylistMix(c.env,body.url)})
+  }
   catch(error) { return c.json({message:error instanceof PlaylistMixError ? error.message : 'Could not load this playlist. Please try again.'},422) }
+})
+
+app.post('/api/mix/playlist/prepare/:id', async c => {
+  c.header('Cache-Control','no-store')
+  try {return c.json(await preparePlaylistBatch(c.env,c.req.param('id')))}
+  catch(error){return c.json({message:error instanceof PlaylistMixError ? error.message : 'Could not prepare this batch. Please retry.'},422)}
+})
+app.get('/api/mix/playlist/prepare/:id', async c => {
+  c.header('Cache-Control','no-store')
+  try {return c.json(await getPlaylistImport(c.env,c.req.param('id')))}
+  catch(error){return c.json({message:error instanceof PlaylistMixError ? error.message : 'Could not load the import report.'},422)}
 })
 
 app.get('/api/catalog/artists', async (c) => {
@@ -504,12 +519,14 @@ app.get('/api/random', async (c) => {
 app.get('/api/search', async (c) => {
   try {
     const query = foldSearchText((c.req.query('q') ?? '').slice(0, 200))
+    const playlistId=c.req.query('playlistId')
+    if(playlistId!==undefined&&!/^[a-f0-9]{64}$/.test(playlistId))return c.json({message:'Invalid playlist mix.'},400)
     const rawOffset = Number(c.req.query('offset') ?? 0)
     const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.floor(rawOffset)) : 0
     // Search metadata is public. Canonical keys share punctuation/case variants
     // while keeping each page separate; failed searches are never cached.
     const cacheUrl = new URL('/api/search', c.req.url)
-    cacheUrl.search = new URLSearchParams({ q: query, offset: String(offset), v: '2' }).toString()
+    cacheUrl.search = new URLSearchParams({ q: query, offset: String(offset), v: '3', ...(playlistId?{playlistId}:{}) }).toString()
     const cacheKey = new Request(cacheUrl)
     const cached = await caches.default.match(cacheKey).catch(() => undefined)
     const expires = Number(cached?.headers.get('X-Search-Expires') ?? 0)
@@ -523,7 +540,7 @@ app.get('/api/search', async (c) => {
       return response
     }
     const started = performance.now()
-    const page = await searchCatalogPage(c.env, query, offset)
+    const page = await searchCatalogPage(c.env, query, offset, 40, playlistId)
     const results = page.tracks.map((track) => ({
       id: track.id,
       title: track.title,

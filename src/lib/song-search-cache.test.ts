@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createSongSearchCache } from './song-search-cache.ts'
+import { createSongSearchCache, getSongSearchCache } from './song-search-cache.ts'
 const song = (id: string, title: string, artist = 'Taylor Swift') => ({ id, title, artist, albumArt: '' })
 const page = { results: [song('1', 'Love Story'), song('2', 'Love')], total: 70, nextOffset: 40 }
 
@@ -38,4 +38,14 @@ test('cache stays bounded and evicts least recently used pages', () => {
   assert.equal(cache.get('0'), page)
   for (let i = 0; i < 500; i++) cache.put(String(i), 0, {results:[song(String(i), i === 0 ? 'Forgotten original' : `Song ${i}`)], total:1, nextOffset:null})
   assert.equal(cache.preview('Forgotten original').results.length, 0)
+})
+
+test('playlist searches cannot reuse another playlist or global suggestions',()=>{
+  const global=getSongSearchCache(),first=getSongSearchCache('a'.repeat(64)),second=getSongSearchCache('b'.repeat(64))
+  global.put('love',0,page)
+  assert.equal(first.get('love'),null)
+  first.put('love',0,{results:[song('new','Love newly imported')],total:1,nextOffset:null})
+  assert.equal(first.preview('love').results[0].id,'new')
+  assert.equal(second.preview('love').results.length,0)
+  assert.equal(global.get('love'),page)
 })

@@ -1,4 +1,4 @@
-import { songSearchCache, songSearchKey } from './song-search-cache'
+import { getSongSearchCache, songSearchKey } from './song-search-cache'
 import {
   type CatalogFilters,
   type CatalogKind,
@@ -228,14 +228,15 @@ export interface SearchPage {
   nextOffset: number | null
 }
 
-export async function searchTracks(query: string, offset = 0, signal?: AbortSignal): Promise<SearchPage> {
+export async function searchTracks(query: string, offset = 0, signal?: AbortSignal, playlistId?:string): Promise<SearchPage> {
   signal?.throwIfAborted()
   const key = songSearchKey(query)
   if (!key) return { results: [], total: 0, nextOffset: null }
+  const songSearchCache=getSongSearchCache(playlistId)
   const cached = songSearchCache.get(key, offset)
   if (cached) return cached
   const timeout = AbortSignal.timeout(8000)
-  const response = await fetch(`/api/search?q=${encodeURIComponent(key)}&offset=${offset}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
+  const response = await fetch(`/api/search?q=${encodeURIComponent(key)}&offset=${offset}${playlistId?`&playlistId=${encodeURIComponent(playlistId)}`:""}`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
   const data = await parseJson<SearchPage>(response)
   const page = { results: data.results ?? [], total: data.total ?? data.results?.length ?? 0, nextOffset: data.nextOffset ?? null }
   if (!signal?.aborted) songSearchCache.put(key, offset, page)

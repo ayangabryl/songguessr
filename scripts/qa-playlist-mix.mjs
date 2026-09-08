@@ -5,10 +5,15 @@ import { execFileSync } from 'node:child_process'
 const base = process.env.QA_BASE ?? 'http://127.0.0.1:3000'
 assert(['localhost','127.0.0.1','[::1]'].includes(new URL(base).hostname),'Use a local test server')
 const spotifyId = process.env.QA_PLAYLIST ?? '37i9dQZEVXbNBz9cRCSFkY'
-const post = async(path,body) => fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(35_000)})
-const imported = await post('/api/mix/playlist',{url:`https://open.spotify.com/playlist/${spotifyId}`})
-const data = await imported.json()
+const post = async(path,body) => fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(65_000)})
+const imported = await post('/api/mix/playlist',{url:`https://open.spotify.com/playlist/${spotifyId}`,prepare:true})
+let data = await imported.json()
 assert(imported.ok,JSON.stringify(data))
+while(!data.complete){
+  const response=await post(`/api/mix/playlist/prepare/${data.jobId}`,{})
+  data=await response.json();assert(response.ok,JSON.stringify(data))
+}
+assert.equal(data.processed,data.total)
 const playlist = data.playlist
 // Compare against the imported snapshot, not a second Spotify response: public
 // chart embeds can return a different revision from another edge/location.
@@ -35,6 +40,9 @@ for (const query of [`playlistId=${'f'.repeat(64)}`,`playlistId=${playlist.id}&a
   assert(Object.values(availability.counts).every(n=>n===0))
 }
 assert.equal((await post('/api/mix/playlist',{url:'https://example.com/playlist/test'})).status,422)
+const search=await (await fetch(`${base}/api/search?q=a&playlistId=${playlist.id}`)).json()
+assert(search.results.length,'scoped search finds imported songs')
+assert(search.results.every(row=>members.has(row.id)),'search stays in the playlist')
 console.log('SOLO: 10 scoped picks across five difficulties; exclusion fallback and empty scopes passed')
 
 const {code} = await (await post('/api/sitting',{})).json()

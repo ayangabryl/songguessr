@@ -9,7 +9,9 @@ const a = 'a'.repeat(22), b = 'b'.repeat(22), c = 'c'.repeat(22)
 const embed = (ids:string[]) => `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({props:{pageProps:{state:{data:{entity:{name:'Test playlist',trackList:ids.map(id=>({uri:`spotify:track:${id}`}))}}}}}})}</script>`
 
 test('public preview deduplicates exact track IDs and is always marked partial', () => {
-  assert.deepEqual(readPlaylistEmbed(embed([a,a,b])),{name:'Test playlist',ids:[a,b],total:2,partial:true})
+  const {tracks,...source}=readPlaylistEmbed(embed([a,a,b]))
+  assert.deepEqual(source,{name:'Test playlist',ids:[a,b],total:2,partial:true})
+  assert.equal(tracks?.length,2)
   assert.throws(()=>readPlaylistEmbed('<html>Unavailable</html>'),/public/)
 })
 

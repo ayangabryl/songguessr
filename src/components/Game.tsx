@@ -272,7 +272,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   const [isLoadingClip, setIsLoadingClip] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTrack, setSelectedTrack] = useState<SearchResult | null>(null)
-  const songSearch = useSongSearch(searchQuery, !selectedTrack)
+  const [playlistMix, setPlaylistMix] = useState<PlaylistMix | undefined>(loadPlaylistMix)
+  const songSearch = useSongSearch(searchQuery, !selectedTrack, playlistMix?.id)
   const searchResults = songSearch.results
   const [searchOpen, setSearchOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
@@ -293,7 +294,6 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
   const [draftCollections, setDraftCollections] = useState<CatalogKind[]>([])
   const [draftArtists, setDraftArtists] = useState<string[]>([])
   const [exclusions, setExclusions] = useState<{excludedArtists:string[];excludedGenres:GenreFilter[]}>(() => {try{return JSON.parse(localStorage.getItem('songguessr-exclusions') ?? '{"excludedArtists":[],"excludedGenres":[]}')}catch{return {excludedArtists:[],excludedGenres:[]}}})
-  const [playlistMix, setPlaylistMix] = useState<PlaylistMix | undefined>(loadPlaylistMix)
   const [draftPlaylist, setDraftPlaylist] = useState<PlaylistMix | undefined>(playlistMix)
   const [draftPreviewReady, setDraftPreviewReady] = useState(false)
   const [draftPreviewError, setDraftPreviewError] = useState(false)

@@ -33,3 +33,12 @@ export function createSongSearchCache(now = Date.now) {
 }
 
 export const songSearchCache = createSongSearchCache()
+
+const playlistCaches=new Map<string,ReturnType<typeof createSongSearchCache>>()
+export function getSongSearchCache(playlistId?:string) {
+  if(!playlistId)return songSearchCache
+  let cache=playlistCaches.get(playlistId)
+  if(!cache){cache=createSongSearchCache();playlistCaches.set(playlistId,cache)}
+  if(playlistCaches.size>8)playlistCaches.delete(playlistCaches.keys().next().value!)
+  return cache
+}

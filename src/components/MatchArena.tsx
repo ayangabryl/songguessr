@@ -117,7 +117,7 @@ export function MatchArena({
     me?.status === "playing" &&
     countdown === 0 &&
     remaining > 0;
-  const songSearch = useSongSearch(query, canPlay);
+  const songSearch = useSongSearch(query, canPlay, match?.filters?.playlist?.id);
   const results = songSearch.results;
   revealedRef.current = revealed;
   const stop = () => { resumeAt.current = null; player.current?.stop(); };

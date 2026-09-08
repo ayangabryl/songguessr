@@ -1120,28 +1120,24 @@ export async function pickRandomTrack(
 
 // Cache normalized, deduplicated metadata per database, never per keystroke.
 // A short TTL bounds catalogue-edit visibility; failed reads are not cached.
-const songIndexes = new WeakMap<D1Database, { expires: number; pending: Promise<ReturnType<typeof createSongIndex>> }>()
-async function songIndex(env: Env) {
-  const db = requireDb(env)
-  const cached = songIndexes.get(db)
-  if (cached && cached.expires > Date.now()) return cached.pending
-  const entry = {
-    expires: Date.now() + 60_000,
-    pending: db.prepare(`SELECT id, title, artist, album_art, preview_url, difficulty,
-      popularity, play_count FROM tracks`).all<TrackRow>()
-      .then(result => createSongIndex((result.results ?? []).map(rowToTrack))),
-  }
-  songIndexes.set(db, entry)
-  try { return await entry.pending }
-  catch (error) {
-    if (songIndexes.get(db) === entry) songIndexes.delete(db)
-    throw error
-  }
+type CachedSongIndex = { expires:number; pending:Promise<ReturnType<typeof createSongIndex>> }
+const songIndexes = new WeakMap<D1Database, Map<string,CachedSongIndex>>()
+async function songIndex(env:Env,playlistId?:string) {
+  const db=requireDb(env), key=playlistId??''
+  let indexes=songIndexes.get(db)
+  if(!indexes){indexes=new Map();songIndexes.set(db,indexes)}
+  const cached=indexes.get(key)
+  if(cached&&cached.expires>Date.now())return cached.pending
+  const sql=`SELECT id,title,artist,album_art,preview_url,difficulty,popularity,play_count FROM tracks${playlistId?' WHERE id IN (SELECT value FROM json_each((SELECT track_ids FROM playlist_mixes WHERE id=?)))':''}`
+  const entry:CachedSongIndex={expires:Date.now()+60_000,pending:db.prepare(sql).bind(...(playlistId?[playlistId]:[])).all<TrackRow>().then(result=>createSongIndex((result.results??[]).map(rowToTrack)))}
+  indexes.delete(key);indexes.set(key,entry)
+  while(indexes.size>24)indexes.delete(indexes.keys().next().value!)
+  try{return await entry.pending}catch(error){if(indexes.get(key)===entry)indexes.delete(key);throw error}
 }
 
-export async function searchCatalogPage(env: Env, query: string, offset = 0, limit = 40) {
-  if (!foldSearchText(query)) return { tracks: [], total: 0, nextOffset: null }
-  return searchSongIndex(await songIndex(env), query, offset, limit)
+export async function searchCatalogPage(env:Env,query:string,offset=0,limit=40,playlistId?:string) {
+  if(!foldSearchText(query))return {tracks:[],total:0,nextOffset:null}
+  return searchSongIndex(await songIndex(env,playlistId),query,offset,limit)
 }
 
 export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {

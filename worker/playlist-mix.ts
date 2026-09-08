@@ -1,7 +1,8 @@
 import { spotifyPlaylistId, type PlaylistMix } from '../shared/playlist-mix.ts'
 import type { Env } from './types'
 
-export interface PlaylistSource { name: string; ids: string[]; total: number; partial: boolean }
+export interface PlaylistSourceTrack { id:string; title:string; artist:string; previewUrl?:string; albumArt?:string }
+export interface PlaylistSource { name: string; ids: string[]; tracks?:PlaylistSourceTrack[]; total: number; partial: boolean }
 export class PlaylistMixError extends Error {}
 const ID = /^[a-zA-Z0-9]{22}$/
 export function readPlaylistEmbed(html: string): PlaylistSource {
@@ -11,10 +12,11 @@ export function readPlaylistEmbed(html: string): PlaylistSource {
   try { entity = JSON.parse(json)?.props?.pageProps?.state?.data?.entity } catch { /* An unavailable embed has no usable playlist. */ }
   if (!Array.isArray(entity?.trackList)) throw new PlaylistMixError('Spotify could not show this playlist. Check that it is public and try again.')
   const ids: string[] = [...new Set<string>(entity.trackList.map((t: {uri?:string}) => t.uri?.match(/^spotify:track:([a-zA-Z0-9]{22})$/)?.[1]).filter(Boolean))]
-  return {name:String(entity.name || entity.title || 'Spotify playlist').slice(0,200), ids, total:ids.length, partial:true}
+  const tracks:PlaylistSourceTrack[] = ids.map(id=>{const item=entity.trackList.find((t:{uri?:string})=>t.uri===`spotify:track:${id}`);return {id,title:String(item.title??'').slice(0,300),artist:String(item.subtitle??'').slice(0,500),previewUrl:item.audioPreview?.url}})
+  return {name:String(entity.name || entity.title || 'Spotify playlist').slice(0,200), ids, tracks, total:ids.length, partial:true}
 }
 
-async function readSpotifyPlaylist(env: Env, id: string): Promise<PlaylistSource> {
+export async function readSpotifyPlaylist(env: Env, id: string): Promise<PlaylistSource> {
   // Only live Spotify sources: archived playlists cannot guarantee membership.
   if (env.SPOTIFY_CLIENT_ID && env.SPOTIFY_CLIENT_SECRET) {
     try {
@@ -31,15 +33,15 @@ async function readSpotifyPlaylist(env: Env, id: string): Promise<PlaylistSource
       }
       const meta = await get(`playlists/${id}?fields=name,public`)
       if (meta.public === false) throw new Error('Public playlist required')
-      const ids = new Set<string>(); let total = 0
+      const ids = new Set<string>(); const tracks:PlaylistSourceTrack[] = []; let total = 0
       for (let offset=0; offset<2000; offset+=50) {
         const page = await get(`playlists/${id}/items?limit=50&offset=${offset}`)
         if (!Array.isArray(page.items) || !Number.isSafeInteger(page.total)) throw new Error('Incomplete playlist')
         total = page.total
-        for (const entry of page.items) { const item = entry.item ?? entry.track; if (!entry.is_local && item?.type === 'track' && ID.test(item.id ?? '')) ids.add(item.id) }
-        if (!page.next) return {name:String(meta.name || 'Spotify playlist').slice(0,200),ids:[...ids],total,partial:false}
+        for (const entry of page.items) { const item = entry.item ?? entry.track; if (!entry.is_local && item?.type === 'track' && ID.test(item.id ?? '')) {if(!ids.has(item.id))tracks.push({id:item.id,title:String(item.name??'').slice(0,300),artist:(item.artists??[]).map((a:{name:string})=>a.name).join(', ').slice(0,500),previewUrl:item.preview_url,albumArt:item.album?.images?.[0]?.url});ids.add(item.id)} }
+        if (!page.next) return {name:String(meta.name || 'Spotify playlist').slice(0,200),ids:[...ids],tracks,total,partial:false}
       }
-      return {name:String(meta.name || 'Spotify playlist').slice(0,200),ids:[...ids],total:Math.min(total,20000),partial:true}
+      return {name:String(meta.name || 'Spotify playlist').slice(0,200),ids:[...ids],tracks,total:Math.min(total,20000),partial:true}
     } catch { /* A public embed can still expose a useful, explicitly partial mix. */ }
   }
   const response = await fetch(`https://open.spotify.com/embed/playlist/${id}`, {
