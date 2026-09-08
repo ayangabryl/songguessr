@@ -218,11 +218,17 @@ export async function fetchRandomRound(
   return { ...round, filters }
 }
 
-export async function searchTracks(query: string): Promise<SearchResult[]> {
-  if (!query.trim()) return []
-  const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
-  const data = await parseJson<{ results: SearchResult[] }>(response)
-  return (data.results ?? []).slice(0, 12)
+export interface SearchPage {
+  results: SearchResult[]
+  total: number
+  nextOffset: number | null
+}
+
+export async function searchTracks(query: string, offset = 0, signal?: AbortSignal): Promise<SearchPage> {
+  if (!query.trim()) return { results: [], total: 0, nextOffset: null }
+  const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&offset=${offset}`, { signal })
+  const data = await parseJson<SearchPage>(response)
+  return { results: data.results ?? [], total: data.total ?? data.results?.length ?? 0, nextOffset: data.nextOffset ?? null }
 }
 
 export async function submitGuess(

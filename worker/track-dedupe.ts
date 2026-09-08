@@ -1,13 +1,10 @@
 import type { Track } from './types'
 
 function normalizeText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9&\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return value.toLowerCase().normalize('NFC')
+    .replace(/\p{Script=Latin}/gu, char => char.normalize('NFD').replace(/\p{M}/gu, ''))
+    .replace(/&/g, ' and ').replace(/['`´‘’‚‛]/g, '')
+    .replace(/[^\p{L}\p{N}\p{M}\s]+/gu, ' ').replace(/\s+/g, ' ').trim()
 }
 
 /** Suffix text with punctuation flattened, so `From "THE FIRST TAKE"` matches. */
@@ -176,7 +173,7 @@ export function isSameSong(
   left: Pick<Track, 'title' | 'artist'>,
   right: Pick<Track, 'title' | 'artist'>,
 ): boolean {
-  return songIdentityKey(left) === songIdentityKey(right)
+  return Boolean(canonicalSongTitle(left.title) && primaryArtistName(left.artist) && songIdentityKey(left) === songIdentityKey(right))
 }
 
 export interface VariantCandidate {

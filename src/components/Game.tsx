@@ -1,3 +1,6 @@
+import { useSongSearch } from '../hooks/useSongSearch'
+import { SongSuggestions } from './SongSuggestions'
+import { scrollSongOption } from '../lib/song-search-scroll'
 import { SongIdentity } from './SongIdentity'
 import { buttonSoundsEnabled, setButtonSounds } from '../lib/ui-audio'
 import { MatchArena } from './MatchArena'
@@ -10,7 +13,6 @@ import {
   fetchCollections,
   fetchRegions,
   prefetchCatalogArtists,
-  searchTracks,
   submitGuess,
   type CatalogCollection,
   type CatalogRegion,
@@ -277,7 +279,8 @@ export function Game() {
   const [isLoadingClip, setIsLoadingClip] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTrack, setSelectedTrack] = useState<SearchResult | null>(null)
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const songSearch = useSongSearch(searchQuery, !selectedTrack)
+  const searchResults = songSearch.results
   const [searchOpen, setSearchOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
   const [audioError, setAudioError] = useState<string | null>(null)
@@ -742,33 +745,14 @@ export function Game() {
 
   useEffect(() => {
     if (selectedTrack || !searchQuery.trim()) {
-      setSearchResults([])
       setSearchOpen(false)
       setHighlightedIndex(-1)
-      return
-    }
-
-    let stale = false
-    const timeout = window.setTimeout(() => {
-      void searchTracks(searchQuery).then((results) => {
-        if (stale) return
-        const hits = results.slice(0, 5)
-        setSearchResults(hits)
-        setSearchOpen(true)
-        setHighlightedIndex(hits.length > 0 ? 0 : -1)
-      })
-    }, 180)
-
-    return () => {
-      stale = true
-      window.clearTimeout(timeout)
     }
   }, [searchQuery, selectedTrack])
 
   function clearSearchSelection() {
     setSelectedTrack(null)
     setSearchQuery('')
-    setSearchResults([])
     setSearchOpen(false)
     setHighlightedIndex(-1)
   }
@@ -781,10 +765,7 @@ export function Game() {
   }
 
   function scrollSuggestionIntoView(index: number) {
-    const container = suggestionsRef.current
-    if (!container || index < 0) return
-    const option = container.children[index] as HTMLElement | undefined
-    option?.scrollIntoView({ block: 'nearest' })
+    scrollSongOption(suggestionsRef.current, index)
   }
 
   function retryRound(level: Difficulty = difficulty) {
@@ -1445,6 +1426,7 @@ export function Game() {
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return
     if (event.key === 'Escape') {
       if (!searchOpen && !searchQuery) return
       event.preventDefault()
@@ -1453,25 +1435,22 @@ export function Game() {
       return
     }
 
-    if (!searchOpen || searchResults.length === 0) return
-
-    if (event.key === 'ArrowDown') {
+    if (!searchOpen && event.key === 'ArrowDown' && searchQuery.trim()) {
       event.preventDefault()
-      setHighlightedIndex((current) => {
-        const next = current < searchResults.length - 1 ? current + 1 : current
-        scrollSuggestionIntoView(next)
-        return next
-      })
+      setSearchOpen(true)
+      setHighlightedIndex(0)
       return
     }
+    if (!searchOpen || searchResults.length === 0) return
 
-    if (event.key === 'ArrowUp') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
-      setHighlightedIndex((current) => {
-        const next = current > 0 ? current - 1 : 0
-        scrollSuggestionIntoView(next)
-        return next
-      })
+      const next = event.key === 'ArrowDown'
+        ? Math.min(highlightedIndex + 1, searchResults.length - 1)
+        : Math.max(highlightedIndex - 1, 0)
+      setHighlightedIndex(next)
+      scrollSuggestionIntoView(next)
+      if (next === searchResults.length - 1) void songSearch.loadMore()
       return
     }
 
@@ -1877,11 +1856,12 @@ export function Game() {
                       onChange={(event) => {
                         setSelectedTrack(null)
                         setSearchQuery(event.target.value)
-                        setHighlightedIndex(-1)
+                        setSearchOpen(Boolean(event.target.value.trim()))
+                        setHighlightedIndex(0)
                       }}
                       onKeyDown={handleSearchKeyDown}
                       onFocus={() => {
-                        if (searchQuery.trim() && searchResults.length > 0 && !selectedTrack) {
+                        if (searchQuery.trim() && !selectedTrack) {
                           setSearchOpen(true)
                           setHighlightedIndex((current) => (current >= 0 ? current : 0))
                         }
@@ -1894,50 +1874,16 @@ export function Game() {
                       aria-autocomplete="list"
                       aria-activedescendant={
                         searchOpen && highlightedIndex >= 0 && searchResults[highlightedIndex]
-                          ? `guess-opt-${searchResults[highlightedIndex].id}`
+                          ? `guess-suggestions-${searchResults[highlightedIndex].id}`
                           : undefined
                       }
+                      maxLength={200}
                       autoComplete="off"
                       spellCheck={false}
                     />
                     {searchQuery && !selectedTrack && searchOpen && (
-                      <div
-                        className="suggestions"
-                        id="guess-suggestions"
-                        role="listbox"
-                        aria-label="Song suggestions"
-                        ref={suggestionsRef}
-                      >
-                        {searchResults.length === 0 ? (
-                          <p className="suggestions-empty" role="status">
-                            No songs match
-                          </p>
-                        ) : (
-                          searchResults.map((result, index) => (
-                            <button
-                              key={result.id}
-                              id={`guess-opt-${result.id}`}
-                              type="button"
-                              className={index === highlightedIndex ? 'highlighted' : ''}
-                              role="option"
-                              aria-selected={index === highlightedIndex}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onMouseMove={() => setHighlightedIndex(index)}
-                              onClick={() => selectTrackForGuess(result)}
-                            >
-                              {result.albumArt ? (
-                                <img className="artwork small" src={result.albumArt} alt="" width={30} height={30} decoding="async" />
-                              ) : (
-                                <span className="artwork small fallback">♫</span>
-                              )}
-                              <span>
-                                <strong>{result.title}</strong>
-                                <small>{result.artist}</small>
-                              </span>
-                            </button>
-                          ))
-                        )}
-                      </div>
+                      <SongSuggestions id="guess-suggestions" search={songSearch} highlight={highlightedIndex}
+                        onHighlight={setHighlightedIndex} onSelect={selectTrackForGuess} scrollRef={suggestionsRef} />
                     )}
                   </div>
                   {selectedTrack ? (

@@ -5,7 +5,6 @@ export const MATCH_POINTS = [5000, 4000, 3000, 2000, 1000]
 const CLASSIC_POINTS = [1000, 800, 600, 400, 200]
 export const MATCH_LENGTH = 10
 export const ROUND_MS = 90000
-export const MATCH_SUGGESTION_LIMIT = 8
 export type MatchDifficulty =
   | 'easy'
   | 'medium'

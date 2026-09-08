@@ -1,5 +1,5 @@
-import { artistWordDistance } from './search-match'
-import { foldSearchText, rankSearchHits, searchTerms, sqlFoldExpr } from '../shared/search-text'
+import { createSongIndex, searchSongIndex } from './song-search'
+import { foldSearchText, searchTerms, sqlFoldExpr } from '../shared/search-text'
 import {
   DEFAULT_CATALOG,
   DEFAULT_COUNTRY,
@@ -1113,60 +1113,34 @@ export async function pickRandomTrack(
   return null
 }
 
-export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {
-  const terms = searchTerms(query)
-  if (!terms.length) return []
-
+// Cache normalized, deduplicated metadata per database, never per keystroke.
+// A short TTL bounds catalogue-edit visibility; failed reads are not cached.
+const songIndexes = new WeakMap<D1Database, { expires: number; pending: Promise<ReturnType<typeof createSongIndex>> }>()
+async function songIndex(env: Env) {
   const db = requireDb(env)
-  const foldedTitle = sqlFoldExpr('title')
-  const foldedArtist = sqlFoldExpr('artist')
-  const conditions = terms
-    .map(() => `(${foldedTitle} LIKE ? ESCAPE '\\' OR ${foldedArtist} LIKE ? ESCAPE '\\')`)
-    .join(' AND ')
-  const params = terms.flatMap((term) => [likePattern(term), likePattern(term)])
-  const foldedQuery = foldSearchText(query)
-  const result = await db
-    .prepare(
-      `SELECT * FROM tracks WHERE ${conditions}
-     ORDER BY CASE WHEN ${foldedTitle} = ? THEN 0 WHEN ${foldedArtist} = ? THEN 1 ELSE 2 END, title
-     LIMIT ?`,
-    )
-    .bind(...params, foldedQuery, foldedQuery, Math.min(500, limit * 5))
-    .all<TrackRow>()
-  const matches = rankSearchHits(
-    query,
-    dedupeTracks((result.results ?? []).map(rowToTrack)),
-    (track) => track.title,
-    (track) => track.artist,
-  ).slice(0, limit)
-  if (matches.length || terms.length !== 1 || foldedQuery.length < 4) return matches
-  const artists = await db.prepare('SELECT DISTINCT artist FROM tracks LIMIT 5000').all<{ artist: string }>()
-  const ranked = (artists.results ?? [])
-    .map((row) => ({
-      ...row,
-      distance: Math.min(
-        ...row.artist
-          .toLowerCase()
-          .split(/[^\p{L}\p{N}]+/u)
-          .map((word) => artistWordDistance(foldedQuery, word)),
-      ),
-    }))
-    .filter((row) => Number.isFinite(row.distance))
-    .sort((a, b) => a.distance - b.distance)
-  const related = ranked.filter((row) => row.distance === ranked[0]?.distance).slice(0, 12)
-  if (!related.length) return []
-  const fallback = await db
-    .prepare(
-      `SELECT * FROM tracks WHERE artist IN (${related.map(() => '?').join(',')}) ORDER BY title LIMIT ?`,
-    )
-    .bind(...related.map((row) => row.artist), Math.min(500, limit * 5))
-    .all<TrackRow>()
-  return rankSearchHits(
-    query,
-    dedupeTracks((fallback.results ?? []).map(rowToTrack)),
-    (track) => track.title,
-    (track) => track.artist,
-  ).slice(0, limit)
+  const cached = songIndexes.get(db)
+  if (cached && cached.expires > Date.now()) return cached.pending
+  const entry = {
+    expires: Date.now() + 60_000,
+    pending: db.prepare(`SELECT id, title, artist, album_art, preview_url, difficulty,
+      popularity, play_count FROM tracks`).all<TrackRow>()
+      .then(result => createSongIndex((result.results ?? []).map(rowToTrack))),
+  }
+  songIndexes.set(db, entry)
+  try { return await entry.pending }
+  catch (error) {
+    if (songIndexes.get(db) === entry) songIndexes.delete(db)
+    throw error
+  }
+}
+
+export async function searchCatalogPage(env: Env, query: string, offset = 0, limit = 40) {
+  if (!foldSearchText(query)) return { tracks: [], total: 0, nextOffset: null }
+  return searchSongIndex(await songIndex(env), query, offset, limit)
+}
+
+export async function searchCatalog(env: Env, query: string, limit = 50): Promise<Track[]> {
+  return (await searchCatalogPage(env, query, 0, limit)).tracks
 }
 
 export interface CatalogArtistHit {

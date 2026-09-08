@@ -2,11 +2,11 @@
 export function foldSearchText(value: string): string {
   return value
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC')
+    .replace(/\p{Script=Latin}/gu, char => char.normalize('NFD').replace(/\p{M}/gu, ''))
     .replace(/&/g, ' and ')
     .replace(/[''`´‘’‚‛]/g, '')
-    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}\p{M}\s]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }

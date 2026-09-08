@@ -7,10 +7,9 @@ import {
   findTrackPoolPlacement,
   getAvailabilityCounts,
   pickRandomTrack,
-  searchCatalog,
   searchCatalogArtists,
 } from './catalog'
-import { getCatalogStats, listCatalogCountries } from './catalog-d1'
+import { getCatalogStats, listCatalogCountries, searchCatalogPage } from './catalog-d1'
 import { listCatalogs } from './catalogs-d1'
 import { isCatalogKind, isCountryCode } from '../shared/catalog-meta'
 import { countryDisplayName } from '../shared/iso-countries'
@@ -490,15 +489,16 @@ app.get('/api/random', async (c) => {
 
 app.get('/api/search', async (c) => {
   try {
-    const query = c.req.query('q') ?? ''
-    const results = (await searchCatalog(c.env, query, 50)).map((track) => ({
+    const query = (c.req.query('q') ?? '').slice(0, 200)
+    const page = await searchCatalogPage(c.env, query, Number(c.req.query('offset') ?? 0))
+    const results = page.tracks.map((track) => ({
       id: track.id,
       title: track.title,
       artist: track.artist,
       albumArt: track.albumArt,
     }))
 
-    return c.json({ results })
+    return c.json({ results, total: page.total, nextOffset: page.nextOffset })
   } catch (error) {
     if (error instanceof CatalogUnavailableError) {
       return catalogUnavailable(c, error)

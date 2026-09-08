@@ -1,3 +1,6 @@
+import { useSongSearch } from '../hooks/useSongSearch'
+import { SongSuggestions } from './SongSuggestions'
+import { scrollSongOption } from '../lib/song-search-scroll'
 import { SongIdentity } from './SongIdentity'
 import { HostMix } from './HostMix'
 import { activeFilterCount, type CatalogFilters } from '../lib/filters'
@@ -19,7 +22,6 @@ import {
 } from "lucide-react";
 import {
   MATCH_LENGTH,
-  MATCH_SUGGESTION_LIMIT,
   matchPoints,
   matchRank,
   MATCH_STAGES,
@@ -31,7 +33,6 @@ import { ScoreNumber } from "./ScoreNumber";
 import { MatchStandings } from "./MatchStandings";
 import { NootParty } from "./NootParty";
 import type { NootParticipant } from "../lib/noot/social-world";
-import { searchTracks, type SearchResult } from "../lib/api";
 import "../match.css";
 import { loadVolume } from "../lib/game-state";
 
@@ -63,10 +64,9 @@ export function MatchArena({
   const [carryScores, setCarryScores] = useState(false);
 
   const [now, setNow] = useState(() => Date.now());
-  const [query, setQuery] = useState(""),
-    [results, setResults] = useState<SearchResult[]>([]);
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const [searchSettled, setSearchSettled] = useState(false);
   const [heardClip, setHeardClip] = useState(false);
   const [hearReveal, setHearReveal] = useState(false);
   const [playing, setPlaying] = useState(false),
@@ -78,7 +78,7 @@ export function MatchArena({
     stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioUnlocked = useRef(false);
   const autoClipRound = useRef<string | null>(null);
-  const suggestionsRef = useRef<HTMLUListElement | null>(null);
+  const suggestionsRef = useRef<HTMLDivElement | null>(null);
   const me = match?.entries.find((p) => p.id === playerId);
   const stage = me?.stage ?? 0;
   const isHost = hostId === playerId,
@@ -97,6 +97,8 @@ export function MatchArena({
     me?.status === "playing" &&
     countdown === 0 &&
     remaining > 0;
+  const songSearch = useSongSearch(query, canPlay);
+  const results = songSearch.results;
   const stop = () => {
     playbackToken.current++;
     audio.current?.pause();
@@ -110,7 +112,6 @@ export function MatchArena({
   useEffect(() => {
     setPending(false);
     setQuery("");
-    setResults([]);
     setHighlight(0);
     if (match?.phase === "playing") stop();
   }, [match?.roundId, stage, me?.status]);
@@ -193,34 +194,6 @@ export function MatchArena({
     autoClipRound.current = match.roundId;
     void startPlayback();
   }, [canPlay, match?.roundId]);
-  useEffect(() => {
-    if (!query.trim() || !canPlay) {
-      setResults([]);
-      setSearchSettled(false);
-      return;
-    }
-    let cancelled = false;
-    setSearchSettled(false);
-    const timer = setTimeout(() => {
-      searchTracks(query)
-        .then((items) => {
-          if (cancelled) return;
-          const hits = items.slice(0, MATCH_SUGGESTION_LIMIT);
-          setResults(hits);
-          setHighlight(0);
-          setSearchSettled(true);
-        })
-        .catch(() => {
-          if (cancelled) return
-          setResults([])
-          setSearchSettled(true)
-        });
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query, canPlay]);
   function play() {
     if (playing) stop();
     else void startPlayback();
@@ -671,9 +644,12 @@ export function MatchArena({
                       </button>
                       <form
                         className="match-guess"
+                        onBlur={event => {
+                          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSearchOpen(false);
+                        }}
                         onSubmit={(e) => {
                           e.preventDefault();
-                          const pick = results[highlight];
+                          const pick = searchOpen ? results[highlight] : undefined;
                           if (pick) guess(`${pick.title} - ${pick.artist}`, pick.id);
                           else guess(query);
                         }}
@@ -683,38 +659,36 @@ export function MatchArena({
                           placeholder="Name the track"
                           maxLength={200}
                           value={query}
+                          onFocus={() => setSearchOpen(Boolean(query.trim()))}
                           onChange={(e) => {
                             setQuery(e.target.value);
-                            setResults([]);
-                            setSearchSettled(false);
+                            setSearchOpen(Boolean(e.target.value.trim()));
                             setHighlight(0);
                           }}
                           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                            if (event.nativeEvent.isComposing) return;
                             if (event.key === "Escape") {
-                              setResults([]);
+                              event.preventDefault();
+                              setSearchOpen(false);
                               return;
                             }
-                            if (results.length === 0) return;
-                            if (event.key === "ArrowDown") {
-                              event.preventDefault();
-                              setHighlight((current) =>
-                                Math.min(current + 1, results.length - 1),
-                              );
-                              return;
-                            }
-                            if (event.key === "ArrowUp") {
-                              event.preventDefault();
-                              setHighlight((current) => Math.max(current - 1, 0));
-                            }
+                            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                            event.preventDefault();
+                            if (!searchOpen) { setSearchOpen(true); setHighlight(0); return; }
+                            const next = event.key === "ArrowDown" ? Math.min(highlight + 1, results.length - 1) : Math.max(highlight - 1, 0);
+                            setHighlight(next);
+                            scrollSongOption(suggestionsRef.current, next);
+                            if (next === results.length - 1) void songSearch.loadMore();
                           }}
                           autoComplete="off"
                           spellCheck={false}
                           role="combobox"
-                          aria-expanded={results.length > 0}
+                          aria-expanded={searchOpen && Boolean(query.trim())}
+                          aria-autocomplete="list"
                           aria-controls="match-suggestions"
                           aria-activedescendant={
-                            results[highlight]
-                              ? `match-opt-${results[highlight].id}`
+                            searchOpen && results[highlight]
+                              ? `match-suggestions-${results[highlight].id}`
                               : undefined
                           }
                           disabled={pending}
@@ -725,42 +699,9 @@ export function MatchArena({
                         >
                           <ArrowRight size={20} />
                         </button>
-                        {query.trim() && results.length > 0 && (
-                          <ul
-                            className="match-suggestions"
-                            id="match-suggestions"
-                            role="listbox"
-                            aria-label="Song suggestions"
-                            ref={suggestionsRef}
-                          >
-                            {results.map((r, index) => (
-                              <li key={r.id}>
-                                <button
-                                  type="button"
-                                  id={`match-opt-${r.id}`}
-                                  role="option"
-                                  aria-selected={index === highlight}
-                                  className={index === highlight ? "is-active" : undefined}
-                                  onMouseEnter={() => setHighlight(index)}
-                                  onClick={() =>
-                                    guess(`${r.title} - ${r.artist}`, r.id)
-                                  }
-                                >
-                                  <span className="match-option-cover" aria-hidden="true">
-                                    {r.albumArt ? <img src={r.albumArt} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = "none"; }} /> : <Headphones size={20} />}
-                                  </span>
-                                  <span className="match-option-copy"><strong>{r.title}</strong>
-                                  <small>{r.artist}</small></span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {query.trim() && searchSettled && results.length === 0 && (
-                          <p className="match-suggestions match-suggestions-empty" role="status">
-                            No titles match yet. Try a few letters, or skip for a longer clip.
-                          </p>
-                        )}
+                        {query.trim() && searchOpen && <SongSuggestions id="match-suggestions" search={songSearch}
+                          highlight={highlight} onHighlight={setHighlight} scrollRef={suggestionsRef}
+                          onSelect={result => { setSearchOpen(false); guess(`${result.title} - ${result.artist}`, result.id); }} />}
                       </form>
                       <button
                         className="match-skip"

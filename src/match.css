@@ -88,16 +88,6 @@
 .match-feedback, .match-wait, .match-outcome, .match-waiting { color: var(--text-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .match-feedback { min-height: 21px; margin: 12px 0 0; }
 .match-wait { margin: 20px 0; }
-.match-suggestions { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 10; max-height: min(320px,42vh); overflow-y: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 6px; border: 1px solid var(--hairline-strong); border-radius: var(--r-4); background: var(--surface); box-shadow: var(--shadow-pop); }
-.match-suggestions button { display: flex; width: 100%; align-items: center; gap: 12px; padding: 10px; min-height: 64px; border: 0; border-radius: var(--r-3); background: none; text-align: left; }
-.match-suggestions button:is(:hover,.is-active) { background: var(--surface-2); }
-.match-option-cover { flex: 0 0 40px; width: 40px; height: 40px; border-radius: var(--r-2); overflow: hidden; display: grid; place-items: center; background: var(--surface-2); }
-.match-option-cover img { width: 100%; height: 100%; object-fit: cover; }
-.match-option-copy { min-width: 0; }
-.match-option-copy strong, .match-option-copy small { display: block; overflow-wrap: anywhere; }
-.match-option-copy strong { font-size: 14px; font-weight: 600; }
-.match-option-copy small { margin-top: 3px; font-size: 12px; color: var(--text-2); }
-.match-suggestions-empty { padding: 16px; color: var(--text-2); font-size: 13px; }
 
 /* Standings are useful context, not a second hero. */
 .match-board { min-width: 0; padding: 0 0 0 24px; border-left: 1px solid var(--hairline); }
