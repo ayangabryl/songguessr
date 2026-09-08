@@ -1,3 +1,5 @@
+import { SittingHistory } from './SittingHistory'
+import { matchSittingHistory } from '../lib/match-history'
 import { useSongSearch } from '../hooks/useSongSearch'
 import { SongSuggestions } from './SongSuggestions'
 import { scrollSongOption } from '../lib/song-search-scroll'
@@ -301,6 +303,7 @@ export function MatchArena({
     if (id === playerId) window.dispatchEvent(new Event('open-noot-profile'));
     else { table.greet(id); }
   };
+  const sittingHistory = match ? matchSittingHistory(match, playerId) : [];
   const companion = <NootParty participants={partyParticipants} theme={theme} onChoose={chooseNoot}
     labelAction={id => id === playerId ? 'Your outfit' : `Wave to ${party.find(p => p.id === id)?.name ?? 'your friend'}`}/>;
   const onlineCount = players.filter((p) => p.connected).length;
@@ -387,7 +390,7 @@ export function MatchArena({
               : <button className="match-primary" disabled={pending || !connected} onClick={() => { setPending(true); sendMatch({type:'match-start',difficulty,length,carryScores,filters}); }}>{pending ? 'Finding your first song…' : 'Start the match'}<ArrowRight size={18}/></button>
               : <p className="match-wait" role="status">Waiting for the host to start…</p>}
           </> : <>
-            {me && <Ruler stages={MATCH_STAGES} stageIndex={stage} marks={marks} status={revealed || me?.status === 'out' ? me?.status === 'solved' ? 'won' : 'lost' : me?.status === 'solved' ? 'won' : 'playing'}
+            {me && <Ruler stages={MATCH_STAGES} stageIndex={stage} marks={me.attempts ?? marks} status={revealed || me?.status === 'out' ? me?.status === 'solved' ? 'won' : 'lost' : me?.status === 'solved' ? 'won' : 'playing'}
               solvedStage={me.status === 'solved' ? MATCH_STAGES[stage] : null} playheadRef={playhead} isPlaying={playing}
               description={me.lastAction === 'timeout' ? `Time ran out with ${MATCH_STAGES[stage]} seconds unlocked, on try ${stage + 1}.`
                 : me.status === 'solved' ? `Named at ${MATCH_STAGES[stage]} seconds after ${stage + 1} ${stage === 0 ? 'try' : 'tries'}.` : undefined}/>}
@@ -435,6 +438,7 @@ export function MatchArena({
             </div>}
           </>}
         </section>
+        {match && sittingHistory.length > 0 && <SittingHistory entries={sittingHistory} total={sittingHistory.reduce((sum, entry) => sum + entry.points, 0)}/>}
         {match && <MatchScoreboard entries={entries} playerId={playerId} matchId={match.id} finished={Boolean(finished)} revealed={revealed}
           online={party.map(p => p.id)} onChoose={chooseNoot}/>}
 

@@ -1,3 +1,4 @@
+import { SittingHistory, type SessionEntry } from './SittingHistory'
 import { useSongSearch } from '../hooks/useSongSearch'
 import { SongSuggestions } from './SongSuggestions'
 import { scrollSongOption } from '../lib/song-search-scroll'
@@ -85,7 +86,7 @@ import { useSpotify } from '../hooks/useSpotify'
 import { progressAtElapsedSeconds } from '../lib/stage-progress'
 import { loadRecentExcludes, rememberTrack, clearRecentTrackIds } from '../lib/recent-tracks'
 import { incrementStreak, loadStreak, resetStreak } from '../lib/streak'
-import { formatScoreValue, roundPoints } from '../lib/score'
+import { roundPoints } from '../lib/score'
 import {
   applyResolvedTheme,
   loadThemePreference,
@@ -170,19 +171,6 @@ export interface RoundMark {
   stage: number
   kind: 'miss' | 'skip'
   label?: string
-}
-
-/** One finished round in this sitting; the ruler is reused as its signature. */
-interface SessionEntry {
-  id: string
-  title: string
-  artist: string
-  albumArt?: string
-  status: 'won' | 'lost'
-  solvedStage: number | null
-  points: number
-  stages: number[]
-  marks: RoundMark[]
 }
 
 interface RoundState {
@@ -2001,43 +1989,8 @@ export function Game({ profileOpen = false }: { profileOpen?: boolean }) {
           </div>
         </main>
 
-          <section
-            className={`session${session.length === 0 ? ' is-empty' : ''}`}
-            aria-label={session.length > 0 ? 'This sitting' : undefined}
-            aria-hidden={session.length === 0}
-          >
-            {session.length > 0 ? (
-              <>
-                <h2 className="session-title">
-                  This sitting
-                  <span className="session-total" aria-hidden="true">
-                    {sittingTotal}
-                  </span>
-                </h2>
-                <ul className="session-list">
-                  {session.map((entry) => (
-                    <li key={entry.id} className={`session-row ${entry.status}`}>
-                      <Ruler
-                        size="signature"
-                        stages={entry.stages}
-                        stageIndex={entry.stages.length}
-                        marks={entry.marks}
-                        status={entry.status}
-                        solvedStage={entry.solvedStage}
-                      />
-                      <span className="session-time">
-                        {formatScoreValue(entry.points)}
-                      </span>
-                      <span className="session-track">
-                        <strong>{entry.title}</strong>
-                        <small>{entry.artist}</small>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-          </section>
+          <SittingHistory entries={session} total={sittingTotal}/>
+
       </div>
 
       <SittingSheet

@@ -187,3 +187,9 @@
 .match-preview-controls button { background: #ffffff16; color: inherit; border: 1px solid #ffffff21; padding: 5px 9px; border-radius: 6px; font: inherit; }
 .match-preview-controls button[aria-pressed='true'] { background: #d6ee9b; color: #253322; }
 .match-preview-controls select { font: inherit; color: inherit; background: #343a34; border: 1px solid #ffffff21; border-radius: 6px; padding: 5px; }
+/* Keep the shared sitting ledger beneath the listening stage, beside the score rail. */
+.match-experience > .session { grid-column: 1; min-width: 0; min-height: 0; padding: 40px 0 0; }
+.match-experience > .session .session-list { grid-template-columns: minmax(0, 1fr); }
+.match-experience > .session .session-track { flex-wrap: wrap; }
+.match-experience > .session .session-track :is(strong,small) { white-space: normal; overflow-wrap: anywhere; }
+@media (min-width: 1001px) { .match-experience > .session { grid-row: 4; } .match-experience > .match-board { grid-row: 1 / 5; } }

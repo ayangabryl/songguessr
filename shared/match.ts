@@ -22,6 +22,13 @@ export interface MatchEntry {
   solvedAt?: number
   ready?: boolean
   history: number[]
+  attempts?: { stage: number; kind: 'skip' | 'miss' }[]
+}
+export interface MatchRoundSummary {
+  roundId: string
+  number: number
+  answer: { id: string; title: string; artist: string }
+  results: Pick<MatchEntry, 'id' | 'stage' | 'status' | 'lastAction' | 'delta' | 'attempts'>[]
 }
 export interface MatchSong {
   id: string
@@ -32,6 +39,7 @@ export interface MatchSong {
   offset: number
 }
 export interface MatchState {
+  completedRounds?: MatchRoundSummary[]
   scoringVersion?: 2
   id: string
   roundId: string
@@ -135,6 +143,7 @@ export function publicMatch(match: MatchState): MatchView {
   const { song, used: _used, ...rest } = match
   return {
     ...rest,
+    completedRounds: completedMatchRounds(match),
     audio: song.audio,
     offset: song.offset,
     answer:
@@ -148,13 +157,26 @@ export function publicMatch(match: MatchState): MatchView {
           },
   }
 }
+/** Only revealed songs can enter the sitting history; older live matches remain compatible. */
+export function completedMatchRounds(match: MatchState): MatchRoundSummary[] {
+  const rounds = match.completedRounds ?? []
+  if (match.phase === 'playing' || rounds.some(r => r.roundId === match.roundId)) return rounds
+  return [...rounds, {
+    roundId: match.roundId, number: match.number,
+    answer: {id: match.song.id, title: match.song.title, artist: match.song.artist},
+    results: match.entries.map(({id, stage, status, lastAction, delta, attempts}) => ({
+      id, stage, status, lastAction, delta,
+      ...(attempts ? {attempts: attempts.map(mark => ({...mark}))} : {}),
+    })),
+  }].slice(-20)
+}
 export function finishRound(match: MatchState): MatchState {
   if (
     match.phase !== 'playing' ||
     match.entries.some((p) => p.status === 'playing')
   )
     return match
-  return {
+  const finished: MatchState = {
     ...match,
     phase:
       match.number === (match.length ?? MATCH_LENGTH) ? 'finished' : 'reveal',
@@ -163,6 +185,7 @@ export function finishRound(match: MatchState): MatchState {
       history: [...p.history, p.delta],
     })),
   }
+  return {...finished, completedRounds: completedMatchRounds(finished)}
 }
 export function expireRound(match: MatchState, now: number): MatchState {
   if (match.phase !== 'playing' || now < match.deadline) return match
@@ -213,6 +236,7 @@ export function advancePlayer(
               stage: Math.min(stage + 1, MATCH_STAGES.length - 1),
               status: stage === MATCH_STAGES.length - 1 ? 'out' : 'playing',
               lastAction: skip ? 'skip' : 'miss',
+              attempts: [...(p.attempts ?? []), {stage: MATCH_STAGES[stage], kind: skip ? 'skip' : 'miss'}],
             },
     ),
   })
@@ -265,6 +289,7 @@ export function nextEntries(
     lastAction: 'ready',
     delta: 0,
     ready: false,
+    attempts: [],
     history: continuing
       ? [...(previous.find((e) => e.id === p.id)?.history ?? [])]
       : [],
